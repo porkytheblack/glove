@@ -53,22 +53,23 @@ export default function OpenAIDotsRebuildPage() {
         <tbody>
           <tr><td>A dot you name</td><td>An instance of one <code>dot</code> definition; its name, responsibilities, rules and routing are its data</td><td><code>lib/dot.ts</code></td></tr>
           <tr><td>Ongoing responsibilities</td><td>A list on the instance; research reads every one&apos;s sources</td><td><code>lib/dot.ts</code></td></tr>
-          <tr><td>Proactive research, read-only</td><td>A <code>research</code> schedule every 2 hours. On runs the person didn&apos;t start, the <code>tools</code> resolver returns only read tools, and the mesh and computer aren&apos;t mounted</td><td><code>agents/dot/</code></td></tr>
+          <tr><td>Proactive research, read-only</td><td>A <code>research</code> schedule every 2 hours. On runs the person didn&apos;t start (research, new mail, spawned work), the <code>tools</code> resolver returns only read tools, the Gmail app mounts only its reads, and the mesh and computer aren&apos;t mounted</td><td><code>agents/dot/</code></td></tr>
+          <tr><td>Works in your apps</td><td>A Gmail app installed with the mailbox the dot works from: Google&apos;s MCP server for reads (in code), the Gmail transmission for sending, a connection for new mail</td><td><code>agents/dot/apps/gmail.app.ts</code></td></tr>
           <tr><td>Notes to itself</td><td><code>keep_note</code> and <code>read_notes</code>, one file per dot</td><td><code>lib/sources.ts</code></td></tr>
-          <tr><td>Custom Rules and auto-review</td><td>A wrapper around every acting tool: a block, <code>requiresPermission</code>, or a plain run</td><td><code>lib/auto-review.ts</code></td></tr>
+          <tr><td>Custom Rules and auto-review</td><td>A wrapper around every acting tool and around Gmail&apos;s send: a block, <code>requiresPermission</code>, or a plain run</td><td><code>lib/auto-review.ts</code>, <code>agents/dot/tools.ts</code></td></tr>
           <tr><td>Built-in safety</td><td>A list checked before the rules: <code>change_password</code> is always yours</td><td><code>lib/auto-review.ts</code></td></tr>
           <tr><td>Its own computer</td><td>A working environment saved per dot with <code>foundryDataEnvironmentPersistence</code></td><td><code>agents/dot/workspace.ts</code></td></tr>
           <tr><td>ChatGPT, Slack, a call</td><td>Conversations on one instance, keyed <code>app</code> and <code>slack</code>; Slack through a transmission and a playbook; <code>voiceCall</code> for calls</td><td><code>agents/dot/</code></td></tr>
           <tr><td>Context across channels</td><td>One <code>defineMemory</code> namespace per instance</td><td><code>lib/memory.ts</code></td></tr>
           <tr><td>Starts tasks elsewhere (Codex)</td><td>The person&apos;s <code>Builder</code>, reached over the mesh</td><td><code>agents/builder/</code></td></tr>
           <tr><td>Activity View</td><td>The inspector: runs, mesh threads, approvals, and <Link href="/foundry/docs/approvals#steering">steering</Link> to stop or redirect</td><td>built in</td></tr>
-          <tr><td>Specialist dots</td><td>The same definition, an instance in the organisation&apos;s workspace with its own name and account</td><td><code>specialistFor</code> in <code>lib/dot.ts</code></td></tr>
+          <tr><td>Specialist dots</td><td>The same definition, an instance in the organisation&apos;s workspace with its own name, Slack account and connected mailbox</td><td><code>specialistFor</code> in <code>lib/dot.ts</code></td></tr>
         </tbody>
       </table>
 
       <Blueprint
-        uses={["Definitions", "Instances", "Conversations", "Tools that change at runtime", "Permission gates", "Approvals", "Schedules", "Memory", "Working environment", "Transmissions", "Applications and connections", "Playbooks", "Foundry mesh", "Voice calls", "Request authorization", "Model gateway", "Persistent disk"]}
-        write={["Each person's dot: its name, responsibilities and rules", "The read tools for your sources", "The acting tools and what each hands off", "The Slack events forwarder"]}
+        uses={["Definitions", "Instances", "Conversations", "Tools that change at runtime", "Installable capabilities", "MCP servers", "Code as the tool surface", "Permission gates", "Approvals", "Schedules", "Memory", "Working environment", "Transmissions", "Applications and connections", "Playbooks", "Foundry mesh", "Voice calls", "Request authorization", "Model gateway", "Persistent disk"]}
+        write={["Each person's dot: its name, responsibilities and rules", "Your account store and OAuth callback", "The acting tools and what each hands off", "The Slack events forwarder"]}
       />
 
       <h2 id="step-1">1. A dot is an instance you name</h2>
@@ -100,20 +101,21 @@ export default function OpenAIDotsRebuildPage() {
         mustNot: "Promise a ship date.",
       },
     ],
-    rules: { reply_to_customer: "ask", open_draft_pr: "allow", merge_pr: "block" },
+    rules: { send_email: "ask", open_draft_pr: "allow", merge_pr: "block" },
     routing: { progress: "app", decisions: "slack" },
     slackUserId: "U0SAM",
   },
 };`}
       />
       <p>
-        The example seeds Sam&apos;s dot and his builder with <code>defineAgentInstance</code>;
-        everyone else&apos;s is created when they sign up (<code>scripts/onboard.ts</code>):
+        The example seeds Sam&apos;s dot and his builder with <code>defineAgentInstance</code>, with
+        the support mailbox he connected as a sample account; everyone else&apos;s is created when
+        they sign up (<code>scripts/onboard.ts</code>, <code>scripts/connect.ts</code>):
       </p>
       <CodeBlock
-        filename="foundry.application.ts"
+        filename="foundry.application.ts (excerpt)"
         language="typescript"
-        code={`export const samsDot = defineAgentInstance(dot, primaryDot(SAM.id, SAM.dot));
+        code={`export const samsDot = defineAgentInstance(dot, primaryDot(SAM.id, SAM.dot, [installationFor(samsGmail)]));
 export const samsBuilder = defineAgentInstance(builder, builderFor(SAM.id));
 
 export const data = new FileFoundryDataAdapter({
@@ -127,16 +129,26 @@ export const data = new FileFoundryDataAdapter({
         language="typescript"
         code={`export default defineAgent({
   description: "An always-on agent that works on its person's responsibilities and acts within their rules",
-  components: composeAgent(slackApp, person),
+  components: composeAgent(gmailApp, slackApp, person),
 
-  model: (_agent, ctx) => (isCall(ctx) ? callModel() : dotModel()),
+  model: (_agent, ctx) => (isCall(ctx) ? callModel() : dotModel(ctx.agentInstance.workspaceId)),
   systemPrompt: async (_agent, ctx) => dotPrompt(await currentDot(ctx), ctx, isCall(ctx)),
   store: ({ conversationId }) => FileStore.open(conversationId),
   memory: [person],
 
   tools: (_agent, ctx) => dotTools(ctx),
   schedules: [research],
-  playbooks: (_agent, ctx) => slackPlaybooks(ctx),
+  playbooks: (_agent, ctx) => dotPlaybooks(ctx),      // the owner's Slack messages; new mail
+
+  // The mailbox's reads as functions: research reads it in code.
+  repl: () => defineRepl({
+    language: "javascript",
+    session: JsSession.create(),
+    mount: { discovery: "auto" },
+    programmaticTools: { select: ({ apps }) => apps.flatMap((app) => app.tools.filter((tool) => tool.readOnly)), keepDirect: false },
+  }),
+  // Gmail's send, under auto-review; gone on runs the dot starts itself.
+  configure: (agent, ctx) => reviewSends(agent, ctx),
 
   // Its own computer, but not on research runs: those only read.
   workingEnvironment: (_agent, ctx) => (readOnly(ctx.request) ? undefined : dotComputer),
@@ -147,9 +159,12 @@ export const data = new FileFoundryDataAdapter({
     mount: (ctx) => !readOnly(ctx.request),
   },
 
+  // The Slack bot user is the app's; every other account is one a person connected.
   accountSessions: {
-    identifier: "slack-bot-token",
-    withSession: (_request, use) => use({ token: process.env.SLACK_BOT_TOKEN || OFFLINE_SLACK_TOKEN }),
+    identifier: "dot-accounts",
+    withSession: (request, use) => request.accountId === slackBot.id
+      ? use({ token: process.env.SLACK_BOT_TOKEN || OFFLINE_SLACK_TOKEN })
+      : connectedAccounts.withSession(request, use),
   },
 
   run: (agent, ctx) => (isCall(ctx) ? call(agent, ctx) : ctx.defaultRun()),
@@ -160,15 +175,17 @@ export const data = new FileFoundryDataAdapter({
       <p>
         The research schedule wakes the dot every two hours to read the sources of every
         responsibility. What makes the run safe is not an instruction in the prompt but what is
-        mounted: tools, the mesh and the computer all resolve per run, and a run the person did
-        not start gets only the read tools. Nothing that acts is there.
+        mounted: tools, the Gmail app&apos;s tools, the mesh and the computer all resolve per run,
+        and a run the person did not start gets only reads. Nothing that acts is there. New mail
+        counts as such a run, because mail comes from anyone.
       </p>
       <CodeBlock
         filename="agents/dot/research.ts"
         language="typescript"
-        code={`/** Runs the person started: from the app, or by messaging the dot in Slack. */
+        code={`/** Runs the person started: from the app, or by messaging the dot in Slack (only its owner gets in). New mail does not count. */
 export function startedByPerson(request: FoundryRequest): boolean {
-  return request.source?.kind === "direct" || request.source?.kind === "transmission";
+  if (request.source?.kind === "direct") return true;
+  return request.source?.kind === "transmission" && request.source.provider === slackMessages.id;
 }
 
 /** Runs on the dot's own time. A run the person started, or the builder's reply to one, may act. */
@@ -180,12 +197,14 @@ export function readOnly(request: FoundryRequest): boolean {
         filename="agents/dot/tools.ts"
         language="typescript"
         code={`export async function dotTools(ctx: AgentAssemblyContext): Promise<GloveFoldArgs<any>[]> {
-  const read = researchTools(ctx.agentId);           // read_channel, read_email, read_notes, keep_note, suggest
+  const read = researchTools(ctx.agentId);           // read_channel, read_notes, keep_note, suggest
   if (readOnly(ctx.request)) return read;
-  const dot = await currentDot(ctx);
-  const review = { owner: dot.owner, rules: dot.rules, contacts: await knownContacts(), tellPerson: … };
+  const review = reviewOf(await currentDot(ctx), []);
   return [...read, ...actionsFor(ctx.agentId).map((action) => reviewed(action, review))];
-}`}
+}
+
+// agents/dot/apps/gmail.app.ts: on the dot's own time, only the mailbox's reads mount.
+tools: (tool, ctx) => (readOnly(ctx.request) && !tool.readOnly && !reads.includes(tool.name) ? "hide" : policy(tool, ctx)),`}
       />
       <p>
         The check is on every source but the person&apos;s own, not only on{" "}
@@ -236,6 +255,31 @@ export function reviewed<I>(action: Action<I>, review: Review): GloveFoldArgs<I>
         An action with no rule asks. Each tool&apos;s description includes its rule, so the model
         knows before it tries.
       </p>
+      <p>
+        Email goes out through the Gmail app&apos;s transmission, so Foundry delivers it from the
+        mailbox in its own process. The dot puts the same review around that send in{" "}
+        <code>configure</code>, under the rule <code>send_email</code>. The people who wrote in
+        are read from the mailbox through the app, so &ldquo;allow&rdquo; still asks before
+        writing to anyone else:
+      </p>
+      <CodeBlock
+        filename="agents/dot/tools.ts (excerpt)"
+        language="typescript"
+        code={`export async function reviewSends(agent: IGloveRunnable, ctx: Pick<AgentAssemblyContext, "agentId" | "agentInstance" | "data" | "request">) {
+  const name = installedApplicationTransmissionToolName(gmailApp, gmail);
+  if (readOnly(ctx.request)) return aroundTool(agent, name, () => undefined);   // research and new mail can't send
+  const review = reviewOf(await currentDot(ctx), await knownContacts(agent));    // who wrote in, via gmail.search_threads
+  aroundTool(agent, name, (send) => reviewed({
+    name: send.name,
+    description: "Send an email from the mailbox you work from: a reply (pass threadId and inReplyTo) or a new message.",
+    jsonSchema: send.jsonSchema,
+    rule: "send_email",
+    recipient: (input) => input.payload.to,
+    handOff: (input) => \`Send "\${input.payload.subject}" to \${input.payload.to} yourself.\`,
+    do: (input, _display, _glove, signal) => send.run(input, signal),           // Foundry still delivers it
+  }, review));
+}`}
+      />
 
       <h2 id="step-4">4. Its own computer</h2>
       <p>
@@ -293,8 +337,8 @@ export function reviewed<I>(action: Action<I>, review: Review): GloveFoldArgs<I>
       <p>
         A specialist dot is not a new definition. It is the same <code>dot</code>, created in the
         organisation&apos;s workspace for one well-defined responsibility, with its own name and
-        its own account installation, so it acts under its own credentials rather than a
-        person&apos;s:
+        its own Slack account and its own connected mailbox, so it acts under its own
+        credentials rather than a person&apos;s:
       </p>
       <CodeBlock
         filename="lib/dot.ts (excerpt)"
@@ -319,24 +363,26 @@ export function reviewed<I>(action: Action<I>, review: Review): GloveFoldArgs<I>
         language="bash"
         code={`pnpm --filter glove-foundry-standing-agents verify
 
-1. Pip (sam-dot), Sam's builder and the app conversation are seeded data; research runs every 2h there
-2. research read both responsibilities' sources, kept notes and suggested: "CSV export times out on large reports: …"
-   22 tools mounted, none that act (no reply_to_customer, send_email, open_draft_pr, merge_pr, change_password, post_to_slack), no mesh, no computer
-   runs from spawn and background are read-only too
-3. "ask": reply_to_customer waited for approval; approved: "Sent the reply to dana@acme.test."
+1. Pip (sam-dot), Sam's builder and the app conversation are seeded data; research runs every 2h there; the mailbox watch is connected
+2. research read #feedback and the mailbox in code, kept notes and suggested: "CSV export times out on large reports: …"
+   26 tools mounted, none that act (no send_email, open_draft_pr, merge_pr, change_password, Gmail send, post_to_slack), no mesh, no computer
+   runs from spawn, background and new mail are read-only too
+3. "ask": the Gmail send waited for approval; approved: "Sent the reply to dana@acme.test."
 4. "block": merge_pr handed to Sam in Slack: "Over to you: Review PR #42 and merge it yourself."
    change_password with a rule of "allow" is still Sam's (built-in safety): …
 5. "allow": open_draft_pr ran with no approval: "Opened draft PR #102: Stream large CSV exports."
    send_email on "allow" still asks before writing to an address that never wrote in
 6. Slack DM from Sam joined "transmission:agent:sam-dot:slack"; answered there: "From the app: Billing questions go to Priya."
    a stranger's mention started nothing
-7. on Pip's own computer: /workspace/feedback-this-week.md
-8. started on Builder (sam-builder) over the mesh; back in the app: "The builder finished. Wrote /out/weekly-feedback.md: …"`}
+7. new mail started a read-only run: "New mail from ken@umbrella.test about the CSV export; noted with the other reports."
+8. on Pip's own computer: /workspace/feedback-this-week.md
+9. started on Builder (sam-builder) over the mesh; back in the app: "The builder finished. Wrote /out/weekly-feedback.md: …"`}
       />
       <p>
-        In step 2 the scripted model deliberately tries <code>reply_to_customer</code> during
-        research. The run&apos;s trace shows the tool does not exist there, and the list of
-        available tools holds nothing that acts.
+        In step 2 the scripted model deliberately tries Gmail&apos;s send during research. The
+        run&apos;s trace shows the tool does not exist there, and the list of available tools holds
+        nothing that acts. <code>glove_foundry_transmit</code> stays mounted, but it only uses routes
+        the dot&apos;s playbooks declare, and they declare none.
       </p>
 
       <h2 id="deploy">Deploy on Kuiper</h2>
@@ -348,18 +394,21 @@ kuiper projects create dots && kuiper use dots
 kuiper units create dots
 
 kuiper providers add anthropic --key -            # once per organisation
-kuiper secrets set SLACK_BOT_TOKEN=-
+kuiper secrets set SLACK_BOT_TOKEN=- GOOGLE_CLIENT_SECRET=- GOOGLE_SERVICE_ACCOUNT_JSON=-
 kuiper env set -u dots DOTS_DATA_DIR=/data \\
   'ANTHROPIC_API_KEY=\${{models.API_KEY}}' \\
   'ANTHROPIC_BASE_URL=\${{models.ANTHROPIC_BASE_URL}}' \\
-  'SLACK_BOT_TOKEN=\${{secrets.SLACK_BOT_TOKEN}}'
+  'SLACK_BOT_TOKEN=\${{secrets.SLACK_BOT_TOKEN}}' \\
+  GOOGLE_CLIENT_ID=… 'GOOGLE_CLIENT_SECRET=\${{secrets.GOOGLE_CLIENT_SECRET}}' \\
+  GMAIL_PUBSUB_TOPIC=… GMAIL_PUBSUB_SUBSCRIPTION=… \\
+  'GOOGLE_SERVICE_ACCOUNT_JSON=\${{secrets.GOOGLE_SERVICE_ACCOUNT_JSON}}'
 
 kuiper deploy --source . -u dots --wait
 kuiper dashboard -u dots --enable                 # inspector login`}
       />
       <ul>
         <li><strong>The Slack forwarder</strong> runs as a second unit with <code>--start-command &quot;pnpm slack-events&quot;</code>. Its public URL is Slack&apos;s request URL, and it reaches Foundry at <code>{"${{dots.INTERNAL_URL}}"}</code>. The README has the commands.</li>
-        <li><strong>State</strong> (dots, transcripts, memory, notes, the computers, schedules) is on the <code>/data</code> disk.</li>
+        <li><strong>State</strong> (dots, transcripts, memory, notes, accounts and tokens, the computers, schedules) is on the <code>/data</code> disk. New mail needs nothing public: the Gmail watch pulls its subscription from inside the unit.</li>
         <li><strong>A real computer.</strong> Swap the dot&apos;s and the builder&apos;s working environments for a <Link href="/foundry/docs/kuiper#services">Kuiper sandbox and browser</Link>.</li>
       </ul>
 
@@ -368,13 +417,14 @@ kuiper dashboard -u dots --enable                 # inspector login`}
         <li>Auto-review here is code over rules and recipients. Dots use a separate review model; you could put a <Link href="/docs/classifier">classifier</Link> or a second model call inside <code>reviewed()</code>.</li>
         <li>The computer is a Glove working environment until you swap in a Kuiper sandbox and browser, and you can&apos;t connect your own laptop.</li>
         <li>There is no monitor that pauses a dot on its own; you stop or redirect a run from the inspector.</li>
-        <li>Dots connect to thousands of apps through plugins. Here the sources and actions are stand-ins in <code>lib/</code>; add yours as apps, shared tools or MCP servers.</li>
+        <li>Dots connect to thousands of apps through plugins. Here there is one, Gmail; any app with a hosted MCP server is another file like it, and the Slack channel history is still a stand-in in <code>lib/sources.ts</code>.</li>
       </ul>
 
       <h2 id="sources">Sources</h2>
       <ul>
         <li><a href="https://openai.com/index/introducing-dots/">Introducing dots</a>, OpenAI</li>
         <li><a href="https://help.openai.com/en/articles/20001529">Dots privacy, security and safety FAQs</a>, OpenAI Help Center</li>
+        <li><a href="https://developers.google.com/workspace/gmail/api/guides/push">Gmail push notifications</a> and <a href="https://developers.google.com/workspace/gmail/api/reference/mcp">the Gmail MCP server</a>, Google</li>
         <li><a href="https://www.theneuron.ai/explainer-articles/openai-dots-hands-on-review-herman/">OpenAI Dots hands-on review: my first day with Herman</a>, The Neuron</li>
         <li><a href="https://flaviocopes.com/openai-dots/">A deep dive into OpenAI dots</a>, Flavio Copes</li>
       </ul>

@@ -16,6 +16,8 @@
 
 If you control both ends and just need a few first-party tools, hand-rolled `glove.fold(...)` is still simpler. MCP earns its keep when the catalogue is large or the servers are not yours.
 
+In Glove Foundry, when each person connects their own account, put the server on a Foundry app (`defineApp({ mcp: { entry, auth, tools } })`) instead of mounting it directly: the app opens it with the installation's account, decides allow, ask or hide per tool, owns the sends and incoming events, and gives its reads to the REPL as functions. See the glove-foundry skill.
+
 ### Mental model: catalogue + adapter
 
 Two pieces, deliberately split:

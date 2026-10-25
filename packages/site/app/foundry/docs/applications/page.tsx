@@ -363,7 +363,7 @@ export default defineApplication({
       <table>
         <thead><tr><th>Record</th><th>Fields</th><th>Change at runtime</th></tr></thead>
         <tbody>
-          <tr><td>Account</td><td><code>id</code>, <code>transmission</code>, <code>externalAccountId</code>, <code>label?</code>, <code>accessRef</code>, <code>metadata</code></td><td>No. Read-only via <code>GET /api/accounts</code>, which omits <code>accessRef</code>.</td></tr>
+          <tr><td>Account</td><td><code>id</code>, <code>transmission</code>, <code>externalAccountId</code>, <code>label?</code>, <code>accessRef</code>, <code>metadata</code></td><td>Not through Foundry. Your account directory is the source: Foundry reads it (<code>GET /api/accounts</code>, which omits <code>accessRef</code>) and never writes it.</td></tr>
           <tr><td>Inbound / outbound route</td><td><code>id</code>, <code>transmission</code>, <code>account?</code>, <code>visibility</code> (<code>&quot;private&quot;</code> | <code>&quot;workspace&quot;</code>), <code>enabled</code>, <code>config</code></td><td><code>client.putRoute</code> / <code>removeRoute</code> (<code>PUT /api/routes</code>, <code>DELETE /api/routes/:id</code>)</td></tr>
           <tr><td>Binding</td><td><code>id</code>, <code>agent</code>, <code>application?</code>, <code>transmission</code>, <code>account?</code>, <code>route?</code>, <code>capabilities</code>, <code>reply?</code>, <code>enabled</code></td><td><code>client.putBinding</code> / <code>removeBinding</code> (<code>PUT /api/bindings</code>, <code>DELETE /api/bindings/:id</code>)</td></tr>
         </tbody>
@@ -371,8 +371,46 @@ export default defineApplication({
       <ul>
         <li><strong>Outbound needs a binding.</strong> Delivery resolves a per-run grant from the instance’s enabled bindings. An instance with none fails with <code>agent has no enabled bindings</code>; a route not named by a binding’s <code>route</code> (or <code>reply: {"{ mode: \"route\", route }"}</code>) fails with <code>not authorized for outbound route</code>. Inbound does not need a binding.</li>
         <li>A binding is validated against an existing instance. Seed the instance in the data adapter (as above), or create the binding after <code>client.createAgent(...)</code> with <code>client.putBinding(defineBinding({"{ agent: created, … }"}))</code>.</li>
-        <li>By default routes and bindings live in an in-memory topology store, re-seeded from <code>defineApplication</code> on every start. Pass <code>services</code> (your own <code>TopologyStore</code>, <code>AccountDirectory</code> and <code>EventStore</code> layers) to persist runtime edits.</li>
+        <li>By default routes and bindings live in an in-memory topology store, re-seeded from <code>defineApplication</code> on every start. Pass <code>services</code> (your own <code>TopologyStore</code>, <code>AccountDirectory</code> and <code>EventStore</code> layers) to persist runtime edits; <code>fileTopologyStore(file)</code> keeps them in a JSON file on one host.</li>
       </ul>
+
+      <h3 id="people-connect">When people connect their own accounts</h3>
+      <p>
+        A person connecting their Gmail is an account your OAuth callback creates, not one
+        written in code. Foundry never creates accounts: keep them in your store, give
+        Foundry a read-only <code>AccountDirectory</code> over it, and write the routes,
+        bindings and installation that use the account at the same time.
+      </p>
+      <CodeBlock filename="foundry.application.ts" language="typescript" code={`import { Effect, Layer } from "effect";
+import {
+  AccountDirectory, AccountNotFound, defineApplication, fileTopologyStore, memoryEventStore,
+} from "glove-foundry";
+import { accountsTable } from "./lib/accounts.js"; // your store: public half only
+
+const accounts = Layer.succeed(AccountDirectory, {
+  get: (id) => Effect.flatMap(Effect.promise(() => accountsTable.find(id)),
+    (account) => account ? Effect.succeed(account) : Effect.fail(new AccountNotFound({ accountId: id }))),
+  list: () => Effect.promise(() => accountsTable.all()),
+});
+
+export default defineApplication({
+  name: "Assistants",
+  data,
+  // Replaces the application's accounts list; put code-defined accounts in your directory too.
+  services: Layer.mergeAll(accounts, fileTopologyStore(".data/topology.json"), memoryEventStore),
+});`} />
+      <CodeBlock filename="lib/connect.ts (your OAuth callback)" language="typescript" code={`await saveAccount(account, tokens);              // your store; tokens kept apart
+await foundry.putRoute(gmailIn(account.id));       // new mail
+await foundry.putRoute(gmailOut(account.id));      // sending
+for (const agent of agentsOf(person)) {
+  await foundry.install(agent.id, { kind: "application", id: "gmail", accountId: account.id });
+  await foundry.putBinding(sendBinding(agent.id, account.id)); // lets it send
+}`} />
+      <p>
+        Connections find their account through the directory, so the new account&apos;s
+        connection starts with the installation. The bot crew, partner and Dots examples
+        do exactly this; see the <Link href="/foundry/docs/rebuilds">rebuilds</Link>.
+      </p>
 
       <h2 id="agent">Wire it into the agent</h2>
       <CodeBlock filename="agents/support/agent.ts" language="typescript" code={`import { Effect } from "effect";
@@ -624,8 +662,18 @@ support-desk + email/replies    -> glove_app_support_desk__email__replies_send`}
         <li>Stopping the run aborts <code>context.signal</code> inside <code>deliver</code>.</li>
       </ul>
       <p>
+        Approval comes from the transmission: <code>outbound.requiresPermission</code> (a boolean
+        or a function of the payload) makes the tool wait for the exact payload to be approved.
+        An agent can put its own rules around the tool in <code>configure(agent, ctx)</code>:
+        replace it with a tool whose <code>requiresPermission</code> applies those rules and
+        whose <code>do</code> calls the original&apos;s <code>run</code>. Glove asks from the tool the
+        model calls, so the wrapper decides, and delivery still happens in the parent.
+      </p>
+      <p>
         Every agent also has the generic <code>glove_foundry_transmit</code> tool
-        (<code>{"{ routeId, payload }"}</code>) for routes not tied to an app; it is
+        (<code>{"{ routeId, payload }"}</code>). It only delivers through outbound routes the
+        instance&apos;s playbooks declare, and asks whenever the route&apos;s transmission
+        requires it; a route a binding grants is not enough on its own. It is
         listed with the other <Link href="/foundry/docs/automation#core-tools">built-in tools</Link>.
         Operators can deliver directly with <code>POST /api/transmissions/:routeId/deliver</code>{" "}
         (<code>{"{ agentId, runId, payload }"}</code>), which applies the same grant check.
@@ -658,6 +706,7 @@ support-desk + email/replies    -> glove_app_support_desk__email__replies_send`}
           <tr><td><code>outbound.adapter.deliver</code></td><td><code>context.withAccountSession(operation, use)</code> when the route has an account and the agent defines <code>accountSessions</code>. Also <code>context.account</code> (including <code>accessRef</code>).</td></tr>
           <tr><td><code>defineConnection</code> <code>connect</code></td><td><code>ctx.withAccountSession</code> and <code>ctx.account</code>, same conditions.</td></tr>
           <tr><td><code>defineApp</code> <code>install</code></td><td><code>ctx.withAccountSession</code> when the installation selected an account (<code>install(app, config, {"{ account }"})</code>) and the agent defines <code>accountSessions</code>.</td></tr>
+          <tr><td><code>defineApp</code> <code>mcp.auth</code></td><td>The session for the installation&apos;s account, each time the MCP connection opens. Return headers (HTTP) or environment variables (stdio).</td></tr>
         </tbody>
       </table>
       <ul>

@@ -197,9 +197,14 @@ exposeToAgent? }) (exposed as a tool by default; callable via ctx.invoke).
   capabilities, events, inbound: { config, event, classify, predicates },
   outbound: { config, input, output, adapter: { deliver(input, context) }, observe? } })
   — Effect Schema types flow into account metadata, route config, events, input, output.
-- defineApp({ description, config?, inbound, outbound, connections?, install? }) —
+- defineApp({ description, config?, inbound, outbound, connections?, install?, mcp? }) —
   install returns Effect<{ tools }>. Installing an app mounts its outbound
   transmissions as validated tools; delivery runs in the parent runtime.
+  mcp: { entry (or (ctx) => entry), auth?: (session, ctx) => headers | env,
+  tools?: (tool { name, readOnly, destructive }, ctx) => "allow" | "ask" | "hide" }
+  opens the server per run with the installation's account (auth runs inside
+  accountSessions.withSession({ operation: "mcp:connect" })); default policy:
+  read-only allows, others ask. Tools are named <app>__<tool>.
 - defineConnection — a supervised long-lived inbound worker: connect(ctx) uses
   ctx.ready() and ctx.receive({ route, eventId, threadKey, conversationKey?,
   conversationScope?, awaitCompletion?, raw }). Started only when an installed app
@@ -207,7 +212,9 @@ exposeToAgent? }) (exposed as a tool by default; callable via ctx.invoke).
 - Topology is data: defineAccount({ id, transmission, externalAccountId, label,
   accessRef, metadata }), defineInboundRoute / defineOutboundRoute({ id,
   transmission, account, visibility, enabled, config }), defineBinding; register
-  them in defineApplication({ accounts, routes, bindings }).
+  them in defineApplication({ accounts, routes, bindings }). Your own account store:
+  defineApplication({ services: Layer.mergeAll(Layer.succeed(AccountDirectory, dir),
+  fileTopologyStore(file), memoryEventStore) }); putRoute / putBinding at runtime.
 - Outbound delivery requires an enabled defineBinding for the instance (registered in
   defineApplication bindings); without one delivery fails with "agent has no enabled
   bindings". Transmission ids are global across agents.
@@ -243,7 +250,7 @@ it has run once; subscriptions and client.setAgentPlaybooks apply immediately.
 | glove_foundry_schedules | list / update / pause / resume / cancel this instance's activations |
 | glove_foundry_sleep | Record a wake-up for the same instance + conversation ({ kind: "for", duration } or { kind: "until", at } in UTC ISO with Z); the current run ends and a new run starts at wake time |
 | glove_foundry_background | Queue a run on the same instance + conversation; with reconvene (default true) it waits up to 60 s and posts a resolved background.reconvene item to the shared inbox (it does not wake the conversation) |
-| glove_foundry_transmit | Deliver an outbound event through a route declared by this instance's playbook |
+| glove_foundry_transmit | Deliver an outbound event through a route declared by this instance's playbook; asks when the route's transmission asks |
 | glove_foundry_conversations | List this instance's conversations |
 | glove_foundry_workspace | Read or write a shared workspace value |
 | glove_foundry_shared_inbox | List or post shared inbox items |
@@ -273,9 +280,11 @@ foundryDataEnvironmentPersistence({ scope: "agent" | "conversation" | "workspace
 (workspace = one tree shared by every agent in the workspace) or a native
 persistent Vfs to keep files.
 defineRepl({ language: "javascript" | "python" | "lisp", session, mount?,
-programmaticTools? }) — one REPL per run. programmaticTools.select projects exact
-live tools into the sandbox (maxCalls default 50); permission-gated tools are refused
-there. Add document/spreadsheet/slide/image/media/fetch/secret adapters from
+programmaticTools? }) — one REPL per run. programmaticTools.select({ tools, apps })
+projects exact live tools into the sandbox (maxCalls default 50); permission-gated
+tools are refused there. apps: [{ id, description, accountId?, tools: [{ name,
+readOnly }] }], each a group in code (gmail.search_threads(...)). keepDirect: false
+removes selected code-only tools from the direct tool list. Add document/spreadsheet/slide/image/media/fetch/secret adapters from
 glove-env-* packages. Browsers and sandboxes: mountBrowser / mountSandbox from
 glove-execution inside configure, with ctx.onCleanup.
 

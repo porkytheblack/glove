@@ -58,15 +58,19 @@ export default function AgentsAreDataPage() {
       <CodeBlock
         filename="lib/people.ts"
         language="typescript"
-        code={`export function botFor(person: Person, bot: { id: string; name?: string; job?: string; apps: AppName[] }) {
+        code={`export function botFor(person: Person, bot: { id: string; name?: string; job?: string }) {
   return {
     id: bot.id,
     workspaceId: person.id,                 // her team
     name: bot.name ?? "New bot",            // who it is
     ...(bot.job ? { description: bot.job } : {}),
     context: { owner: person.name },
-    installations: bot.apps.map((app) => install(APPS[app])),   // the apps she connected
   };
+}
+
+// Her connected apps are installations too: the Gmail app with her account.
+export function installationFor(account: ConnectedAccount): AgentInstallation {
+  return { kind: "application", id: APPS[account.app].id, accountId: account.id };
 }`}
       />
       <CodeBlock
@@ -74,7 +78,11 @@ export default function AgentsAreDataPage() {
         language="typescript"
         code={`import bot from "./agents/bot/agent.js";
 
-const chief = defineAgentInstance(bot, mainBotFor(maya, { name: "Chief", apps: ["gmail", "sheets"] }));   // imported, not named
+const mayaGmail = await readAccount("maya-gmail");             // from your account store
+const chief = defineAgentInstance(bot, mainBotFor(maya, {
+  name: "Chief",
+  installations: [installationFor(mayaGmail)],               // her Gmail, with her account
+}));                                                         // the definition is imported, not named
 
 export const data = new FileFoundryDataAdapter({
   file: ".data/foundry.json",
@@ -85,7 +93,8 @@ export const data = new FileFoundryDataAdapter({
       <CodeBlock
         filename="your app: when someone makes a bot"
         language="typescript"
-        code={`await foundry.createAgent("bot", botFor(maya, { id: "maya-bot-4", name: "Inbox Manager", apps: ["gmail"] }));
+        code={`await foundry.createAgent("bot", botFor(maya, { id: "maya-bot-4", name: "Inbox Manager" }));
+await giveAccounts(foundry, "maya-bot-4", maya);             // install each app she connected, with her account
 
 // Later, a rename is one more write. No deploy.
 await foundry.configureAgent("maya-bot-4", { name: "Inbox Zero" });`}

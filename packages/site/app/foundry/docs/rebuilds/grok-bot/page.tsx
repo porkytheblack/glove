@@ -1,12 +1,12 @@
 import Link from "next/link";
 import { CodeBlock } from "@/components/code-block";
 import { Blueprint } from "@/components/diagrams";
-import { CrewStory } from "@/components/rebuild-stories";
+import { ConnectedAppStory, CrewStory } from "@/components/rebuild-stories";
 
 export const metadata = {
   title: "Rebuild Grok Bot",
   description:
-    "Build AI teammates like xAI's Grok Bot with Glove Foundry and deploy them on Kuiper: one bot definition and every bot as data, a main bot, bots that name themselves from their job, apps connected once per account, group chats and handoffs over the mesh, one shared computer, skills and routines, sign-ins handed back, and @bot on X.",
+    "Build AI teammates like xAI's Grok Bot with Glove Foundry and deploy them on Kuiper: one bot definition and every bot as data, a main bot, bots that name themselves from their job, apps connected once per person (Gmail, Linear, any MCP server) with reads in code, sends delivered by Foundry and new mail pushed in, group chats and handoffs over the mesh, one shared computer, skills and routines, and approvals.",
 };
 
 const EXAMPLE = "https://github.com/porkytheblack/glove/tree/main/examples/foundry-bot-crew";
@@ -18,10 +18,11 @@ export default function GrokBotRebuildPage() {
       <h1>Rebuild Grok Bot</h1>
       <p className="blog-lede">
         Grok Bot gives you bots you keep around: AI teammates with names, jobs and context that
-        builds up over time. They work on a cloud computer they share, pass work to each other,
-        and come back when something needs your approval. This page builds the same shape in
-        Foundry and deploys it on Kuiper. The part to copy is the design: there is one bot
-        definition, and every bot is data.
+        builds up over time. They work in the apps you connect, like Gmail, on a cloud computer
+        they share, pass work to each other, and come back when something needs your approval.
+        This page builds the same shape in Foundry and deploys it on Kuiper. Two parts are worth
+        copying: there is one bot definition and every bot is data, and every app a person
+        connects is a Foundry app installed with their account.
       </p>
       <div className="docs-note">
         <span className="docs-note-icon">›</span>
@@ -29,16 +30,17 @@ export default function GrokBotRebuildPage() {
           An independent example built from the Grok Bot docs on cursor.com and docs.x.ai
           (sources at the end). It is not affiliated with or endorsed by xAI or Cursor, and it is
           not how Grok Bot is built. The code is in <a href={EXAMPLE}>examples/foundry-bot-crew</a>,
-          and <code>pnpm verify</code> runs all of it offline.
+          and <code>pnpm verify</code> runs all of it offline, against local servers that use
+          Google&apos;s and Linear&apos;s MCP tool names.
         </p>
       </div>
 
       <h2 id="what">What Grok Bot does</h2>
       <ul>
         <li><strong>Bots with a name and a job.</strong> Your first bot is made for you. A new one asks what you want it around for, or you give it a name, a title and a description. Each keeps its memory, files and preferences across sessions.</li>
-        <li><strong>A main bot.</strong> One bot is your primary: it takes everyday requests that belong to no specialist and routes the rest. Tagging @bot on X hands the post to your main bot.</li>
+        <li><strong>A main bot.</strong> One bot is your primary: it takes everyday requests that belong to no specialist and routes the rest.</li>
+        <li><strong>Apps belong to your account.</strong> Your bots work in the apps you connect: Gmail, your calendar, your tracker. A bot asks for access when it needs an app, and once you connect it, every bot can use it.</li>
         <li><strong>One computer for all your bots.</strong> A persistent cloud computer with a browser, filesystem and terminal. Your bots share its files, browser sessions and logins, each on its own screen. Between people, computers are strictly isolated.</li>
-        <li><strong>Apps belong to your account.</strong> A bot asks for access when it needs an app, and once you connect it, every bot can use it.</li>
         <li><strong>Sign-ins stay with you.</strong> Saved logins are filled without the model seeing them. For single sign-on, passkeys or a CAPTCHA, the bot hands you the computer for that one step.</li>
         <li><strong>Bots work together.</strong> They message each other and pass ownership of a task. A group chat holds two to six bots: they decide who answers, an @-mention hands a bot a request, and @everyone reaches all of them.</li>
         <li><strong>Skills and routines.</strong> A skill is reusable instructions shared by all your bots. You save one from chat or by showing the bot once (&ldquo;Teach a task&rdquo;). A routine runs a skill on a schedule or after an event.</li>
@@ -62,7 +64,8 @@ export default function GrokBotRebuildPage() {
           <tr><td>A bot&apos;s name and job</td><td>The instance&apos;s <code>name</code> and <code>description</code></td><td>The bot itself with <code>take_job</code>, or your app with <code>configureAgent</code></td></tr>
           <tr><td>Your main bot</td><td>A bot whose <code>context.primary</code> is <code>true</code></td><td>Onboarding</td></tr>
           <tr><td>Your bots</td><td>The instances in your workspace</td><td>Making or deleting a bot</td></tr>
-          <tr><td>Connected apps</td><td>The same installations on every bot of the account</td><td>A bot asking with <code>connect_app</code>, approved by you</td></tr>
+          <tr><td>Connected apps</td><td>An account in your store, and on every bot of the person an installation with that account (plus Gmail&apos;s routes and a send binding)</td><td>Your Connect button: the provider&apos;s sign-in, then <code>connectApp</code></td></tr>
+          <tr><td>&ldquo;Always allow&rdquo;</td><td>The installation&apos;s <code>config.alwaysAllow</code></td><td>Your app, when the person ticks it</td></tr>
           <tr><td>A group chat and who is in it</td><td>A conversation on the bot that hosts it, with <code>context.group.members</code></td><td>Your app</td></tr>
           <tr><td>Skills</td><td>Workspace entries, <code>skill:&lt;name&gt;</code></td><td>A bot with <code>save_skill</code>, after you review it</td></tr>
           <tr><td>Routines</td><td>Schedules on the bot that owns them</td><td>A bot with <code>glove_foundry_schedule</code></td></tr>
@@ -75,22 +78,23 @@ export default function GrokBotRebuildPage() {
       </p>
 
       <Blueprint
-        uses={["Definitions", "Instances", "Conversations", "Foundry mesh", "Shared work", "Working environment", "Memory", "Content skills", "Schedule management", "Transmissions", "Applications and connections", "Playbooks", "Approvals", "Request authorization", "Model gateway", "Persistent disk"]}
-        write={["What a bot can be: its prompt, tools and apps", "Where a person's bots are created", "The X webhook forwarder", "The scripted models for offline runs"]}
+        uses={["Definitions", "Instances", "Conversations", "Installable capabilities", "Applications and connections", "MCP servers", "Transmissions", "Playbooks", "Code as the tool surface", "Foundry mesh", "Shared work", "Working environment", "Memory", "Content skills", "Schedule management", "Approvals", "Request authorization", "Model gateway", "Persistent disk"]}
+        write={["What a bot can be: its prompt, tools and apps", "Your account store and OAuth callback", "Gmail and Pub/Sub calls", "The scripted models for offline runs"]}
       />
 
       <h2 id="step-1">1. What a bot can be</h2>
       <p>
-        The definition lists everything a bot could have: every app, memory, the shared
-        computer, the mesh, the X playbook. Which of it a given bot gets is decided from its
-        data on each run. The file only assembles; the prompt and tools live beside it.
+        The definition lists everything a bot could have: the apps a person may connect, memory,
+        the shared computer, the REPL, the mesh, the new-mail playbook. Which of it a given bot
+        gets is decided from its data on each run. The file only assembles; the prompt and tools
+        live beside it.
       </p>
       <CodeBlock
         filename="agents/bot/agent.ts"
         language="typescript"
         code={`export default defineAgent({
-  description: "A bot: an AI teammate with its own job and memory, working on a computer it shares with its owner's other bots",
-  components: composeAgent(gmail, sheets, tickets, xApp, memory),
+  description: "A bot: an AI teammate with its own job and memory, working in its owner's apps and on a computer it shares with their other bots",
+  components: composeAgent(gmailApp, linearApp, memory),   // apps a bot may have, each installed with its owner's account
 
   model: botModel,                                   // from the bot's data
   systemPrompt: (_agent, ctx) => botPrompt(ctx),     // from the bot's data
@@ -99,83 +103,49 @@ export default function GrokBotRebuildPage() {
 
   tools: (_agent, ctx) => botTools(ctx),             // take_job, connect_app, save_skill, request_sign_in, skills
   workingEnvironment: computer,                      // one per workspace
+  repl: () => defineRepl({                           // the apps' reads, as functions
+    language: "javascript",
+    session: JsSession.create(),
+    mount: { discovery: "auto" },
+    programmaticTools: { select: ({ apps }) => apps.flatMap((app) => app.tools.filter((tool) => tool.readOnly)), keepDirect: false },
+  }),
   mesh: { waitMs: 60_000 },                          // bots message each other by id
 
-  // Only the main bot takes tasks from X, and only its owner's posts.
-  playbooks: (_agent, { agentInstance, installations }) =>
-    agentInstance.context.primary === true
-    && typeof agentInstance.context.xUserId === "string"
-    && installations.some((item) => item.kind === "application" && item.id === xApp.id)
-      ? [mentionsFrom(agentInstance.context.xUserId)]
-      : [],
-
-  accountSessions: {
-    identifier: "x-bot-token",
-    withSession: (_request, use) => use({ token: process.env.X_BOT_TOKEN || OFFLINE_X_TOKEN }),
+  // New mail goes to the main bot, once Gmail is connected.
+  playbooks: (_agent, { agentInstance, installations }) => {
+    const mail = installations.find((item) => item.kind === "application" && item.id === gmailApp.id);
+    return agentInstance.context.primary === true && mail?.accountId ? [newMailFor(mail.accountId)] : [];
   },
+
+  accountSessions,                                   // the credential boundary (lib/accounts.ts)
 });`}
       />
       <p>
         The prompt reads the instance. The main bot is told to take everyday requests and route
-        the rest, a bot with no job is told to ask for one, and any other bot is told its own job:
+        the rest, a bot with no job is told to ask for one, and any other bot is told its own job,
+        its owner&apos;s apps and how to send email from their address.
       </p>
-      <CodeBlock
-        filename="agents/bot/prompt.ts (excerpt)"
-        language="typescript"
-        code={`if (bot.context.primary === true) {
-  lines.push(\`You are \${bot.name ?? "the main bot"}, \${owner}'s main bot. You take everyday requests that belong to no other bot.\`,
-    "When another bot's job fits better, find it with glove_mesh_list_agents and hand the work over with glove_mesh_send_message.");
-} else if (!bot.description) {
-  lines.push(\`You are a new bot on \${owner}'s team and you have no job yet.\`,
-    \`Greet \${owner} and ask what they want you around for. When they tell you, call take_job …\`);
-} else {
-  lines.push(\`You are \${bot.name}, one of \${owner}'s bots. Your job: \${bot.description}\`);
-}`}
-      />
 
       <h2 id="step-2">2. A person&apos;s bots are records</h2>
       <p>
         A person&apos;s workspace is their team. Their bots are plain data in{" "}
-        <code>lib/people.ts</code>. The example seeds Maya&apos;s main bot and its thread with{" "}
-        <code>defineAgentInstance</code>; your app creates everyone else&apos;s when they sign up:
+        <code>lib/people.ts</code>. The example seeds Maya, her sample Gmail account, her main bot
+        and its thread; your app creates everyone else&apos;s when they sign up:
       </p>
       <CodeBlock
-        filename="lib/people.ts (excerpt)"
+        filename="foundry.application.ts (excerpt)"
         language="typescript"
-        code={`export function mainBotFor(person: Person, bot: { name: string; apps: AppName[] }) {
-  return {
-    id: \`\${person.id}-main\`,
-    workspaceId: person.id,
-    name: bot.name,
-    description: \`\${person.name}'s main bot. Takes everyday requests and hands work to the bot whose job fits.\`,
-    context: { owner: person.name, primary: true, ...(person.xUserId ? { xUserId: person.xUserId } : {}) },
-    installations: [
-      ...bot.apps.map((app) => install(APPS[app])),
-      ...(person.xUserId ? [install(xApp, undefined, { account: xBot })] : []),
-    ],
-  };
-}
+        code={`const mayaGmail = accountFor(MAYA, "gmail", sampleConnection(MAYA, "gmail").identity, true);
+if (!(await readAccount(mayaGmail.id))) await saveAccount(mayaGmail, sampleConnection(MAYA, "gmail").tokens);
 
-export function botFor(person: Person, bot: { id: string; name?: string; job?: string; apps: AppName[] }) {
-  return {
-    id: bot.id,
-    workspaceId: person.id,
-    name: bot.name ?? "New bot",
-    ...(bot.job ? { description: bot.job } : {}),
-    context: { owner: person.name },
-    installations: bot.apps.map((app) => install(APPS[app])),   // the account's apps
-  };
-}`}
-      />
-      <CodeBlock
-        filename="foundry.application.ts"
-        language="typescript"
-        code={`const mayaMain = defineAgentInstance(bot, mainBotFor(MAYA, { name: "Chief", apps: ["gmail", "sheets"] }));
+const mayaMain = defineAgentInstance(bot, mainBotFor(MAYA, { name: "Chief", installations: [installationFor(mayaGmail)] }));
 
-export const data = new FileFoundryDataAdapter({
-  file: dataPath("foundry.json"),
-  agents: [mayaMain],                     // written only when the id is missing
-  conversations: [createConversation(mayaMain, { id: "maya-main-thread", title: "Main", context: { conversationKey: "main" } })],
+export default defineApplication({
+  name: "Bot crew",
+  data,                                      // seeds written only when the id is missing
+  services,                                  // your accounts, plus routes and bindings in a file
+  routes: [gmailRoutes(mayaGmail.id).in, gmailRoutes(mayaGmail.id).out],
+  bindings: [sendBinding(mayaMain.id, mayaGmail.id)],
 });`}
       />
 
@@ -204,46 +174,95 @@ export const data = new FileFoundryDataAdapter({
         <code>configureAgent</code>.
       </p>
 
-      <h2 id="step-4">4. Apps belong to the account</h2>
+      <h2 id="step-4">4. Apps a person connects</h2>
       <p>
-        A new bot gets the apps its owner already connected. When a bot needs one that
-        isn&apos;t connected, it asks. Approving is Maya finishing the provider&apos;s login, and
-        the app is then installed on every one of her bots:
+        An app is a <Link href="/foundry/docs/applications">Foundry app</Link>, installed per
+        bot with the person&apos;s account, and it holds everything about its provider. Gmail
+        reads and drafts through Google&apos;s Gmail MCP server, sends through its transmission,
+        and hears about new mail through a connection:
+      </p>
+      <ConnectedAppStory />
+      <CodeBlock
+        filename="agents/bot/apps/gmail.app.ts"
+        language="typescript"
+        code={`export default defineApp({
+  description: "Gmail: search, read and draft mail, send with approval, and hear about new mail",
+  config: z.object({ alwaysAllow: z.array(z.string()).default([]) }),
+  inbound: [gmail],                // new mail, as events
+  outbound: [gmail],               // sending: Google's server has no send tool
+  connections: [gmailWatch],       // users.watch, Pub/Sub, history.list
+  mcp: {
+    entry: mcpServer("gmail"),     // https://gmailmcp.googleapis.com/mcp/v1, or a local server for a sample account
+    auth: mcpCredentials(),        // the person's token as a bearer header, inside accountSessions
+    tools: askUnlessAllowed(["search_threads", "get_thread", "get_message", "list_drafts", "list_labels", "create_draft"]),
+  },
+});`}
+      />
+      <ul>
+        <li><strong>Reads come from the provider&apos;s MCP server</strong>, opened with the installation&apos;s account. The tool policy runs reads and drafts, and asks before anything else unless the person chose &ldquo;Always allow&rdquo; for it.</li>
+        <li><strong>Sending is the Gmail transmission&apos;s outbound side.</strong> Foundry delivers it in its own process, inside the account session, after Maya approves the exact email, and only for a bot whose binding grants <code>gmail:send</code>. The bot never holds the token.</li>
+        <li><strong>Linear is an app that is only an MCP server</strong> (<code>https://mcp.linear.app/mcp</code>). Most apps look like that; add a transmission when the provider pushes events or a send must run outside the agent.</li>
+      </ul>
+      <p>
+        Accounts are yours. When a bot needs an app it asks with <code>connect_app</code>; your
+        app shows that approval as a Connect button that runs the provider&apos;s sign-in. The
+        callback saves the account and tokens in your store, then writes what Foundry needs:
       </p>
       <CodeBlock
-        filename="agents/bot/tools.ts (excerpt)"
+        filename="lib/connect.ts (excerpt)"
         language="typescript"
-        code={`{
-  name: "connect_app",
-  description: "Ask your owner to connect an app you need. Apps belong to their account, so once connected every one of their bots can use it.",
-  inputSchema: z.object({ app: z.enum(APP_NAMES), why: z.string().min(1) }),
-  requiresPermission: true,                  // the approval is the owner finishing the provider's login
-  async do({ app }) {
-    const installation = install(APPS[app]);
-    const team = (await Effect.runPromise(ctx.data.listAgents())).filter((bot) => bot.workspaceId === ctx.workspaceId);
-    for (const bot of team) {
-      if (bot.installations.some((item) => item.id === installation.id)) continue;
-      await Effect.runPromise(ctx.data.putAgent({ ...bot, installations: [...bot.installations, installation], updatedAt: new Date().toISOString() }));
-    }
-    return { status: "success", data: { connected: app, bots: team.length } };
-  },
+        code={`export async function connectApp(foundry, person, app, { tokens, identity, alwaysAllow }) {
+  const account = accountFor(person, app, identity);
+  await saveAccount(account, tokens);                          // your store; Foundry reads it, never writes it
+  if (app === "gmail") {
+    await foundry.putRoute(gmailRoutes(account.id).in);        // new mail
+    await foundry.putRoute(gmailRoutes(account.id).out);       // sending
+  }
+  for (const bot of await foundry.agents()) {                  // apps are the person's: every bot gets it
+    if (bot.workspaceId !== person.id) continue;
+    await foundry.install(bot.id, installationFor(account, alwaysAllow));
+    if (app === "gmail") await foundry.putBinding(sendBinding(bot.id, account.id));
+  }
+  return account;
 }`}
       />
       <p>
-        App credentials stay out of the bot. Foundry asks an{" "}
-        <Link href="/foundry/docs/applications">account session</Link> for each operation, the way
-        Grok Bot fills a saved login by reference.
+        Foundry reads accounts through your account directory (<code>services</code> in{" "}
+        <code>foundry.application.ts</code>), keeps routes and bindings in{" "}
+        <code>fileTopologyStore</code>, and asks <code>accountSessions</code> for each operation
+        (<code>mcp:connect</code>, <code>gmail:send</code>, <code>gmail:watch</code>), which refreshes
+        tokens as they expire. That is the way Grok Bot fills a saved login by reference.
       </p>
 
-      <h2 id="step-5">5. Bots pass work over the mesh</h2>
+      <h2 id="step-5">5. Bots read their apps in code</h2>
+      <p>
+        The REPL turns each installed app&apos;s reads into a group of functions. Sales Outbound
+        finds this week&apos;s signups in one program instead of a chain of tool calls, and only
+        the result comes back into context:
+      </p>
+      <CodeBlock
+        filename="what Sales Outbound runs"
+        language="javascript"
+        code={`execute_js({ code: \`
+  const found = gmail.search_threads({ query: "subject:signup" });
+  found.threads.map((thread) => thread.latest.subject)
+\` })
+// → ["New signup: Dana Lee (Northwind)", "New signup: Ravi Patel (Globex)"]`}
+      />
+      <p>
+        Writes stay direct tools, so Maya can see them: the send waits for her, and filing a
+        Linear issue runs because she always allows it. A person with ten connected apps does not
+        put ten catalogues in context: <code>keepDirect: false</code> keeps the reads in code.
+      </p>
+
+      <h2 id="step-6">6. Bots pass work over the mesh</h2>
       <p>
         <code>mesh</code> gives every bot the <Link href="/foundry/docs/multi-agent#mesh">Glove
         Mesh tools</Link>, hosted by Foundry. Its peers are the other bots in its workspace, so
         a bot only ever sees its owner&apos;s team. The main bot lists them, picks the one whose
-        job fits, and sends it the task by id. Bug Triage passes the fix to Engineer the same way.
-        Each final answer comes back to the conversation that sent the work, as a new turn. A
-        handoff names the output (a path under <code>/workspace</code>), what is done, the
-        evidence, open questions and the next owner.
+        job fits, and sends it the task by id. Bug Triage files the bug in Linear and passes the
+        fix to Engineer the same way. Each final answer comes back to the conversation that sent
+        the work, as a new turn.
       </p>
       <CodeBlock
         filename="what the main bot receives"
@@ -260,7 +279,7 @@ Fixed: Patched on branch fix/empty-export: export returns an empty file for an e
         looping.
       </p>
 
-      <h2 id="step-6">6. One computer, one skill library</h2>
+      <h2 id="step-7">7. One computer, one skill library</h2>
       <p>
         The computer is a working environment saved per workspace with Foundry&apos;s own
         persistence, so files one bot writes, another can read:
@@ -282,13 +301,14 @@ Fixed: Patched on branch fix/empty-export: export returns an empty file for an e
         a routine is a schedule the bot sets with <code>glove_foundry_schedule</code>.
       </p>
 
-      <h2 id="step-7">7. Approvals and sign-ins</h2>
+      <h2 id="step-8">8. Approvals and sign-ins</h2>
       <p>
-        Drafting is free; sending waits. <code>send_email</code> in the Gmail app has{" "}
+        Drafting is free; sending waits. The Gmail send tool comes from the transmission&apos;s{" "}
         <code>requiresPermission</code>, so Foundry records the exact email, holds the run, and
-        resumes it when Maya answers in the inspector, through the API or in your app. A sign-in
-        uses the same mechanism: <code>request_sign_in</code> asks for approval, and approving
-        it is Maya doing that one step on the shared computer. The bot never sees the password.
+        resumes it when Maya answers in the inspector, through the API or in your app.
+        &ldquo;Always allow&rdquo; for an app&apos;s tool is a write to the installation&apos;s{" "}
+        <code>alwaysAllow</code>. A sign-in uses the same mechanism: <code>request_sign_in</code>{" "}
+        asks for approval, and approving it is Maya doing that one step on the shared computer.
         A message from Maya while a bot works can redirect it with{" "}
         <Link href="/foundry/docs/approvals#steering">steering</Link>.
       </p>
@@ -296,60 +316,57 @@ Fixed: Patched on branch fix/empty-export: export returns an empty file for an e
         filename="your app"
         language="typescript"
         code={`const [pending] = await foundry.approvals({ status: "pending" });
-// { toolName: "send_email", agentId: "maya-bot-1", input: { draftId: "draft_1a2b3c4d" }, … }
+// { toolName: "glove_app_gmail__gmail_send", agentId: "maya-bot-1",
+//   input: { routeId: "maya-gmail-out", payload: { to: "dana@example.com", subject: "Quick intro", … } }, … }
 await foundry.resolveApproval(pending.id, "approve");`}
       />
 
-      <h2 id="step-8">8. Tag it on X</h2>
+      <h2 id="step-9">9. New mail reaches the main bot</h2>
       <p>
-        X sends mentions to a webhook. A transmission turns X&apos;s body into a typed mention.
-        Only a main bot with Maya&apos;s X user id in its data gets the playbook, and its
-        predicate matches only her posts, so one bot account serves everyone and a
-        stranger&apos;s mention starts nothing:
+        The <code>gmail-watch</code> connection runs once per connected account, and only while a
+        bot has Gmail installed and its playbook wants mail. It calls <code>users.watch</code>{" "}
+        daily (Google requires it at least every 7 days), pulls the Pub/Sub subscription, reads{" "}
+        <code>history.list</code> with Maya&apos;s token, and passes each message in, claimed once by
+        its Gmail id. The playbook puts it in the main bot&apos;s thread:
       </p>
       <CodeBlock
         filename="agents/bot/playbook.ts"
         language="typescript"
-        code={`export function mentionsFrom(authorId: string) {
+        code={`export function newMailFor(accountId: string) {
+  const routes = gmailRoutes(accountId);
   return composePlaybook({
-    name: "x-mentions",
-    transmission: xMentions,
-    match: { event: mention, routes: [xMentionsIn], predicate: { definition: fromOwner, parameters: { authorId } } },
-    directives: [{
-      action: takeTask,
-      instruction: "First reply on X with reply_on_x: one short sentence saying you are on it. Then do the work in this thread: hand it to the right bot.",
-    }],
-    applications: [xApp],
+    name: "new-mail",
+    transmission: gmail,
+    match: { event: mailReceived, routes: [routes.in] },
+    directives: [{ action: readMail, instruction: "New mail. If it needs an answer, reply from your owner's address with the Gmail send tool …" }],
+    applications: [gmailApp],
+    outbound: [{ route: routes.out, application: gmailApp, instruction: "Reply in the same Gmail thread." }],
   });
 }`}
       />
-      <p>
-        <code>reply_on_x</code> asks the account session for the operation; the token never
-        enters the bot&apos;s process. The forwarder (<code>scripts/x-webhook.ts</code>) answers
-        X&apos;s CRC check, rejects deliveries without a valid signature and fires the route with{" "}
-        <code>conversationKey: &quot;main&quot;</code>, so the mention joins the main bot&apos;s thread.
-      </p>
 
-      <h2 id="run">9. Run it</h2>
+      <h2 id="run">10. Run it</h2>
       <CodeBlock
         filename="terminal"
         language="bash"
         code={`pnpm --filter glove-foundry-bot-crew verify
 
-1. Chief (maya-main) is Maya's main bot, with gmail and sheets connected
+1. Chief (maya-main) is Maya's main bot, with gmail (maya-gmail); the Gmail watch is connected
 2. "New bot" became "Sales Outbound": Renamed to Sales Outbound. I'll start on tonight's batch.
-3. Bug Triage asked for the ticket tracker; after Maya connected it, all 4 of her bots have it
+3. Bug Triage asked for Linear; once Maya signed in, all 4 of her bots have it
 4. in the main thread: Bug Triage: Fixed: Patched on branch fix/empty-export: …
 5. after approval: Sent the intro to dana@example.com.
 6. after Maya signed in: Signed in to Salesforce. 12 open deals pulled.
 7. skill monday-signups saved for the team; routine every Monday at 09:00
 8. Offsite crew: both bots answered in the group chat
-9. on X, as the bot: "On it. Bug Triage has this; results will be in your main thread."; a stranger's tag started nothing`}
+9. new mail: Replied to Lena Park about pricing.`}
       />
       <p>
         With no API key every bot runs a short script instead of a model, chosen from its data,
-        so this checks the wiring, not the judgment. Add <code>ANTHROPIC_API_KEY</code> and run{" "}
-        <code>pnpm dev</code> to try it with real models in the inspector.
+        and Maya&apos;s accounts are samples on local MCP servers, so this checks the wiring, not
+        the judgment. Add <code>ANTHROPIC_API_KEY</code> and run <code>pnpm dev</code> to try it
+        with real models, and <code>pnpm connect &lt;person&gt; gmail</code> to connect a real
+        account.
       </p>
 
       <h2 id="deploy">Deploy on Kuiper</h2>
@@ -361,38 +378,42 @@ kuiper projects create crew && kuiper use crew
 kuiper units create crew
 
 kuiper providers add anthropic --key -            # once per organisation
-kuiper secrets set X_BOT_TOKEN=-
+kuiper secrets set GOOGLE_CLIENT_SECRET=- GOOGLE_SERVICE_ACCOUNT_JSON=- LINEAR_CLIENT_SECRET=-
 kuiper env set -u crew CREW_DATA_DIR=/data \\
   'ANTHROPIC_API_KEY=\${{models.API_KEY}}' \\
   'ANTHROPIC_BASE_URL=\${{models.ANTHROPIC_BASE_URL}}' \\
-  'X_BOT_TOKEN=\${{secrets.X_BOT_TOKEN}}'
+  GOOGLE_CLIENT_ID=… 'GOOGLE_CLIENT_SECRET=\${{secrets.GOOGLE_CLIENT_SECRET}}' \\
+  GMAIL_PUBSUB_TOPIC=… GMAIL_PUBSUB_SUBSCRIPTION=… \\
+  'GOOGLE_SERVICE_ACCOUNT_JSON=\${{secrets.GOOGLE_SERVICE_ACCOUNT_JSON}}' \\
+  LINEAR_CLIENT_ID=… 'LINEAR_CLIENT_SECRET=\${{secrets.LINEAR_CLIENT_SECRET}}'
 
 kuiper deploy --source . -u crew --wait
 kuiper dashboard -u crew --enable                 # inspector login`}
       />
       <ul>
         <li><strong>Models</strong> go through Kuiper&apos;s model gateway. The provider key stays with the organisation, and each call is counted with tokens and cost.</li>
-        <li><strong>State</strong> (bots, threads, transcripts, memory, skills, the computers, schedules) sits on the <code>/data</code> disk and survives redeploys. A new bot is a new row there, not a redeploy.</li>
+        <li><strong>State</strong> (bots, threads, accounts and tokens, routes and bindings, transcripts, memory, skills, the computers, schedules) sits on the <code>/data</code> disk and survives redeploys. A new bot or a new connection is a write there, not a redeploy.</li>
+        <li><strong>New mail needs nothing public.</strong> The Gmail watch pulls its subscription from inside the unit.</li>
         <li><strong>The API and inspector</strong> are locked by the <code>requestAuthorization</code> adapter in <code>foundry.application.ts</code>.</li>
-        <li><strong>The X forwarder</strong> runs as a second unit from the same source, with <code>--start-command &quot;pnpm x-webhook&quot;</code>. It is the only public way in for X, and it reaches Foundry at <code>{"${{crew.INTERNAL_URL}}"}</code>. The example&apos;s README has the commands.</li>
         <li><strong>A real computer.</strong> Swap <code>agents/bot/computer.ts</code> for a <Link href="/foundry/docs/kuiper#services">Kuiper sandbox and browser</Link> per person, so sign-ins carry over between bots.</li>
       </ul>
 
       <h2 id="differences">Where it differs</h2>
       <ul>
+        <li>Grok Bot connects thousands of apps. Here there are two; any app with a hosted MCP server is another file like <code>linear.app.ts</code>, and an aggregator&apos;s MCP server can stand in for many at once.</li>
         <li>Skills are taught by describing a workflow, not by recording the screen with Teach a task.</li>
         <li>There are no Team Bots: one bot shared with a team, a private chat per teammate, running on each teammate&apos;s computer.</li>
-        <li>Approvals are per tool. Grok Bot also runs an auto-review model with &ldquo;Ask first&rdquo; and &ldquo;Allow automatically&rdquo; rules; the <Link href="/foundry/docs/rebuilds/openai-dots">Dots rebuild</Link> shows rules kept as data.</li>
-        <li>Routines run on schedules. Grok Bot can also start one from an event, which here would be a transmission and a playbook.</li>
+        <li>Approvals are per tool, with &ldquo;Always allow&rdquo; kept per installation. Grok Bot also runs an auto-review model with &ldquo;Ask first&rdquo; and &ldquo;Allow automatically&rdquo; rules; the <Link href="/foundry/docs/rebuilds/openai-dots">Dots rebuild</Link> shows rules kept as data.</li>
         <li>The computer is a Glove working environment (files and scripts) until you swap in a Kuiper sandbox and browser.</li>
       </ul>
 
       <h2 id="sources">Sources</h2>
       <ul>
         <li><a href="https://cursor.com/docs/grok-bot">Grok Bot</a>, <a href="https://cursor.com/docs/grok-bot/get-started">Get started</a>, <a href="https://cursor.com/docs/grok-bot/work">Work with Grok Bot</a>, <a href="https://cursor.com/docs/grok-bot/teams">Teams</a> and <a href="https://cursor.com/docs/grok-bot/security">Security</a>, Cursor docs</li>
-        <li><a href="https://docs.x.ai/grok-bot/skills-routines-and-automations">Skills and routines</a> and <a href="https://docs.x.ai/grok-bot/tag-on-x">Tag @bot on X</a>, xAI docs</li>
+        <li><a href="https://docs.x.ai/grok-bot/skills-routines-and-automations">Skills and routines</a>, xAI docs</li>
         <li><a href="https://x.ai/bot/guides/grok-bot-101">Grok Bot 101</a>, xAI</li>
-        <li><a href="https://flaviocopes.com/grok-bot/">A deep dive into Grok Bot</a>, Flavio Copes</li>
+        <li><a href="https://developers.google.com/workspace/gmail/api/guides/push">Push notifications</a>, <a href="https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.history/list">history.list</a> and <a href="https://developers.google.com/workspace/gmail/api/reference/mcp">the Gmail MCP server</a>, Google</li>
+        <li><a href="https://linear.app/docs/mcp">Linear MCP server</a>, Linear</li>
       </ul>
     </article>
   );

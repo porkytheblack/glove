@@ -13,21 +13,21 @@ const pages = [
     href: "/foundry/docs/rebuilds/grok-bot",
     title: "Grok Bot",
     by: "xAI",
-    shape: "Bots a person makes and names, all instances of one definition. A main bot takes everyday requests; bots pass work over the mesh, share group chats, one computer, the account's apps and a skill library.",
+    shape: "Bots a person makes and names, all instances of one definition, working in the apps the person connects (Gmail, Linear). A main bot takes everyday requests and new mail; bots pass work over the mesh and share group chats, one computer and a skill library.",
     example: "foundry-bot-crew",
   },
   {
     href: "/foundry/docs/rebuilds/claude-duet",
     title: "Claude Duet",
     by: "Anthropic",
-    shape: "One partner in one thread. A morning brief and quiet check-ins on its own clock, approvals before it acts, and a guard on everything it sends.",
+    shape: "One partner in one thread, working in the person's Gmail and Calendar. A morning brief and quiet check-ins on its own clock, new mail as it lands, approvals before it acts, and a guard on everything it sends.",
     example: "foundry-proactive-partner",
   },
   {
     href: "/foundry/docs/rebuilds/openai-dots",
     title: "OpenAI Dots",
     by: "OpenAI",
-    shape: "A dot you name, holding your ongoing responsibilities. Read-only research between conversations, an auto-review with your Custom Rules before every action, its own computer, and the same dot in the app, Slack or a call.",
+    shape: "A dot you name, holding your ongoing responsibilities and working from a connected mailbox. Read-only research between conversations, an auto-review with your Custom Rules before every action, its own computer, and the same dot in the app, Slack or a call.",
     example: "foundry-standing-agents",
   },
 ];
@@ -74,10 +74,11 @@ export default function RebuildsPage() {
           <tr><td><strong>Who you talk to</strong></td><td>Any bot, or your main bot, which routes to the others</td><td>One partner</td><td>Your dot, in the app, Slack or a call</td></tr>
           <tr><td><strong>Instances</strong></td><td>Every bot a person makes, all of one definition</td><td>A partner and a computer per person</td><td>A dot and a builder per person; specialist dots per organisation</td></tr>
           <tr><td><strong>Conversations</strong></td><td>One per chat, group chats included; one per mesh thread</td><td>Exactly one</td><td>One per channel, sharing memory</td></tr>
-          <tr><td><strong>What wakes it</strong></td><td>You, an @-mention on X, a routine&apos;s schedule</td><td>You, the morning brief, check-ins</td><td>You, a Slack message, the research schedule</td></tr>
+          <tr><td><strong>What wakes it</strong></td><td>You, new mail, a routine&apos;s schedule</td><td>You, new mail, the morning brief, check-ins</td><td>You, new mail, a Slack message, the research schedule</td></tr>
+          <tr><td><strong>Connected apps</strong></td><td>Gmail and Linear, per person</td><td>Gmail and Google Calendar</td><td>Gmail (the support mailbox)</td></tr>
           <tr><td><strong>Who does long work</strong></td><td>The bot whose job fits, over the mesh</td><td>Its computer, over the mesh</td><td>The builder, over the mesh</td></tr>
           <tr><td><strong>What waits for you</strong></td><td>Sends, new skills, new apps and sign-ins</td><td>Send, pay, sign, delete</td><td>Whatever your Custom Rules say to ask about</td></tr>
-          <tr><td><strong>The safety idea</strong></td><td>Your bots only see your workspace; only your posts reach your main bot</td><td>A guard on everything outbound</td><td>Read-only research, and a review before acting</td></tr>
+          <tr><td><strong>The safety idea</strong></td><td>Your bots only see your workspace and your accounts</td><td>A guard on everything outbound</td><td>Read-only research, and a review before acting</td></tr>
         </tbody>
       </table>
 
@@ -88,7 +89,8 @@ export default function RebuildsPage() {
         <li><strong>The mesh</strong> between agents in a workspace, addressed by instance id, with replies coming back on their own. See <Link href="/foundry/docs/multi-agent#mesh">Multi-agent systems</Link>.</li>
         <li><strong>Schedules</strong> that start runs nobody asked for. See <Link href="/foundry/docs/automation#schedules">Playbooks, schedules &amp; sleep</Link>.</li>
         <li><strong>Approvals</strong> on any tool that changes something outside. See <Link href="/foundry/docs/approvals">Approvals &amp; steering</Link>.</li>
-        <li><strong>Transmissions and playbooks</strong> for messages from outside, such as X or Slack. See <Link href="/foundry/docs/applications">Apps &amp; transmissions</Link>.</li>
+        <li><strong>Connected apps, the same in all three.</strong> Each provider is a Foundry app installed with the person&apos;s account: its MCP server for reads, which the agent calls as functions in code; a transmission for sends, delivered by Foundry after approval; and a connection that brings new mail into a playbook. Accounts and tokens stay in your own store. See <Link href="/foundry/docs/applications#people-connect">Apps &amp; transmissions</Link>.</li>
+        <li><strong>Transmissions and playbooks</strong> for messages from outside, such as Gmail or Slack. See <Link href="/foundry/docs/automation">Playbooks, schedules &amp; sleep</Link>.</li>
         <li><strong>Kuiper</strong> for the disk the state lives on, the model gateway, and the lock on the API. See <Link href="/foundry/docs/kuiper">Foundry on Kuiper</Link>.</li>
       </ul>
 

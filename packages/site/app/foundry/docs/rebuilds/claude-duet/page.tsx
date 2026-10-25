@@ -57,16 +57,17 @@ export default function ClaudeDuetRebuildPage() {
           <tr><td>One thread</td><td>One instance and one conversation per person; schedules attach to it</td><td><code>lib/onboarding.ts</code></td></tr>
           <tr><td>Text or voice</td><td><code>voiceCall</code> over the same assembled agent</td><td><code>agents/partner/call.ts</code></td></tr>
           <tr><td>Its own computer</td><td>A <code>Computer</code> instance in the person&apos;s workspace, reached over the mesh</td><td><code>agents/computer/</code></td></tr>
-          <tr><td>Asks before acting</td><td><code>requiresPermission</code> on send, pay, sign and delete</td><td><code>agents/partner/actions.ts</code></td></tr>
+          <tr><td>Asks before acting</td><td>Gmail&apos;s send, and <code>requiresPermission</code> on pay, sign and delete</td><td><code>agents/partner/send.ts</code>, <code>actions.ts</code></td></tr>
           <tr><td>Off limits even with approval</td><td>No tool exists for it</td><td><code>agents/partner/actions.ts</code></td></tr>
           <tr><td>Card and ID numbers never leave; health and money only when asked</td><td>A strict tier in code, a sensitive tier from <code>glove-classifier</code></td><td><code>lib/guard.ts</code></td></tr>
-          <tr><td>Never sees passwords</td><td>Connectors hold credentials; the agent gets tools, not tokens</td><td><code>lib/connectors.ts</code></td></tr>
+          <tr><td>Your connected apps</td><td>Gmail and Google Calendar apps installed with the person&apos;s accounts: Google&apos;s MCP servers for reads, the Gmail transmission for sending, a connection for new mail</td><td><code>agents/partner/apps/</code></td></tr>
+          <tr><td>Never sees passwords</td><td>Tokens stay in your store; every app operation asks <code>accountSessions</code></td><td><code>lib/accounts.ts</code></td></tr>
         </tbody>
       </table>
 
       <Blueprint
-        uses={["Definitions", "Instances", "Conversations", "Schedules", "Memory", "Content skills", "Permission gates", "Approvals", "Classifiers", "Foundry mesh", "Working environment", "Voice calls", "Request authorization", "Model gateway", "Persistent disk", "Kuiper inbox", "Kuiper sandboxes"]}
-        write={["The connectors to your person's apps", "Where a person's partner, computer and preferences are created", "Where notifications go", "The guard's rules"]}
+        uses={["Definitions", "Instances", "Conversations", "Schedules", "Installable capabilities", "Applications and connections", "MCP servers", "Transmissions", "Playbooks", "Code as the tool surface", "Memory", "Content skills", "Permission gates", "Approvals", "Classifiers", "Foundry mesh", "Working environment", "Voice calls", "Request authorization", "Model gateway", "Persistent disk", "Kuiper sandboxes"]}
+        write={["Your account store and OAuth callback", "Where a person's partner, computer and preferences are created", "Where notifications go", "The guard's rules"]}
       />
 
       <h2 id="step-1">1. One partner per person, as data</h2>
@@ -98,21 +99,36 @@ export function computerFor(person: Pick<Person, "id">) {
   return { id: \`\${person.id}-computer\`, workspaceId: person.id, name: "Computer", description: "The partner's own computer, with files and the web. …" };
 }
 
-export const threadFor = (person: Pick<Person, "id">) => ({ id: \`\${person.id}-thread\`, workspaceId: person.id, title: "Partner" });`}
+export const threadFor = (person: Pick<Person, "id">) => ({
+  id: \`\${person.id}-thread\`, workspaceId: person.id, title: "Partner",
+  context: { conversationKey: "thread" },   // new mail joins it through this key
+});`}
       />
       <p>
-        The example seeds Ada&apos;s account with <code>defineAgentInstance</code>, and{" "}
-        <code>scripts/onboard.ts</code> creates the same records for anyone else:
+        The example seeds Ada&apos;s account with <code>defineAgentInstance</code>, with sample
+        Gmail and Calendar accounts installed on her partner; <code>scripts/onboard.ts</code> and{" "}
+        <code>scripts/connect.ts</code> create the same records for anyone else:
       </p>
       <CodeBlock
-        filename="foundry.application.ts"
+        filename="foundry.application.ts (excerpt)"
         language="typescript"
-        code={`const ada = defineAgentInstance(partner, partnerFor(DEMO_PERSON));
+        code={`const ada = defineAgentInstance(partner, {
+  ...partnerFor(DEMO_PERSON),
+  installations: [installationFor(adaGmail), installationFor(adaCalendar)],
+});
 
 export const data = new FileFoundryDataAdapter({
   file: dataPath("foundry.json"),
   agents: [ada, defineAgentInstance(computer, computerFor(DEMO_PERSON))],
   conversations: [createConversation(ada, threadFor(DEMO_PERSON))],
+});
+
+export default defineApplication({
+  name: "Proactive partner",
+  data,
+  services,                                  // your accounts; routes and bindings in a file
+  routes: [gmailRoutes(adaGmail.id).in, gmailRoutes(adaGmail.id).out],
+  bindings: [sendBinding(ada.id, adaGmail.id)],
 });`}
       />
       <p>The definition only says what a partner can be. Every part it names lives beside it:</p>
@@ -121,20 +137,32 @@ export const data = new FileFoundryDataAdapter({
         language="typescript"
         code={`export default defineAgent({
   description: "Looks after one person's inbox, calendar and errands, and reaches out before they ask",
-  components: composeAgent(personal),
+  components: composeAgent(gmailApp, calendarApp, personal),   // each app installed with the person's account
 
-  model: (_agent, context) => (isCall(context) ? callModel() : partnerModel()),
-  systemPrompt: (_agent, context) => partnerPrompt(context.agentInstance.context, isCall(context)),
+  model: (_agent, context) => (isCall(context) ? callModel() : partnerModel(context.agentInstance.workspaceId)),
+  systemPrompt: (_agent, context) => partnerPrompt(context, isCall(context)),
   store: ({ conversationId }) => FileStore.open(conversationId),
   memory: [personal],
 
-  tools: (_agent, ctx) => [...connectorTools, ...actionTools(ctx), notifyTool],
+  tools: () => [...actionTools(), notifyTool],                  // pay, sign, delete; notify_person
   schedules: (_agent, { agentInstance }) => partnerSchedules(agentInstance.context),
-  configure: async (agent) => {
+  playbooks: (_agent, { installations }) => {                   // new mail, as it arrives
+    const mail = installations.find((item) => item.kind === "application" && item.id === gmailApp.id);
+    return mail?.accountId ? [newMailFor(mail.accountId)] : [];
+  },
+  repl: () => defineRepl({                                      // the apps' reads, as functions
+    language: "javascript",
+    session: JsSession.create(),
+    mount: { discovery: "auto" },
+    programmaticTools: { select: ({ apps }) => apps.flatMap((app) => app.tools.filter((tool) => tool.readOnly)), keepDirect: false },
+  }),
+  configure: async (agent, ctx) => {
     useReadSkill(agent, await loadSkills());
+    guardSends(agent, ctx);                                     // Gmail's send, behind the guard
   },
 
   mesh: true,   // long jobs go to its computer, another agent in the workspace
+  accountSessions,
 
   run: (agent, context) => (isCall(context) ? call(agent, context) : context.defaultRun()),
 });`}
@@ -158,7 +186,7 @@ export const data = new FileFoundryDataAdapter({
     defineSchedule({
       name: "morning-brief",
       timing: { kind: "cron", expression: \`\${Number(minute)} \${Number(hour)} * * *\`, timezone },
-      message: "Morning brief. Read the inbox and today's calendar, then send one short brief with notify_person: what needs them today, in order, and any clash you can fix. …",
+      message: "Morning brief. Read the inbox and today's calendar, then send one short brief with notify_person: what needs them today, in order, and any clash you can fix. …",   // one program over gmail.* and calendar.*
     }),
     defineSchedule({
       name: "check-in",
@@ -201,40 +229,42 @@ export const data = new FileFoundryDataAdapter({
 };`}
       />
       <p>
-        <code>read_inbox</code> returns each email once, so a check-in sees only what arrived since
-        the last look. The model decides what is urgent; like Duet, it can misjudge, and mail that
-        lands between check-ins waits for the next one.
+        New mail does not wait for a check-in. The Gmail app&apos;s connection watches the
+        person&apos;s inbox (<code>users.watch</code>, Pub/Sub, <code>history.list</code>) and passes
+        each message into the one thread through a playbook, where the partner decides whether it
+        needs them now: a failed payment notifies, a newsletter gets nothing. The model decides
+        what is urgent; like Duet, it can misjudge.
       </p>
 
       <h2 id="step-4">4. Ask before acting, and never do some things</h2>
       <p>
-        Sending, paying, signing and deleting are tools with <code>requiresPermission</code>.
-        Foundry records the exact input, holds the run and resumes it when the person answers.
-        The function form decides per call: a message the guard will refuse is not worth asking
-        about.
+        Email goes out through the Gmail app&apos;s transmission: Foundry delivers it from the
+        person&apos;s address, in its own process, after they approve the exact message. Paying,
+        signing and deleting are tools with <code>requiresPermission</code>. Foundry records the
+        exact input, holds the run and resumes it when the person answers.
+      </p>
+      <p>
+        The partner puts its guard around Gmail&apos;s send in <code>configure</code>. The wrapper
+        decides whether to ask (a message the guard will refuse is not worth asking about), and
+        its <code>do</code> calls the original send, so delivery still happens in Foundry:
       </p>
       <CodeBlock
-        filename="agents/partner/actions.ts"
+        filename="agents/partner/send.ts"
         language="typescript"
-        code={`{
-  name: "send_message",
-  inputSchema: z.object({ to: z.string(), via: z.enum(["text", "email"]), text: z.string().min(1) }),
-  // A message the guard will refuse is not worth asking about.
-  requiresPermission: ({ text }) => !strictlyBlocked(text),
-  async do(message) {
-    // The person's own words, when they started this run, tell the guard what they asked for.
-    const reason = await blockedBecause(message.text, ctx.request.source?.kind === "direct" ? ctx.messageText : undefined);
-    if (reason) return blocked(reason);
-    await record({ kind: "message", ...message });
-    return { status: "success", data: { sent: true, to: message.to } };
-  },
-},
-{
-  name: "pay_invoice",
-  inputSchema: z.object({ invoiceId: z.string(), payee: z.string(), amount: z.number().positive(), currency: z.string().default("USD") }),
-  requiresPermission: true,
-  async do(payment) { /* your payments provider */ },
-},`}
+        code={`export function guardSends(agent: IGloveRunnable, ctx: Pick<AgentAssemblyContext, "request" | "messageText">) {
+  aroundTool(agent, installedApplicationTransmissionToolName(gmailApp, gmail), (send) => ({
+    name: send.name,
+    description: \`\${send.description} Never include card or government ID numbers.\`,
+    jsonSchema: send.jsonSchema,
+    requiresPermission: (input) => !strictlyBlocked(textOf(input)),
+    async do(input, _display, _glove, signal) {
+      // The person's own words, when they started this run, tell the guard what they asked for.
+      const reason = await blockedBecause(textOf(input), ctx.request.source?.kind === "direct" ? ctx.messageText : undefined);
+      if (reason) return { status: "error", data: null, message: \`Blocked: \${reason}. Tell the person you will not send it, and why.\` };
+      return send.run(input, signal);
+    },
+  }));
+}`}
       />
       <p>
         Trading securities and moving money between accounts are off limits even with
@@ -242,7 +272,7 @@ export const data = new FileFoundryDataAdapter({
         tool for it, and to say so in the prompt so it can tell the person plainly.
       </p>
 
-      <h2 id="step-5">5. A guard on everything outbound, in two tiers</h2>
+      <h2 id="step-5">5. A guard on every email, in two tiers</h2>
       <p>
         The strict tier is code, so it is sure and free: card numbers (a Luhn check) and
         government ID numbers never leave, whoever asked. The sensitive tier needs judgment, so
@@ -308,23 +338,23 @@ export async function blockedBecause(text: string, request?: string): Promise<st
         language="bash"
         code={`pnpm --filter glove-foundry-proactive-partner verify
 
-on Ada's clock: morning brief 07:30, check-ins 10:00, 13:00, 16:00, 19:00 (America/New_York)
-pushed: "Morning brief"
-check-in: (nothing new), no notification
-pushed: "Payment failed: INV-88"
-waiting for approval: pay_invoice
-in Ada's thread: Paid INV-88: $240 to Acme Hosting.
-in Ada's thread: I won't send card numbers, even to Sam. I can send him the hotel's booking link instead.
-in Ada's thread: Done: Built dashboard.html: October invoices by vendor, $3,410 total, one overdue (INV-88). …
-in Ada's thread: I can't move money between accounts, even with your approval. That one is yours to do in your bank's app.
-brief moved to 08:15 (15 8 * * *)
-
-Partner verified: brief, quiet and urgent check-ins, approval, guard, computer over the mesh, off-limits, preferences as data.`}
+1. on Ada's clock: morning brief 07:30, check-ins 10:00, 13:00, 16:00, 19:00 (America/New_York); her Gmail watch is connected
+2. pushed: "Morning brief", from her inbox and calendar read in code
+3. check-in: (nothing new), no notification
+4. new mail, pushed: "Payment failed: INV-88"
+5. waiting for approval: pay_invoice
+   in Ada's thread: Paid INV-88: $240 to Acme Hosting.
+6. in Ada's thread: Told Leo 1:30 works.
+7. in Ada's thread: I won't send card numbers, even to Sam. I can send him the hotel's booking link instead.
+8. in Ada's thread: Done: Built dashboard.html: October invoices by vendor, $3,410 total, one overdue (INV-88). …
+9. in Ada's thread: I can't move money between accounts, even with your approval. That one is yours to do in your bank's app.
+10. brief moved to 08:15 (15 8 * * *)`}
       />
       <p>
         The script fires each schedule the way its activation would: a run in the thread with{" "}
         <code>source: {"{ kind: \"activation\" }"}</code>. With no API key the partner runs a short
-        script instead of a model, so this checks the wiring, not the judgment.
+        script instead of a model, and Ada&apos;s accounts are samples on local MCP servers with
+        Google&apos;s tool names, so this checks the wiring, not the judgment.
       </p>
 
       <h2 id="deploy">Deploy on Kuiper</h2>
@@ -339,21 +369,24 @@ kuiper providers add anthropic --key -            # once per organisation
 kuiper env set -u partner PARTNER_DATA_DIR=/data \\
   'ANTHROPIC_API_KEY=\${{models.API_KEY}}' \\
   'ANTHROPIC_BASE_URL=\${{models.ANTHROPIC_BASE_URL}}' \\
-  PUSH_URL=https://ntfy.sh/…
+  PUSH_URL=https://ntfy.sh/… \\
+  GOOGLE_CLIENT_ID=… 'GOOGLE_CLIENT_SECRET=\${{secrets.GOOGLE_CLIENT_SECRET}}' \\
+  GMAIL_PUBSUB_TOPIC=… GMAIL_PUBSUB_SUBSCRIPTION=… \\
+  'GOOGLE_SERVICE_ACCOUNT_JSON=\${{secrets.GOOGLE_SERVICE_ACCOUNT_JSON}}'
 
 kuiper deploy --source . -u partner --wait
 kuiper dashboard -u partner --enable              # inspector login`}
       />
       <ul>
-        <li><strong>Schedules</strong> are stored on the <code>/data</code> disk with everything else, so the brief and check-ins survive restarts and redeploys.</li>
-        <li><strong>Email.</strong> Give the partner its own address with <code>kuiper inbox create</code> and point <code>read_inbox</code> at it with <code>inboxTools</code> from <code>@kuiper-sh/inbox/glove</code>.</li>
+        <li><strong>Schedules, accounts and tokens</strong> are stored on the <code>/data</code> disk with everything else, so the brief, the check-ins and connected apps survive restarts and redeploys.</li>
+        <li><strong>New mail needs nothing public.</strong> The Gmail watch pulls its Pub/Sub subscription from inside the unit.</li>
         <li><strong>The computer.</strong> Swap <code>agents/computer/workspace.ts</code> for a Kuiper sandbox and browser per person, so a sign-in carries over. See <Link href="/foundry/docs/kuiper#services">Foundry on Kuiper</Link>.</li>
         <li><strong>Usage.</strong> Background runs cost tokens like any other. Kuiper&apos;s usage page shows them per unit, and a budget can cap them.</li>
       </ul>
 
       <h2 id="differences">Where it differs</h2>
       <ul>
-        <li>Connectors here are two sample tools over fixtures. Real ones are yours to write, or an MCP server per app.</li>
+        <li>Duet has over 6,000 connectors. Here there are two apps; any app with a hosted MCP server is another file like <code>calendar.app.ts</code>.</li>
         <li>The computer is a Glove working environment with the web, not a full desktop browser, until you swap in a Kuiper browser.</li>
         <li>Notifications go to an ntfy-style endpoint. A real app would send its own push.</li>
       </ul>
@@ -361,6 +394,7 @@ kuiper dashboard -u partner --enable              # inspector login`}
       <h2 id="sources">Sources</h2>
       <ul>
         <li><a href="https://claude.com/resources/articles/claude-duet">Claude Duet</a>, Anthropic</li>
+        <li><a href="https://developers.google.com/workspace/gmail/api/guides/push">Gmail push notifications</a> and <a href="https://developers.google.com/workspace/gmail/api/reference/mcp">the Gmail MCP server</a>, Google</li>
         <li><a href="https://www.macrumors.com/2026/10/21/anthropic-claude-duet/">Anthropic launches Claude Duet, a proactive AI agent</a>, MacRumors</li>
         <li><a href="https://iphoneincanada.ca/2026/10/21/claude-duet-proactive-ai-agent-app">Claude Duet is Anthropic&apos;s answer to Muse, Grok Bot and OpenAI Dots</a>, iPhone in Canada</li>
         <li><a href="https://www.all-ai.de/news/news26top/claude-duet-openai-dot-grok-bot">Claude Duet, OpenAI dot and Grok Bot compared</a>, all-ai.de</li>

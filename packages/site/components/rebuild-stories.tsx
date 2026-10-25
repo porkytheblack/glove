@@ -12,22 +12,22 @@ export function CrewStory() {
     <FlowStory
       id="rgb"
       viewBox="0 0 932 336"
-      label="Every bot is an instance of one definition in the person's workspace: a new bot names itself with take_job, a bot asks to connect an app for the whole account, the main bot passes a bug to Bug Triage over the mesh, which passes the fix to Engineer, replies come back on their own, a group chat reaches two bots, skills are shared in the workspace, sending waits for approval, and a mention on X reaches the main bot"
+      label="Every bot is an instance of one definition in the person's workspace: a new bot names itself with take_job, a bot asks for an app and the person's account goes on every bot, the main bot passes a bug to Bug Triage over the mesh, which files it in Linear and passes the fix to Engineer, replies come back on their own, a group chat reaches two bots, skills are shared in the workspace, sending waits for approval, and new mail reaches the main bot"
       boxes={[
         { id: "maya", x: 16, y: 20, w: 110, h: 64, title: "Maya", sub: "the app" },
-        { id: "x", x: 16, y: 256, w: 110, h: 64, title: "X", sub: "@crewbot …" },
+        { id: "apps", x: 16, y: 256, w: 110, h: 64, title: "Her apps", sub: "Gmail · Linear" },
         { id: "chief", x: 216, y: 110, w: 160, h: 110, title: "Chief", sub: "main bot · primary", tone: "harness" },
-        { id: "triage", x: 486, y: 20, w: 150, h: 80, title: "Bug Triage", sub: "tickets app", tone: "harness" },
-        { id: "engineer", x: 766, y: 20, w: 150, h: 80, title: "Engineer", sub: "no apps", tone: "harness" },
-        { id: "workspace", x: 486, y: 138, w: 150, h: 70, title: "Workspace: maya", sub: "apps · skills · computer", tone: "system", dashed: true },
+        { id: "triage", x: 486, y: 20, w: 150, h: 80, title: "Bug Triage", sub: "files in Linear", tone: "harness" },
+        { id: "engineer", x: 766, y: 20, w: 150, h: 80, title: "Engineer", sub: "fixes on a branch", tone: "harness" },
+        { id: "workspace", x: 486, y: 138, w: 150, h: 70, title: "Workspace: maya", sub: "accounts · skills · computer", tone: "system", dashed: true },
         { id: "sales", x: 486, y: 246, w: 150, h: 80, title: "Sales Outbound", sub: "was “New bot”", tone: "harness" },
         { id: "approval", x: 766, y: 246, w: 150, h: 80, title: "Approval", sub: "Maya says yes", tone: "system" },
       ]}
       edges={[
         { id: "ask", d: "M126,40 L256,40 L256,106", label: "asks", lx: 191, ly: 32 },
         { id: "tell", d: "M236,106 L236,68 L130,68", label: "tells", lx: 183, ly: 84 },
-        { id: "mention", d: "M126,300 L256,300 L256,224", label: "mention", lx: 191, ly: 314 },
-        { id: "ack", d: "M236,224 L236,272 L130,272", label: "reply_on_x", lx: 183, ly: 266 },
+        { id: "mail", d: "M126,300 L256,300 L256,224", label: "new mail", lx: 191, ly: 314 },
+        { id: "read", d: "M236,224 L236,272 L130,272", label: "reads in code", lx: 183, ly: 266 },
         { id: "send", d: "M376,125 L430,125 L430,50 L482,50", label: "mesh", lx: 403, ly: 118 },
         { id: "reply", d: "M482,80 L446,80 L446,145 L380,145", label: "reply", lx: 413, ly: 160 },
         { id: "group", d: "M376,185 L456,185 L456,276 L482,276", label: "@mention", lx: 416, ly: 178 },
@@ -36,7 +36,7 @@ export function CrewStory() {
         { id: "fixed", d: "M762,80 L640,80", label: "fixed", lx: 701, ly: 96 },
         { id: "write", d: "M561,242 L561,212", label: "writes", lx: 569, ly: 230, anchor: "start" },
         { id: "shared", d: "M561,134 L561,104", label: "reads", lx: 569, ly: 122, anchor: "start" },
-        { id: "gate", d: "M636,286 L762,286", label: "send_email", lx: 699, ly: 278 },
+        { id: "gate", d: "M636,286 L762,286", label: "Gmail send", lx: 699, ly: 278 },
       ]}
       steps={[
         {
@@ -48,7 +48,7 @@ export function CrewStory() {
               Maya makes a bot: one <code>createAgent</code> call with no name or job. It asks what
               she wants it around for. She says overnight outbound, so it calls{" "}
               <code>take_job</code>, which writes a name and a description to its own instance.
-              &ldquo;New bot&rdquo; is now Sales Outbound. Nothing was deployed.
+              &ldquo;New bot&rdquo; is now Sales Outbound, with her connected apps. Nothing was deployed.
             </>
           ),
         },
@@ -57,9 +57,9 @@ export function CrewStory() {
           title: "Apps belong to Maya, not to a bot",
           text: (
             <>
-              Bug Triage needs the ticket tracker, so it asks with <code>connect_app</code>. Maya
-              approves by connecting it once, and the app is installed on every one of her
-              bots.
+              Bug Triage needs Linear, so it asks with <code>connect_app</code>. Maya signs in to
+              Linear once; her account is saved in your store and the Linear app is installed with
+              it on every one of her bots.
             </>
           ),
         },
@@ -89,9 +89,9 @@ export function CrewStory() {
         },
         {
           lit: ["triage", "engineer", "fix"],
-          packet: { edge: "fix", label: "ticket T-1" },
+          packet: { edge: "fix", label: "ENG-1" },
           title: "Bots hand work to bots",
-          text: <>Bug Triage files the ticket and sends the fix to Engineer the same way. Any bot can message any other bot on the team.</>,
+          text: <>Bug Triage files the issue in Linear (Maya always allows that) and sends the fix to Engineer the same way. Any bot can message any other bot on the team.</>,
         },
         {
           lit: ["engineer", "triage", "chief", "fixed", "reply"],
@@ -141,21 +141,104 @@ export function CrewStory() {
           title: "Anything that goes out waits",
           text: (
             <>
-              <code>send_email</code> has <code>requiresPermission</code>, so Foundry holds the run
-              with the exact email until Maya approves. <code>request_sign_in</code> works the same
-              way: approving it is Maya signing in, and the bot never sees the password.
+              Sales Outbound finds the signups with <code>gmail.search_threads</code> in code, then
+              calls the Gmail send. Foundry holds the run with the exact email until Maya approves,
+              then delivers it from her address in its own process. <code>request_sign_in</code>{" "}
+              works the same way: approving it is Maya signing in, and the bot never sees the
+              password.
             </>
           ),
         },
         {
-          lit: ["x", "chief", "mention", "ack"],
-          packet: { edge: "mention", label: "@crewbot …" },
-          title: "Tag the bot on X",
+          lit: ["apps", "chief", "mail", "read"],
+          packet: { edge: "mail", label: "Lena: pricing?" },
+          title: "New mail reaches the main bot",
           text: (
             <>
-              A transmission turns X&apos;s webhook into a typed mention. Only main bots get the
-              playbook, and Maya&apos;s matches only her X user id. It replies on X in one line and
-              does the work in her main thread.
+              The Gmail app&apos;s connection watches Maya&apos;s inbox and passes each new message in.
+              Her main bot&apos;s playbook takes it in her main thread; it reads the thread in code
+              and replies in Lena&apos;s thread once Maya approves.
+            </>
+          ),
+        },
+      ]}
+    />
+  );
+}
+
+// ─── One connected app: reads, sends and events through a Foundry app ────────
+
+export function ConnectedAppStory() {
+  return (
+    <FlowStory
+      id="rca"
+      viewBox="0 0 932 300"
+      label="A connected app has three parts, all opened with the person's account: reads go to the provider's MCP server from code, sends wait for approval and Foundry delivers them to the provider's API, and new mail arrives through a connection and a playbook"
+      boxes={[
+        { id: "bot", x: 16, y: 110, w: 150, h: 80, title: "A bot", sub: "Maya's", tone: "harness" },
+        { id: "mcp", x: 330, y: 16, w: 200, h: 64, title: "gmail app · mcp", sub: "reads, drafts", tone: "system" },
+        { id: "outbound", x: 330, y: 118, w: 200, h: 64, title: "gmail app · outbound", sub: "send, after approval", tone: "system" },
+        { id: "connection", x: 330, y: 220, w: 200, h: 64, title: "gmail app · connection", sub: "gmail-watch", tone: "system" },
+        { id: "server", x: 620, y: 16, w: 140, h: 64, title: "Gmail MCP server", sub: "Google" },
+        { id: "api", x: 620, y: 118, w: 140, h: 64, title: "Gmail API", sub: "messages.send" },
+        { id: "push", x: 620, y: 220, w: 140, h: 64, title: "Gmail push", sub: "Pub/Sub" },
+        { id: "sessions", x: 792, y: 118, w: 124, h: 64, title: "accountSessions", sub: "your tokens", dashed: true },
+      ]}
+      edges={[
+        { id: "read", d: "M166,130 L214,130 L214,48 L326,48", label: "in code", lx: 270, ly: 40 },
+        { id: "call", d: "M530,48 L616,48", label: "bearer", lx: 573, ly: 40 },
+        { id: "send", d: "M166,150 L326,150", label: "send", lx: 246, ly: 144 },
+        { id: "deliver", d: "M530,150 L616,150", label: "delivers", lx: 573, ly: 144 },
+        { id: "token", d: "M792,150 L764,150" },
+        { id: "notify", d: "M616,252 L534,252", label: "watch", lx: 575, ly: 246 },
+        { id: "event", d: "M326,262 L91,262 L91,194", label: "new mail", lx: 208, ly: 278 },
+      ]}
+      steps={[
+        {
+          lit: ["bot", "mcp", "server", "read", "call"],
+          packet: { edge: "read", label: "search_threads" },
+          title: "Reads run in code",
+          text: (
+            <>
+              The app&apos;s MCP server is opened with the installation&apos;s account. Its reads are
+              functions in the bot&apos;s REPL, grouped under the app, so one program can search,
+              read and filter, and only the answer comes back into context.
+            </>
+          ),
+        },
+        {
+          lit: ["bot", "outbound", "api", "send", "deliver"],
+          packet: { edge: "send", label: "email to Dana" },
+          title: "Sends wait, then Foundry delivers",
+          text: (
+            <>
+              Google&apos;s server has no send, and a send should not run inside the agent anyway.
+              The transmission&apos;s send tool waits for Maya to approve the exact email; Foundry
+              then delivers it in its own process, for a bot whose binding grants it.
+            </>
+          ),
+        },
+        {
+          lit: ["push", "connection", "bot", "notify", "event"],
+          packet: { edge: "notify", label: "historyId" },
+          title: "New mail comes in",
+          text: (
+            <>
+              Foundry runs the connection once per connected account. It renews{" "}
+              <code>users.watch</code>, pulls Gmail&apos;s notifications, reads what arrived with{" "}
+              <code>history.list</code> and passes each message in; a playbook decides which bot
+              hears it.
+            </>
+          ),
+        },
+        {
+          lit: ["mcp", "outbound", "connection", "sessions", "token"],
+          title: "One account, one boundary",
+          text: (
+            <>
+              All three parts ask <code>accountSessions</code> for an operation on Maya&apos;s
+              account: <code>mcp:connect</code>, <code>gmail:send</code>, <code>gmail:watch</code>.
+              Her tokens stay in your store and are refreshed there. Foundry never holds them.
             </>
           ),
         },
@@ -175,7 +258,7 @@ export function PartnerStory() {
       boxes={[
         { id: "clock", x: 16, y: 16, w: 140, h: 64, title: "Schedules", sub: "07:30 · every 3h", tone: "system" },
         { id: "person", x: 16, y: 113, w: 140, h: 64, title: "You", sub: "chat or call" },
-        { id: "apps", x: 16, y: 210, w: 140, h: 64, title: "Inbox · calendar", sub: "connectors" },
+        { id: "apps", x: 16, y: 210, w: 140, h: 64, title: "Gmail · Calendar", sub: "connected apps" },
         { id: "partner", x: 246, y: 100, w: 190, h: 90, title: "Partner", sub: "one thread · memory", tone: "harness" },
         { id: "guard", x: 526, y: 16, w: 140, h: 64, title: "Guard", sub: "your code", dashed: true },
         { id: "approval", x: 526, y: 113, w: 140, h: 64, title: "Approval", sub: "send · pay · sign", tone: "system" },
@@ -186,7 +269,7 @@ export function PartnerStory() {
       edges={[
         { id: "wake", d: "M156,48 L300,48 L300,96", label: "wakes it", lx: 228, ly: 42 },
         { id: "talk", d: "M156,135 L242,135", label: "asks", lx: 199, ly: 129 },
-        { id: "read", d: "M156,242 L300,242 L300,194", label: "read_inbox", lx: 228, ly: 236 },
+        { id: "read", d: "M156,242 L300,242 L300,194", label: "reads · new mail", lx: 228, ly: 236 },
         { id: "notify", d: "M380,96 L380,48 L522,48", label: "notify_person", lx: 451, ly: 42 },
         { id: "push", d: "M666,48 L772,48", label: "allowed", lx: 719, ly: 42 },
         { id: "act", d: "M436,145 L522,145", label: "pay_invoice", lx: 479, ly: 139 },
@@ -208,9 +291,15 @@ export function PartnerStory() {
         },
         {
           lit: ["apps", "partner", "read"],
-          packet: { edge: "read", label: "3 new emails" },
+          packet: { edge: "read", label: "inbox + calendar" },
           title: "It reads your apps",
-          text: <>Connectors are tools. The credentials stay inside them; the agent gets results, not tokens.</>,
+          text: (
+            <>
+              Gmail and Calendar are apps installed with your accounts. The brief reads both in one
+              program, <code>gmail.search_threads</code> and <code>calendar.list_events</code>, through
+              Google&apos;s MCP servers. Your tokens stay in your store; the agent gets results.
+            </>
+          ),
         },
         {
           lit: ["partner", "guard", "phone", "notify", "push"],
@@ -238,7 +327,7 @@ export function PartnerStory() {
           lit: ["apps", "partner", "read", "notify", "guard", "push", "phone"],
           packet: { edge: "read", label: "payment failed" },
           title: "Something needs you",
-          text: <>A failed payment arrived since the last look. It notifies you once, saying what and why.</>,
+          text: <>A failed payment lands in your Gmail, and the app&apos;s connection passes it into the thread at once. It notifies you once, saying what and why; mail that can wait gets nothing.</>,
         },
         {
           lit: ["person", "partner", "talk"],
@@ -263,7 +352,7 @@ export function PartnerStory() {
           title: "Some things never leave",
           text: (
             <>
-              Asked to text your card number, it is refused by the guard, a Luhn check in code.
+              Asked to email your card number, it is refused by the guard, a Luhn check in code around Gmail&apos;s send.
               Because the guard would refuse it, you are not asked to approve it either.
             </>
           ),
@@ -335,9 +424,10 @@ export function StandingAgentStory() {
           title: "Between conversations, it researches",
           text: (
             <>
-              A schedule wakes it for proactive research. On these runs it gets only read-only
-              tools: it reads its sources, keeps notes and may suggest one thing. Acting tools,
-              the mesh and its computer are not there to misuse.
+              A schedule wakes it for proactive research, and new mail wakes it too. On these runs it
+              gets only reads: #feedback, and the mailbox through the Gmail app in code. It keeps
+              notes and may suggest one thing. Acting tools, Gmail&apos;s send, the mesh and its
+              computer are not there to misuse.
             </>
           ),
         },
@@ -355,13 +445,13 @@ export function StandingAgentStory() {
         },
         {
           lit: ["rules", "dot", "review", "context", "act"],
-          packet: { edge: "act", label: "reply_to_customer" },
+          packet: { edge: "act", label: "Gmail send" },
           title: "Before it acts, a review",
           text: (
             <>
-              Every acting tool is wrapped. The auto-review reads your Custom Rule for that action,
-              checks built-in safety, and checks the input against your instructions, such as an
-              email to someone who never wrote in.
+              Every acting tool is wrapped, and so is the Gmail app&apos;s send. The auto-review reads
+              your Custom Rule for that action, checks built-in safety, and checks the input against
+              your instructions, such as an email to someone who never wrote in to the mailbox.
             </>
           ),
         },
@@ -441,7 +531,7 @@ export function RebuildShapes() {
           </defs>
 
           <g className="tone-harness"><text x={156} y={22} textAnchor="middle" className="dg-group-label">Grok Bot · teammates</text></g>
-          <Mini x={16} y={40} w={280} h={44} title="You" sub="app · @-mention on X" />
+          <Mini x={16} y={40} w={280} h={44} title="You" sub="app · connected apps" />
           <Arrow d="M156,84 L156,110" />
           <Mini x={76} y={112} w={160} h={50} title="Main bot" sub="primary: true" tone="harness" />
           <Arrow d="M156,162 L156,200" label="mesh" lx={164} ly={186} anchor="start" />

@@ -10,19 +10,19 @@ const foundryExamples = [
     href: "/foundry/docs/rebuilds/grok-bot",
     kicker: "Rebuild · Grok Bot · Foundry · Kuiper",
     title: "Bot Crew",
-    desc: "One bot definition; every bot a person makes is data, with its own name, job, apps and memory. A new bot names itself when told its job. Bots message each other over the mesh, share group chats and one computer, learn skills that run as routines, and wait for approval before sending. Apps belong to the account, and tagging @bot on X reaches your main bot.",
+    desc: "One bot definition; every bot a person makes is data, with its own name, job, apps and memory. A new bot names itself when told its job. Bots work in the apps the person connects (Gmail and Linear as Foundry apps with their accounts), read them in code, and wait for approval before sending; new mail reaches the main bot. Bots message each other over the mesh, share group chats and one computer, and learn skills that run as routines.",
   },
   {
     href: "/foundry/docs/rebuilds/claude-duet",
     kicker: "Rebuild · Claude Duet · Foundry · Kuiper",
     title: "Proactive Partner",
-    desc: "One partner in one thread: a morning brief and quiet check-ins in the person's time zone, approvals before it sends, pays, signs or deletes, a guard that never lets a card number out, voice, and its own computer.",
+    desc: "One partner in one thread, working in the person's Gmail and Calendar: a morning brief and quiet check-ins in the person's time zone, new mail as it lands, approvals before it sends, pays, signs or deletes, a guard that never lets a card number out, voice, and its own computer.",
   },
   {
     href: "/foundry/docs/rebuilds/openai-dots",
     kicker: "Rebuild · OpenAI Dots · Foundry · Kuiper",
     title: "Standing Agents",
-    desc: "A dot you name, holding your ongoing responsibilities: read-only research on a schedule, an auto-review with Custom Rules (allow, ask, block) in front of every action, its own computer, the same dot in the app, Slack and on a call, and specialist dots as instances with their own account.",
+    desc: "A dot you name, holding your ongoing responsibilities: a connected mailbox, read-only research on a schedule, an auto-review with Custom Rules (allow, ask, block) in front of every action, its own computer, the same dot in the app, Slack and on a call, and specialist dots as instances with their own account.",
   },
   {
     href: `${repo}/foundry-layered-assistant`,

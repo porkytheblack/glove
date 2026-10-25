@@ -622,14 +622,40 @@ offline with pnpm verify (scripted models) and deploys on Kuiper. All three
 follow "agents are data": definitions say what a kind of agent can be; every
 agent is an instance in its person's workspace.
 
+Connected apps work the same way in all three. Each provider (Gmail, Linear,
+Google Calendar) is a Foundry app installed on the agent with the person's
+account (installation.accountId):
+- app mcp: { entry, auth, tools } opens the provider's MCP server (Google's
+  gmailmcp/calendarmcp, Linear's mcp.linear.app) with a bearer header from
+  accountSessions.withSession({ operation: "mcp:connect" }). tools decides
+  allow | ask | hide per tool (default: readOnlyHint allows, the rest ask).
+- defineRepl({ programmaticTools: { select: ({ apps }) => apps.flatMap((app) =>
+  app.tools.filter((tool) => tool.readOnly)), keepDirect: false } }): reads are
+  functions in execute_js (gmail.search_threads(...), linear.list_issues(...))
+  and leave the direct tool list. Writes stay direct tools with approvals.
+- Sending mail is the app's outbound transmission (glove_app_gmail__gmail_send,
+  requiresPermission true). Foundry delivers it in its own process inside the
+  account session, on the route the binding grants (capability gmail:send).
+- New mail: a gmail-watch connection renews Gmail's users.watch daily, pulls
+  the Pub/Sub subscription, reads each message with history.list and emits a
+  mail-received event; a playbook runs the agent in a chosen conversation.
+- Accounts and tokens live in your store (lib/accounts.ts). Foundry reads them
+  through your AccountDirectory, passed with routes and bindings in
+  defineApplication({ services }) (fileTopologyStore keeps routes and bindings
+  on disk). connectApp writes the account, the routes, the binding and the
+  installation; scripts/connect.ts runs the provider's OAuth sign-in with PKCE.
+- glove_foundry_transmit only sends on routes the agent's playbooks declare,
+  and asks when the route's transmission asks.
+
 Grok Bot → examples/foundry-bot-crew (${SITE_URL}/foundry/docs/rebuilds/grok-bot)
 Facts from Cursor's and xAI's Grok Bot docs: bots have a name, title and job;
 one is the person's main (primary) bot; all of a person's bots share one cloud
-computer and the account's connected apps; bots hand work to each other and
-share group chats of 2-6 bots; skills are shared, routines run them on a
-schedule or event; @bot on X hands a post to the main bot.
+computer and the person's connected apps (Gmail and others); bots hand work to
+each other and share group chats of 2-6 bots; skills are shared, routines run
+them on a schedule or event.
 - One definition, agents/bot/agent.ts. Every bot is an instance in the person's
-  workspace: lib/people.ts mainBotFor (context.primary true, X app if xUserId),
+  workspace: lib/people.ts mainBotFor (context.primary true, the person's app
+  installations),
   botFor (name "New bot" until it has a job), groupChat (a conversation on the
   hosting bot, context.group.members). foundry.application.ts seeds Maya's main
   bot and thread with defineAgentInstance + createConversation.
@@ -637,9 +663,11 @@ schedule or event; @bot on X hands a post to the main bot.
   everyday requests and routes the rest; a bot without a description asks what
   it is for and calls take_job, which writes name and description with
   ctx.data.putAgent (no deploy).
-- Apps belong to the account: every bot carries the account's installations;
-  connect_app (requiresPermission) installs a new app on every bot in the
-  workspace.
+- Gmail and Linear apps (agents/bot/apps): every bot carries the person's
+  installations; connect_app (requiresPermission) is the Connect button, and
+  connectApp gives the account to every bot in the workspace. Bug triage files
+  issues with linear__save_issue (asks first); reads run in code.
+- New mail: the playbook runs only on the main bot, in its "main" conversation.
 - mesh: { waitMs: 60_000 }: bots find each other with glove_mesh_list_agents and
   pass work by id; replies come back on their own. Group chats: @name sends that
   bot its part, @everyone is glove_mesh_broadcast, a member with nothing to add
@@ -649,13 +677,8 @@ schedule or event; @bot on X hands a post to the main bot.
   "workspace" }). Skills are workspace entries "skill:<name>" (save_skill has
   requiresPermission), loaded in the tools resolver; routines are
   glove_foundry_schedule.
-- send_email and request_sign_in have requiresPermission (sign-in = the person
+- Gmail's send, save_skill and request_sign_in ask first (sign-in = the person
   does one step on the shared computer; the bot never sees the password).
-- X: transmission (authenticate checks for_user_id === route.config.botUserId),
-  a predicate on the author id and a playbook only on main bots with xUserId;
-  reply_on_x uses withAccountSession. A forwarder answers X's CRC check,
-  verifies the signature and POSTs /api/transmissions/x-mentions/fire with
-  conversationKey "main", conversationScope "agent".
 
 Claude Duet → examples/foundry-proactive-partner (${SITE_URL}/foundry/docs/rebuilds/claude-duet)
 - lib/onboarding.ts: partnerFor(person, preferences) (workspace = person id,
@@ -670,9 +693,13 @@ Claude Duet → examples/foundry-proactive-partner (${SITE_URL}/foundry/docs/reb
   in the thread. Scheduled runs have request.source.kind === "activation".
 - notify_person is the only way to the phone; quiet check-ins reply
   "(nothing new)". The brief flags clashes (a call during a flight).
-- send_message, pay_invoice, sign_document, delete_file: requiresPermission
-  (send_message: (input) => !strictlyBlocked(input.text)). No tool exists for
-  trading or moving money between accounts.
+- Gmail and Calendar apps; the brief reads both in one execute_js program.
+  New mail goes into the one thread (playbook, conversation "thread").
+- Gmail's send, pay_invoice, sign_document, delete_file wait for approval.
+  configure wraps Gmail's send (send.ts guardSends): requiresPermission is
+  (input) => !strictlyBlocked(text), so a message the guard refuses is not
+  asked about; the wrapper calls the inner tool's run, so the person approves
+  once. No tool exists for trading or moving money between accounts.
 - lib/guard.ts: strict tier in code (Luhn card numbers, government ID numbers)
   always blocks; sensitive tier (health, personal finance) via a glove-classifier
   noul pair, blocked unless the person's own message asked to share it.
@@ -693,14 +720,17 @@ dots with their own identity and credentials for organisations.
   { progress, decisions }. primaryDot(owner, dot), specialistFor(org, { …,
   account }) and builderFor(owner) build the data; foundry.application.ts seeds
   Sam's dot (Pip), builder and app conversation with defineAgentInstance.
-- research schedule every 2h. On runs not started by the person (source kind
-  other than "direct", "transmission" or "mesh"), the tools resolver returns
-  only read tools, workingEnvironment resolves to undefined and mesh.mount is
-  false.
+- research schedule every 2h. On runs not started by the person (not direct,
+  not the owner's Slack message, not a reply over the mesh), the tools resolver returns only read tools,
+  the Gmail app hides everything but reads, configure removes Gmail's send,
+  workingEnvironment resolves to undefined and mesh.mount is false. New mail is
+  one of those read-only runs.
 - reviewed(action, review) wraps every acting tool: built-in safety
   (change_password) is always "block"; block never runs and hands it to the
   person; ask → requiresPermission: true; allow runs, but an unknown recipient
-  asks (function form of requiresPermission). No rule → ask.
+  asks (function form of requiresPermission). No rule → ask. Gmail's send goes
+  through the same review in configure (rule send_email, recipient payload.to;
+  known contacts come from gmail__search_threads).
 - The dot's own computer: a working environment with
   foundryDataEnvironmentPersistence({ scope: "agent" }). Coding jobs start on
   the person's Builder over the mesh (peers: only the builder; the builder has

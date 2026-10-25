@@ -31,7 +31,7 @@ export default function ThreeAgentsRebuiltPost() {
         Grok Bot lets you make bots and tell each one its job. A new bot asks what you want it
         around for, then names itself for the work: Sales Outbound, Inbox Manager. Your main bot
         takes everyday requests, bots pass work to each other and share group chats, and they all
-        work on one cloud computer with your account&apos;s apps.
+        work on one cloud computer and in the apps you connect, like Gmail.
       </p>
       <p>
         Our first build got this wrong. It had a definition per bot (a chief, an outreach bot, a
@@ -63,6 +63,22 @@ export default function ThreeAgentsRebuiltPost() {
         (on cursor.com and docs.x.ai) have no &ldquo;chief&rdquo; role, only a main bot that a
         person can name anything; apps belong to the account, not to a bot; and group chats let
         the bots decide who answers. The rebuild follows the docs now.
+      </p>
+      <p>
+        Connecting apps took a second pass too. The quick way is to point the agent at each
+        app&apos;s MCP server and put every tool in its context. Foundry already has a better
+        place for this: an app. A Foundry app owns the account it works with, the way messages
+        come in (a Gmail watch that delivers new mail) and the way they go out (a send that
+        Foundry delivers inside the account&apos;s session after you approve it). Foundry apps
+        can now carry an MCP server too, opened with the installation&apos;s account, with a
+        rule per tool: allow, ask or hide. The reads become functions the bot calls in code,{" "}
+        <code>gmail.search_threads(…)</code>, so a dozen lookups are one program instead of a
+        dozen turns. Accounts and tokens stay in your own store; Foundry reads them through a
+        directory you supply. All three rebuilds now connect apps this way. Building it also
+        turned up a hole: an agent could send on a bound route through{" "}
+        <code>glove_foundry_transmit</code> without the approval the app&apos;s send asks for.
+        That tool now sends only on routes the agent&apos;s playbooks declare, and asks when the
+        transmission asks.
       </p>
 
       <h2 id="partner">Claude Duet: a partner</h2>
@@ -114,7 +130,8 @@ export default function ThreeAgentsRebuiltPost() {
         <li>Agents in a workspace that message each other by id over the mesh.</li>
         <li>Schedules for runs nobody asked for.</li>
         <li>Approvals on anything that changes the world.</li>
-        <li>Transmissions for messages from X or Slack, and a small forwarder that checks the provider&apos;s signature.</li>
+        <li>Connected apps as Foundry apps: the provider&apos;s MCP server for reads in code, a transmission for sends, a connection for new mail, and accounts in your own store.</li>
+        <li>Transmissions and playbooks for messages from outside, like new mail or a Slack message.</li>
         <li>On Kuiper: the <code>/data</code> disk for all of it, the model gateway, and a lock on the API.</li>
       </ul>
       <p>

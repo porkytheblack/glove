@@ -92,6 +92,18 @@ To triage inbound events with a classifier model (TypeSafe Jev, or any `Classifi
 
 Connections are colocated with their application and receive the narrow Foundry connection context. Keep backend concepts such as Station networks, beacons, signals, or worker topology out of public agent definitions, client types, manifests, and inspector language. Expose only purpose-built agent-system concepts such as inbound connections, activations, scheduled work, and runs.
 
+### Apps people connect
+
+When people connect their own accounts (Gmail, Linear, Calendar), make each provider one Foundry app, not a bare `defineMcp`:
+
+- `mcp: { entry, auth, tools }` on `defineApp`. `entry` may be a function of the installation (`{ accountId, config }`), so one app can reach a live server or a local one. `auth(session)` returns headers (HTTP) or environment (stdio) from inside `accountSessions.withSession({ operation: "mcp:connect" })`; an installation without `accountId` is refused. `tools(tool, ctx)` returns `"allow" | "ask" | "hide"`; the default allows `readOnlyHint` tools and asks for the rest. Bare `defineMcp` tools run without approval in Foundry.
+- Sends are the app's outbound transmission (`glove_app_<app>__<transmission>_send`). Set `outbound.requiresPermission` (boolean or a function of the payload). Foundry delivers in its own process inside the account session, on a route the agent's binding grants.
+- Incoming events are a connection on the app (a Gmail watch, a socket) plus a playbook that picks the conversation.
+- Reads go in code: `defineRepl({ programmaticTools: { select: ({ apps }) => apps.flatMap((app) => app.tools.filter((tool) => tool.readOnly)), keepDirect: false } })`. Each app is a group named after it (`gmail.search_threads(...)`); `keepDirect: false` takes code-only tools out of the direct list. Never select the send tool: permission-gated tools are refused in code.
+- Accounts are yours. Supply `AccountDirectory` through `defineApplication({ services })` (it replaces `accounts`), with `fileTopologyStore(file)` so routes and bindings written at runtime (`putRoute`, `putBinding`) survive restarts. Connections look accounts up in the directory, so an account added after startup works.
+- To add policy to a send (a guard, an auto-review), wrap the generated tool in `configure`: its `requiresPermission` replaces the inner one and its `do` calls `inner.run(input, signal)`, so the person approves once.
+- `glove_foundry_transmit` only sends on routes the agent's playbooks declare and asks when the route's transmission asks.
+
 Foundry never acquires, refreshes, or stores credential material. Account records contain safe metadata and opaque access references. The consumer's account-session/provider adapter owns credential lookup and refresh. Never copy secrets into instance data, manifests, prompts, telemetry, or inspector payloads.
 
 ## Playbooks, inbound activation, and provisioning
@@ -128,7 +140,7 @@ Foundry mounts native Glove surfaces instead of reimplementing them.
 
 - Use `defineWorkingEnvironment(...)` for a guarded VFS, scripts, history, checkpoints, and artifact export.
 - Add a persistence adapter when work must survive across runs. Treat the VFS as the durable boundary; REPL bindings are run-scoped.
-- Use `defineRepl(...)` with `glove-js`, `glove-python`, or `glove-lisp` for computation over explicitly registered functions.
+- Use `defineRepl(...)` with `glove-js`, `glove-python`, or `glove-lisp` for computation over explicitly registered functions. `programmaticTools.select({ tools, apps })` picks them; installed apps arrive grouped with each tool's `readOnly`.
 - Use `glove-image` and the working-environment format adapters for image, document, slide, spreadsheet, archive, audio, or video work.
 - Pass artifacts between agents by durable workspace/VFS references rather than copying large document bodies into prompts.
 - For HTTP calls/downloads/uploads and host keystores, read [HTTP files and host secrets](https://github.com/porkytheblack/glove/blob/main/packages/glove-working-environment/HTTP-AND-SECRETS.md). Mount `fetchFiles()` and `secret()` in the environment options; scope the host store to the owning instance and re-supply it after restore. Snapshots do not persist secrets or network grants.
