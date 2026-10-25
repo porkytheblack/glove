@@ -113,27 +113,38 @@ function reference(account: ConnectedAccount): AccountReference | undefined {
   });
 }
 
-/** Foundry's view of your accounts: read live, so a new connection shows up at once. */
-const accountDirectory = Layer.succeed(AccountDirectory, {
-  get: (id) => Effect.flatMap(Effect.promise(readAccounts), (accounts) => {
-    const found = accounts.find((item) => item.id === id);
-    const account = found && reference(found);
-    return account ? Effect.succeed(account) : Effect.fail(new AccountNotFound({ accountId: id }));
-  }),
-  list: (filter = {}) => Effect.map(Effect.promise(readAccounts), (accounts) => accounts
-    .flatMap((account) => reference(account) ?? [])
-    .filter((account) => !filter.transmissionId || account.transmissionId === filter.transmissionId)),
-});
+/**
+ * Foundry's view of your accounts, read live so a new connection shows up at
+ * once. `extra` adds accounts the application defines in code, such as a bot
+ * user that belongs to the app rather than to a person.
+ */
+function accountDirectory(extra: ReadonlyArray<AccountReference>) {
+  return Layer.succeed(AccountDirectory, {
+    get: (id) => Effect.flatMap(Effect.promise(readAccounts), (accounts) => {
+      const found = accounts.find((item) => item.id === id);
+      const account = (found && reference(found)) ?? extra.find((item) => item.id === id);
+      return account ? Effect.succeed(account) : Effect.fail(new AccountNotFound({ accountId: id }));
+    }),
+    list: (filter = {}) => Effect.map(Effect.promise(readAccounts), (accounts) => [...extra, ...accounts.flatMap((account) => reference(account) ?? [])]
+      .filter((account) => !filter.transmissionId || account.transmissionId === filter.transmissionId)),
+  });
+}
 
 /**
  * The accounts above, plus routes and bindings in a file so the ones written
- * when someone connects an app survive a restart.
+ * when someone connects an app survive a restart. Give it to
+ * defineApplication({ services }); it replaces the application's own
+ * `accounts`, so pass any of those as `extra`.
  */
-export const services = Layer.mergeAll(
-  accountDirectory,
-  fileTopologyStore(dataPath("topology.json")),
-  memoryEventStore,
-);
+export function servicesWith(extra: ReadonlyArray<AccountReference> = []) {
+  return Layer.mergeAll(
+    accountDirectory(extra),
+    fileTopologyStore(dataPath("topology.json")),
+    memoryEventStore,
+  );
+}
+
+export const services = servicesWith();
 
 async function sessionFor(accountId: string): Promise<AccountSession> {
   const account = (await readAccounts()).find((item) => item.id === accountId);

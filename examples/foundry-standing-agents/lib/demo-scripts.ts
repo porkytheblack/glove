@@ -1,3 +1,7 @@
+import { installedApplicationTransmissionToolName } from "glove-foundry";
+import gmailApp from "../agents/dot/apps/gmail.app.js";
+import gmail from "../agents/dot/transmissions/gmail.transmission.js";
+import { gmailRoutes } from "./connect.js";
 import { inboundEvent, meshAttribute, meshBody, resultMessage, type DemoStep, type DemoTurn } from "./demo-model.js";
 
 // What the scripted models do when there is no API key. Each script answers
@@ -10,8 +14,12 @@ const call = (tool: string, input: Record<string, unknown>): DemoStep => ({ call
 const SUGGESTION =
   "CSV export times out on large reports: 4 reports this week (2 in #feedback, 2 by email, from Acme and Globex). Want me to open a draft PR for it?";
 
-export function dotScript({ text, called, lastResult, results, context }: DemoTurn): DemoStep {
+const sendTool = () => installedApplicationTransmissionToolName(gmailApp, gmail);
+
+export function dotScript(person: string, { text, called, lastResult, results, context }: DemoTurn): DemoStep {
   if (text.startsWith("Research time")) return research(called);
+  // New mail (a Gmail event has an rfcMessageId); otherwise a Slack message.
+  if (text.includes('<transmission direction="inbound"') && text.includes("rfcMessageId")) return newMail(text, called);
   if (text.includes('<transmission direction="inbound"')) return inSlack(text, called, context);
   // Builder's reply to a job this dot sent it.
   if (text.startsWith("<mesh-message") && meshAttribute(text, "status") === "replied") {
@@ -26,10 +34,13 @@ export function dotScript({ text, called, lastResult, results, context }: DemoTu
   }
   if (/\breply to\b/i.test(text)) {
     const to = /[\w.+-]+@[\w-]+(\.[\w-]+)+/.exec(text)?.[0] ?? "";
-    if (!called.includes("reply_to_customer")) {
-      return call("reply_to_customer", { to, text: "Hi, a fix for large CSV exports ships on Friday. Thanks for your patience." });
+    if (!called.includes(sendTool())) {
+      return call(sendTool(), {
+        routeId: gmailRoutes(`${person}-gmail`).out.id,
+        payload: { to, subject: "Re: CSV export never finishes", body: "Hi, a fix for large CSV exports ships on Friday. Thanks for your patience.", threadId: "t-1031" },
+      });
     }
-    return say(/"sent":true/.test(lastResult) ? `Sent the reply to ${to}.` : `I didn't send it. ${resultMessage(lastResult)}`);
+    return say(/"messageId"/.test(lastResult) ? `Sent the reply to ${to}.` : `I didn't send it. ${resultMessage(lastResult)}`);
   }
   if (/\bmerge\b/i.test(text)) return handOff("merge_pr", { pr: Number(/#(\d+)/.exec(text)?.[1] ?? 42) }, called, lastResult);
   if (/\bpassword\b/i.test(text)) return handOff("change_password", { account: "the support inbox" }, called, lastResult);
@@ -69,18 +80,30 @@ export function dotScript({ text, called, lastResult, results, context }: DemoTu
 /** A research run: read, keep notes, suggest one thing. */
 function research(called: ReadonlyArray<string>): DemoStep {
   if (!called.includes("read_channel")) return call("read_channel", { channel: "#feedback" });
-  if (!called.includes("read_email")) return call("read_email", { mailbox: "support" });
+  // The mailbox, read in code over the Gmail app.
+  if (!called.includes("execute_js")) {
+    return call("execute_js", { code: 'gmail.search_threads({ query: "in:inbox" }).threads.map((thread) => `${thread.latest.from}: ${thread.latest.subject}`)' });
+  }
   if (!called.includes("keep_note")) {
     return call("keep_note", {
       note: "CSV export timeouts on large reports: 4 (2 in #feedback, 2 by email). Dark mode: 2 asks. Safari login loop: 1, unconfirmed.",
     });
   }
   // A model may reach for an action while researching. It isn't mounted, so the call finds nothing.
-  if (!called.includes("reply_to_customer")) {
-    return call("reply_to_customer", { to: "dana@acme.test", text: "Thanks, we're looking into the export." });
+  if (!called.includes(sendTool())) {
+    return call(sendTool(), { routeId: "", payload: { to: "dana@acme.test", subject: "Re: CSV export", body: "Thanks, we're looking into the export." } });
   }
   if (!called.includes("suggest")) return call("suggest", { text: SUGGESTION });
   return say(SUGGESTION);
+}
+
+/** New mail is a read-only run: note it and say what it is. */
+function newMail(text: string, called: ReadonlyArray<string>): DemoStep {
+  const field = (name: string) => (new RegExp(`${name}&quot;:&quot;(.*?)&quot;`).exec(text)?.[1] ?? "");
+  if (!called.includes("keep_note")) {
+    return call("keep_note", { note: `New mail from ${field("from")}: ${field("subject")}. Another CSV export report.` });
+  }
+  return say(`New mail from ${field("from")} about the CSV export; noted with the other reports.`);
 }
 
 /** A Slack message from the owner: answer there, with what the dot remembers from the app. */

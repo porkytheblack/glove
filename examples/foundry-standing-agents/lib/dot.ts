@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { install, type AccountReference, type AgentAssemblyContext, type AgentInstance } from "glove-foundry";
+import { install, type AccountReference, type AgentAssemblyContext, type AgentInstallation, type AgentInstance } from "glove-foundry";
 import { z } from "zod";
 import slackApp from "../agents/dot/apps/slack.app.js";
 import { slackBot } from "../agents/dot/topology.js";
@@ -57,9 +57,10 @@ export type ParsedDot = z.output<typeof Dot>;
  * A person's primary dot. They name it and make it their own; everything that
  * makes it theirs is this data. The person's dot and their builder share a
  * workspace, so they reach each other on the mesh and nobody else can. The
- * Slack app is installed once the owner connects Slack.
+ * Slack app is installed once the owner connects Slack; their Gmail, once
+ * they connect it (lib/connect.ts), or here for a seed.
  */
-export function primaryDot(ownerId: string, dot: Dot) {
+export function primaryDot(ownerId: string, dot: Dot, installations: ReadonlyArray<AgentInstallation> = []) {
   const parsed = Dot.parse({ ...dot, kind: "primary" });
   return {
     id: `${ownerId}-dot`,
@@ -67,7 +68,7 @@ export function primaryDot(ownerId: string, dot: Dot) {
     name: parsed.name,
     description: `${parsed.owner}'s dot`,
     context: parsed,
-    installations: parsed.slackUserId ? [install(slackApp, undefined, { account: slackBot })] : [],
+    installations: [...(parsed.slackUserId ? [install(slackApp, undefined, { account: slackBot })] : []), ...installations],
   };
 }
 
@@ -75,6 +76,7 @@ export function primaryDot(ownerId: string, dot: Dot) {
  * A specialist dot: the same definition, set up by an organisation in its own
  * workspace for one well-defined job, with its own name and, when given, its
  * own account, so it acts under its own credentials rather than a person's.
+ * Its own mailbox connects the same way a person's does (lib/connect.ts).
  */
 export function specialistFor(org: string, specialist: Omit<Dot, "kind"> & { readonly account?: AccountReference }) {
   const { account, ...dot } = specialist;
@@ -119,7 +121,7 @@ export const SAM = {
         mustNot: "Promise a ship date.",
       },
     ],
-    rules: { reply_to_customer: "ask", open_draft_pr: "allow", merge_pr: "block" },
+    rules: { send_email: "ask", open_draft_pr: "allow", merge_pr: "block" },
     routing: { progress: "app", decisions: "slack" },
     slackUserId: "U0SAM",
   } satisfies Dot,

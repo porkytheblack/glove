@@ -1,14 +1,18 @@
-import type { AgentAssemblyContext } from "glove-foundry";
+import { installedApplicationTransmissionToolName, type AgentAssemblyContext } from "glove-foundry";
 import { ACTION_NAMES } from "../../lib/actions.js";
+import { gmailRoutes } from "../../lib/connect.js";
 import { ruleLabel } from "../../lib/auto-review.js";
 import type { ParsedDot } from "../../lib/dot.js";
+import gmailApp from "./apps/gmail.app.js";
 import { readOnly } from "./research.js";
+import gmail from "./transmissions/gmail.transmission.js";
 
 const place = (channel: "app" | "slack") => (channel === "app" ? "the app" : "Slack");
 
 /** The dot's prompt is built from its data: its name, its responsibilities, its rules and where it is talking. */
-export function dotPrompt(dot: ParsedDot, ctx: Pick<AgentAssemblyContext, "conversation" | "request">, onCall = false): string {
+export function dotPrompt(dot: ParsedDot, ctx: Pick<AgentAssemblyContext, "conversation" | "request" | "installations">, onCall = false): string {
   const channel = ctx.conversation.context.conversationKey === "slack" ? "slack" : "app";
+  const mail = ctx.installations.find((item) => item.kind === "application" && item.id === gmailApp.id);
   const who = dot.kind === "specialist"
     ? `You are ${dot.name}, a specialist dot that ${dot.owner} set up for the responsibilities below.`
     : `You are ${dot.name}, ${dot.owner}'s dot: you get to know what matters to them, work on their behalf and take work off their plate.`;
@@ -21,6 +25,12 @@ export function dotPrompt(dot: ParsedDot, ctx: Pick<AgentAssemblyContext, "conve
       `   Sources: ${item.sources.join(", ")}. Worth ${dot.owner}'s attention: ${item.attention} Not yet: ${item.mustNot}`,
     ]),
     "Keep notes on what you find, on their preferences and on decisions, so you pick up where you left off.",
+    ...(mail ? [
+      "The mailbox you work from is functions in execute_js: gmail.search_threads({ query }), gmail.get_thread({ threadId }). Read what you need in one program.",
+      ...(readOnly(ctx.request) || !mail.accountId ? [] : [
+        `To email someone, call ${installedApplicationTransmissionToolName(gmailApp, gmail)} with routeId "${gmailRoutes(mail.accountId).out.id}" (rule: send_email). To answer an email, pass its threadId and its rfcMessageId as inReplyTo.`,
+      ]),
+    ] : []),
     "",
     `${dot.owner}'s Custom Rules for your actions:`,
     ...ACTION_NAMES.map((name) => `- ${name}: ${ruleLabel(name, dot.rules)}`),

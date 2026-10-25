@@ -31,15 +31,15 @@ export default defineAgent({
   tools: (_agent, ctx) => botTools(ctx),
   workingEnvironment: computer,
 
-  // The connected apps as functions, one group per app: gmail.search_threads,
-  // linear.list_issues. A bot reads across apps in one program instead of
-  // carrying every app's tools in context. Anything that asks the owner first
-  // stays a direct tool, so the approval is shown.
+  // The connected apps' reads as functions, one group per app:
+  // gmail.search_threads, linear.list_issues. A bot reads across apps in one
+  // program instead of carrying every app's tools in context. Anything that
+  // writes stays a direct tool, so a person can see and approve it.
   repl: () => defineRepl({
     language: "javascript",
     session: JsSession.create(),
     mount: { discovery: "auto" },
-    programmaticTools: { select: ({ apps }) => apps.flatMap((app) => app.tools), keepDirect: false },
+    programmaticTools: { select: ({ apps }) => apps.flatMap((app) => app.tools.filter((tool) => tool.readOnly)), keepDirect: false },
   }),
 
   // Bots message each other by id over Glove Mesh. Their owner's workspace is

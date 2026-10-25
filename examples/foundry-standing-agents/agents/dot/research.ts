@@ -1,4 +1,5 @@
 import { defineSchedule, type FoundryRequest } from "glove-foundry";
+import slackMessages from "./transmissions/slack-messages.transmission.js";
 
 /**
  * Proactive research. Every two hours the dot wakes on its own, reads the
@@ -19,15 +20,20 @@ export const research = defineSchedule({
   ].join(" "),
 });
 
-/** Runs the person started: from the app, or by messaging the dot in Slack. */
+/**
+ * Runs the person started: from the app, or by messaging the dot in Slack
+ * (only the owner's Slack messages reach it). New mail is from anyone, so it
+ * does not count.
+ */
 export function startedByPerson(request: FoundryRequest): boolean {
-  return request.source?.kind === "direct" || request.source?.kind === "transmission";
+  if (request.source?.kind === "direct") return true;
+  return request.source?.kind === "transmission" && request.source.provider === slackMessages.id;
 }
 
 /**
- * Runs on the dot's own time: the research schedule, wake-ups, and work it
- * spawned for itself. They get only read-only tools. A run the person
- * started, or the builder's reply to work they started, may act.
+ * Runs on the dot's own time: the research schedule, wake-ups, work it
+ * spawned for itself, and new mail. They get only read-only tools. A run the
+ * person started, or the builder's reply to work they started, may act.
  */
 export function readOnly(request: FoundryRequest): boolean {
   return !(startedByPerson(request) || request.source?.kind === "mesh");

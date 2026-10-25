@@ -12,8 +12,9 @@ function scripted(): boolean {
   return process.env.DOTS_DEMO === "1" || !process.env.ANTHROPIC_API_KEY;
 }
 
-export function dotModel(): ModelAdapter {
-  if (scripted()) return new DemoModel("dot", dotScript);
+/** `person` is the dot's workspace; its connected mailbox is `${person}-gmail`. */
+export function dotModel(person: string): ModelAdapter {
+  if (scripted()) return new DemoModel("dot", (turn) => dotScript(person, turn));
   return anthropic(process.env.DOT_MODEL ?? "claude-sonnet-5-5");
 }
 

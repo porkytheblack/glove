@@ -1,22 +1,31 @@
 import { createHash } from "node:crypto";
 import { appendFile, mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { GloveFoldArgs } from "glove-core";
+import type { GloveFoldArgs, IGloveRunnable } from "glove-core";
 import { z } from "zod";
+import gmailApp from "../agents/dot/apps/gmail.app.js";
 import { dataPath, fixturePath } from "./paths.js";
 
-// your code: Slack's conversations.history and your mail provider, each with a
-// read-only token. Here the sources are the JSON files in fixtures/.
+// The mailbox is read through the Gmail app (gmail.search_threads in code).
+// Slack history is your code: conversations.history with a read-only token.
+// Here it is the JSON file in fixtures/.
 
 interface ChannelLog { readonly channel: string; readonly messages: ReadonlyArray<{ ts: string; user: string; text: string }> }
-interface Mailbox { readonly mailbox: string; readonly messages: ReadonlyArray<{ id: string; from: string; subject: string; body: string; at: string }> }
 
 const readJson = async <T>(name: string): Promise<T> => JSON.parse(await readFile(fixturePath(name), "utf8")) as T;
 
-/** People who wrote in. The dot may write back to them; anyone else needs approval. */
-export async function knownContacts(): Promise<string[]> {
-  const inbox = await readJson<Mailbox>("support-inbox.json");
-  return inbox.messages.map((message) => message.from.toLowerCase());
+/**
+ * People who wrote in: the addresses in the inbox the dot watches, read
+ * through its Gmail app. The dot may write back to them; anyone else needs
+ * approval, whatever the rule says.
+ */
+export async function knownContacts(agent: IGloveRunnable): Promise<string[]> {
+  const search = agent.tools.find((tool) => tool.name === `${gmailApp.id}__search_threads`);
+  if (!search) return [];
+  const result = await search.run({ query: "in:inbox", maxResults: 50 });
+  if (result.status !== "success") return [];
+  const text = typeof result.data === "string" ? result.data : JSON.stringify(result.data);
+  return [...new Set([...text.matchAll(/[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g)].map((match) => match[0].toLowerCase()))];
 }
 
 /** The dot's private notes, one file per instance. */
@@ -25,8 +34,9 @@ export function notesFile(agentId: string): string {
 }
 
 /**
- * The research tools. They read and they write the dot's own notes; none of
- * them can send a message or change anything outside the dot.
+ * The research tools. With the Gmail app's reads in code, they read and they
+ * write the dot's own notes; none of them can send a message or change
+ * anything outside the dot.
  */
 export function researchTools(agentId: string): GloveFoldArgs<any>[] {
   let suggested = false;
@@ -41,18 +51,6 @@ export function researchTools(agentId: string): GloveFoldArgs<any>[] {
           return { status: "error" as const, data: null, message: `You don't have access to ${channel}.` };
         }
         return { status: "success" as const, data: log };
-      },
-    },
-    {
-      name: "read_email",
-      description: "Read recent email in a mailbox you watch. Read-only.",
-      inputSchema: z.object({ mailbox: z.string().describe("For example support.") }),
-      async do({ mailbox }: { mailbox: string }) {
-        const inbox = await readJson<Mailbox>("support-inbox.json");
-        if (!mailbox.toLowerCase().includes(inbox.mailbox)) {
-          return { status: "error" as const, data: null, message: `You don't have access to the ${mailbox} mailbox.` };
-        }
-        return { status: "success" as const, data: inbox };
       },
     },
     {

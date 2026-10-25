@@ -5,8 +5,9 @@ follows the shape of OpenAI's dots: you start with your own dot and give it a
 name. It holds the responsibilities you hand it and researches them in the
 background with tools that can only read. Before it acts, an auto-review
 checks the action against your Custom Rules and built-in safety. You reach the
-same dot in the app, in Slack and on a call. It has its own computer, and it
-starts coding jobs on a builder.
+same dot in the app, in Slack and on a call. It works in the apps you connect
+(here the support mailbox, in Gmail). It has its own computer, and it starts
+coding jobs on a builder.
 
 This is an independent example. It is not affiliated with or endorsed by OpenAI.
 
@@ -22,9 +23,10 @@ This is an independent example. It is not affiliated with or endorsed by OpenAI.
    ┌────▼───────────┐ ┌────▼──────────────┐ ┌──▼───────────────────┐
    │ research run   │ │ auto-review       │ │ Builder (Sam's)      │
    │ read_channel   │ │ allow · ask ·     │ │ coding jobs on its   │
-   │ read_email     │ │ block             │ │ own computer; reply  │
-   │ keep_note      │ │ change_password:  │ │ goes back to Pip     │
-   │ suggest        │ │ always yours      │ └──────────────────────┘
+   │ gmail.* in code│ │ block, on actions │ │ own computer; reply  │
+   │ keep_note      │ │ and Gmail's send  │ │ goes back to Pip     │
+   │ suggest        │ │ change_password:  │ └──────────────────────┘
+   │                │ │ always yours      │
    │ nothing acts,  │ └───────────────────┘
    │ no computer    │
    └────────────────┘
@@ -41,16 +43,41 @@ them in place; everyone else's dot is created at runtime (`scripts/onboard.ts`).
 Renaming a dot, giving it a new responsibility or changing a rule is a write
 (`configureAgent`), not a deploy.
 
+## Connected apps
+
+Gmail is a Foundry app installed on the dot with the mailbox it works from:
+Sam connected the support inbox. It works as in the bot crew and partner
+examples, with the dot's rules on top:
+
+- **Reads come from Google's Gmail MCP server**, opened with the installation's
+  account, and are functions in code: research reads the mailbox with
+  `gmail.search_threads` in one program.
+- **On runs the dot starts itself, only the reads mount.** The app's tool policy
+  hides everything else when the request is research, a wake-up, spawned work or
+  new mail.
+- **Sending is the Gmail transmission's outbound side**, delivered by Foundry
+  inside the account session. The dot wraps that send in its auto-review
+  (`reviewSends` in `agents/dot/tools.ts`) under the rule `send_email`, and an
+  address that never wrote in to the mailbox asks whatever the rule says.
+- **New mail starts a read-only run.** The `gmail-watch` connection passes each
+  message in; mail comes from anyone, so the dot reads it and keeps notes but
+  cannot act on it.
+
+A specialist dot connects its own mailbox the same way, so it acts under its
+own credentials. Accounts and tokens are yours (`lib/accounts.ts`); the Slack
+bot user stays the app's own account.
+
 | Dots | Here |
 | --- | --- |
 | Your primary dot, with a name you give it | `primaryDot(ownerId, { name, … })`: an instance in the person's workspace, named by them |
 | Ongoing responsibilities, several at once | `responsibilities: [{ job, sources, attention, mustNot }]` on the instance. One research run covers them all |
-| Proactive research with read-only tools | The `research` schedule, every 2 hours. On runs the dot starts itself (schedule, wake-up, spawn), the `tools` resolver returns only `read_channel`, `read_email`, `read_notes`, `keep_note` and `suggest`. The Slack post tool, the mesh (`mount`) and the computer (`workingEnvironment`) are not there at all |
+| Proactive research with read-only tools | The `research` schedule, every 2 hours. On runs the dot starts itself (schedule, wake-up, spawn, new mail), the `tools` resolver returns only `read_channel`, `read_notes`, `keep_note` and `suggest`, and the Gmail app mounts only its reads. The Slack post tool, Gmail's send, the mesh (`mount`) and the computer (`workingEnvironment`) are not there at all |
+| Works in your apps (4,000+ through plugins) | Foundry apps installed with your accounts: Gmail here, through Google's MCP server for reads, the Gmail transmission for sending and a connection for new mail |
 | Notes to itself | `keep_note` and `read_notes`, one file per dot |
 | Learns your preferences | One `defineMemory` namespace per instance, shared by every channel (`glove_context_set`) |
 | Custom Rules: allow, require approval, or block | `rules: { action: "allow" \| "ask" \| "block" }`. `ask` sets `requiresPermission`, so Foundry holds an approval. `block` never runs; the dot hands the action to you. No rule → ask |
 | Built-in safety always applies; some tasks stay with you | `change_password` is always yours, whatever `rules` says |
-| Auto-review checks actions against your instructions | `reviewed()` in `lib/auto-review.ts` wraps every acting tool. Email to an address that never wrote in asks, even on `allow` (the function form of `requiresPermission`) |
+| Auto-review checks actions against your instructions | `reviewed()` in `lib/auto-review.ts` wraps every acting tool, and Gmail's send. Email to an address that never wrote in asks, even on `allow` (the function form of `requiresPermission`) |
 | Its own cloud computer and browser | `workingEnvironment` with files and the public web (`env:fetch`), saved per dot by Foundry's data adapter (`foundryDataEnvironmentPersistence({ scope: "agent" })`) |
 | Starts and manages tasks elsewhere (Codex, ChatGPT Work) | The person's `Builder`, reached over the mesh with `glove_mesh_send_message`; its reply comes back to the conversation that asked |
 | ChatGPT, Slack and Teams, with context in every channel | Conversations on one instance, keyed `app` and `slack`. Slack messages join with `conversationKey: "slack"`. Teams is one more transmission |
@@ -58,8 +85,8 @@ Renaming a dot, giving it a new responsibility or changing a rule is a write
 | Only answers its owner in Slack | The `from-owner` predicate on `slackUserId`, in the playbook |
 | Updates and decisions routed by channel | `routing`. With decisions → Slack, a hand-off reaches the person as a Slack DM |
 | Activity View: ongoing and delegated work, stop or redirect | The inspector's runs and mesh threads (`runtime.listThreads()`); steering and cancel on any run |
-| Saved passwords used without the model seeing them | Account sessions: the Slack token is read only by `accountSessions`, never by the dot |
-| Specialist dots with their own identity and credentials | `specialistFor(org, { name, responsibilities, rules, account })`: the same definition, an instance in the organisation's workspace with its own name and its own account installation |
+| Saved passwords used without the model seeing them | Account sessions: the Slack token and the mailbox's tokens are read only by `accountSessions`, never by the dot |
+| Specialist dots with their own identity and credentials | `specialistFor(org, { name, responsibilities, rules, account })`: the same definition, an instance in the organisation's workspace with its own name, its own Slack account and its own connected mailbox |
 
 ## Files
 
@@ -71,29 +98,37 @@ agents/
   dot/
     agent.ts                     what a dot can be: model, memory, tools, schedule, playbook, computer, mesh, call
     prompt.ts                    the prompt, built from the dot's data
-    tools.ts                     read-only tools on the dot's own time; reviewed actions otherwise
+    tools.ts                     read-only tools on the dot's own time; reviewed actions and Gmail's send otherwise
     research.ts                  the research schedule; which runs may act
     workspace.ts                 the dot's own computer
     call.ts                      a call with your dot
     person.memory.ts             one memory for every channel
+    apps/gmail.app.ts            the mailbox: MCP reads, the send, the watch; reads only on the dot's own time
     apps/slack.app.ts            post_to_slack, and the inbound messages
+    transmissions/gmail.transmission.ts  connections/gmail-watch.connection.ts   new mail in, email out
     transmissions/slack-messages.transmission.ts   Slack's event_callback → a message event
     predicates/from-owner.predicate.ts             only the owner's messages
-    playbook.ts  topology.ts  events/  actions/
+    playbook.ts                  Slack messages from the owner; new mail
+    topology.ts  events/  actions/
   builder/  agent.ts prompt.ts workspace.ts        where a person's dot starts coding jobs
 lib/
   dot.ts           a dot as data: primaryDot(), specialistFor(), builderFor(), Sam, channels
   auto-review.ts   reviewed(): built-in safety, Custom Rules, the recipient check
-  actions.ts       reply_to_customer, send_email, open_draft_pr, merge_pr, change_password
-  sources.ts       read_channel, read_email, notes, suggest, known contacts
+  actions.ts       open_draft_pr, merge_pr, change_password
+  sources.ts       read_channel, notes, suggest, known contacts (read through the Gmail app)
+  accounts.ts      your account store: accounts, tokens, the directory, accountSessions
+  connect.ts       connecting a mailbox: account, routes, installation, binding
+  oauth.ts  google.ts  mcp-servers.ts  tool-policy.ts  ledger.ts
   slack-api.ts     chat.postMessage as the bot
   models.ts  demo-model.ts  demo-scripts.ts       real models with a key, scripted without
   memory.ts  file-store.ts  paths.ts  authorization.ts
 foundry.application.ts   Sam's dot, builder and app conversation, seeded with defineAgentInstance
+demo/              a local Gmail MCP server over the sample support inbox
 fixtures/          the #feedback channel and the support inbox the demo reads
 scripts/
   verify.ts        the whole example, offline
   onboard.ts       give a person their dot on a running Foundry
+  connect.ts       connect their mailbox through Google's sign-in
   slack-events.ts  Slack's challenge and signature, then forward to Foundry
 ```
 
@@ -104,29 +139,32 @@ pnpm install
 pnpm --filter glove-foundry-standing-agents verify   # offline, no keys
 cp .env.example .env                                 # add ANTHROPIC_API_KEY
 pnpm --filter glove-foundry-standing-agents dev      # inspector at http://localhost:4145
-pnpm tsx scripts/onboard.ts ada "Ada" Juniper U0123456789
+pnpm onboard ada "Ada" Juniper U0123456789
+pnpm connect ada gmail                               # needs GOOGLE_CLIENT_ID and friends
 ```
 
-`verify` runs eight steps on the real runtime with scripted models:
+`verify` runs nine steps on the real runtime with scripted models and the
+support inbox as a sample account:
 
-1. Sam's dot, Pip, his builder and their app conversation are seeded data. Pip's research
-   schedule (every 2 hours) joins the app conversation.
-2. A research run reads the sources of both of Pip's responsibilities, keeps a note and suggests
-   one thing. The scripted model also tries `reply_to_customer`, and the tool is not there. No
-   acting tool, no mesh and no computer is mounted.
-3. "Ask": a reply to a customer waits for approval, then sends.
+1. Sam's dot, Pip, his builder and their app conversation are seeded data, with the support
+   mailbox connected and watched. Pip's research schedule (every 2 hours) joins the app conversation.
+2. A research run reads #feedback and the mailbox (in code, through the Gmail app), keeps a note
+   and suggests one thing. The scripted model also tries Gmail's send, and the tool is not there.
+   No acting tool, no mesh and no computer is mounted.
+3. "Ask": a reply to a customer waits for approval, then goes from the support mailbox in her thread.
 4. "Block": "Merge the fix PR" is not run; a Slack DM tells Sam what to do. `change_password` is
    his too, even after its rule is set to `allow`.
 5. "Allow": "Open a draft PR" runs with no approval. Email to an address that never wrote in
    still asks.
 6. Sam DMs Pip in Slack. The message joins Pip's Slack conversation, and the answer uses what
    Sam told Pip in the app. A stranger's mention starts nothing.
-7. Pip saves a file on its own computer.
-8. Sam asks for a weekly report. Pip starts it on his builder over the mesh, and the builder's
+7. New mail from a customer starts a read-only run: Pip notes it and sends nothing.
+8. Pip saves a file on its own computer.
+9. Sam asks for a weekly report. Pip starts it on his builder over the mesh, and the builder's
    reply comes back to the app.
 
 Without `SLACK_BOT_TOKEN`, posts to Slack are written to `.data/slack-outbox.jsonl`.
-Actions that really ran are listed in `.data/actions.jsonl`.
+Actions that really ran are listed in `.data/actions.jsonl`, and sample emails in `.data/ledger.jsonl`.
 
 ## Where it differs
 
@@ -220,8 +258,9 @@ For a computer with a real browser, swap the working environments in
 `agents/dot/workspace.ts` and `agents/builder/workspace.ts` for a Kuiper
 sandbox and browser per dot (`kuiper.sandboxes.create({ image: "kuiper/coding" })`
 from `@kuiper-sh/sdk`).
-For email, replace the stand-ins in `lib/actions.ts` and `lib/sources.ts` with
-an inbox and `inboxTools` from `@kuiper-sh/inbox/glove`.
+Connect the real mailbox with the `GOOGLE_*` and `GMAIL_PUBSUB_*` variables in
+`.env.example` and `pnpm connect`; new mail needs nothing public, since the
+watch pulls its subscription from inside the unit.
 
 ## Notes
 
@@ -232,11 +271,13 @@ an inbox and `inboxTools` from `@kuiper-sh/inbox/glove`.
 - Foundry's own tools stay mounted on research runs. They act on the dot itself
   (its schedules, workspace and tasks), not on the outside world.
   `glove_foundry_transmit` only reaches outbound routes a playbook declares, and
-  the dot declares none. Work the dot spawns is read-only too.
+  the dot's playbooks declare none, so a binding alone cannot make it send.
+  Work the dot spawns is read-only too.
 
 ## Sources
 
 - [Introducing dots](https://openai.com/index/introducing-dots/), OpenAI
 - [Dots privacy, security and safety FAQs](https://help.openai.com/en/articles/20001529), OpenAI Help Center
+- [Push notifications](https://developers.google.com/workspace/gmail/api/guides/push) and [the Gmail MCP server](https://developers.google.com/workspace/gmail/api/reference/mcp), Google
 - [OpenAI Dots hands-on review: my first day with Herman](https://www.theneuron.ai/explainer-articles/openai-dots-hands-on-review-herman/), The Neuron
 - [A deep dive into OpenAI dots](https://flaviocopes.com/openai-dots/), Flavio Copes

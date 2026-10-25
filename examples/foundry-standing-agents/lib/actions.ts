@@ -3,9 +3,10 @@ import { z } from "zod";
 import type { Action } from "./auto-review.js";
 import { dataDir, dataPath } from "./paths.js";
 
-// your code: your helpdesk, GitHub and email. Here every action that really
-// runs is appended to .data/actions.jsonl, so you can see what got through
-// the review and what didn't.
+// your code: your helpdesk and GitHub. Here every action that really runs is
+// appended to .data/actions.jsonl, so you can see what got through the review
+// and what didn't. Email goes out through the Gmail app; agent.ts puts the
+// same review around it under the rule send_email.
 
 export interface Performed {
   readonly agentId: string;
@@ -33,31 +34,9 @@ async function perform(agentId: string, action: string, input: unknown): Promise
 
 const ok = (data: Record<string, unknown>) => ({ status: "success" as const, data });
 
-/** Everything a dot can do to the outside world. Each one goes through auto-review. */
+/** What a dot can do outside its apps. Each one goes through auto-review. */
 export function actionsFor(agentId: string): Action[] {
   return [
-    {
-      name: "reply_to_customer",
-      description: "Reply by email to a customer who wrote in.",
-      inputSchema: z.object({ to: z.string().email(), text: z.string().min(1) }),
-      recipient: (input: { to: string }) => input.to,
-      handOff: (input: { to: string }) => `Reply to ${input.to} yourself.`,
-      async do(input: { to: string; text: string }) {
-        await perform(agentId, "reply_to_customer", input);
-        return ok({ sent: true, to: input.to });
-      },
-    },
-    {
-      name: "send_email",
-      description: "Send a new email.",
-      inputSchema: z.object({ to: z.string().email(), subject: z.string().min(1), body: z.string().min(1) }),
-      recipient: (input: { to: string }) => input.to,
-      handOff: (input: { to: string; subject: string }) => `Send "${input.subject}" to ${input.to} yourself.`,
-      async do(input: { to: string; subject: string; body: string }) {
-        await perform(agentId, "send_email", input);
-        return ok({ sent: true, to: input.to });
-      },
-    },
     {
       name: "open_draft_pr",
       description: "Open a draft pull request for a fix. Nothing merges.",
@@ -91,4 +70,5 @@ export function actionsFor(agentId: string): Action[] {
   ];
 }
 
-export const ACTION_NAMES = ["reply_to_customer", "send_email", "open_draft_pr", "merge_pr", "change_password"] as const;
+/** Every rule name: these actions, and send_email for the Gmail app's send. */
+export const ACTION_NAMES = ["send_email", "open_draft_pr", "merge_pr", "change_password"] as const;

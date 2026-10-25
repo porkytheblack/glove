@@ -40,13 +40,14 @@ export default defineAgent({
     return mail?.accountId ? [newMailFor(mail.accountId)] : [];
   },
 
-  // The connected apps as functions: gmail.search_threads, calendar.list_events.
-  // A brief reads both in one program. Anything that asks first stays a tool.
+  // The connected apps' reads as functions: gmail.search_threads,
+  // calendar.list_events. A brief reads both in one program. Anything that
+  // writes stays a tool.
   repl: () => defineRepl({
     language: "javascript",
     session: JsSession.create(),
     mount: { discovery: "auto" },
-    programmaticTools: { select: ({ apps }) => apps.flatMap((app) => app.tools), keepDirect: false },
+    programmaticTools: { select: ({ apps }) => apps.flatMap((app) => app.tools.filter((tool) => tool.readOnly)), keepDirect: false },
   }),
   configure: async (agent, ctx) => {
     useReadSkill(agent, await loadSkills());

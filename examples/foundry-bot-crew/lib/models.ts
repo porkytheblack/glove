@@ -162,15 +162,16 @@ function bugTriageScript({ text, called, results, lastResult }: DemoTurn): DemoS
     return say(/"connected":"linear"/.test(lastResult) ? "Linear is connected for all your bots." : "Not connected yet, so I'll keep bugs in notes for now.");
   }
   if (!/crash/i.test(text)) return say("Nothing blocking. One bug this week, ENG-1, and Engineer has fixed it.");
-  // Maya always allows filing, so it runs in code with the other Linear calls.
-  if (!called.includes("execute_js")) {
-    return call("execute_js", {
-      code: 'linear.save_issue({ title: "Export crashes on an empty report", description: "1. Open an empty report\\n2. Click Export\\n3. The page throws: cannot read rows of undefined" }).issue.id',
+  // Filing writes, so it is a tool; Maya always allows it, so it runs without asking.
+  if (!called.includes("linear__save_issue")) {
+    return call("linear__save_issue", {
+      title: "Export crashes on an empty report",
+      description: "1. Open an empty report\n2. Click Export\n3. The page throws: cannot read rows of undefined",
     });
   }
   if (!called.includes("glove_mesh_list_agents")) return call("glove_mesh_list_agents", {});
   if (!called.includes("glove_mesh_send_message")) {
-    const issue = /"value":"([A-Z]+-\d+)"/.exec(results.join(""))?.[1] ?? "the issue";
+    const issue = /"id\\?":\\?"([A-Z]+-\d+)/.exec(results.join(""))?.[1] ?? "the issue";
     return call("glove_mesh_send_message", {
       to: idOf(results, "Engineer") ?? "",
       content: `Fix ${issue}: export crashes on an empty report. Steps are on the issue.`,

@@ -13,6 +13,8 @@ export const LEVEL_LABELS: Readonly<Record<Level, string>> = {
 
 /** An action the dot can take, before review. */
 export interface Action<I = any> extends GloveFoldArgs<I> {
+  /** The Custom Rule it runs under, when that is not its tool name. */
+  readonly rule?: string;
   /** Who the action writes to, for actions that send something. */
   readonly recipient?: (input: I) => string;
   /** What the person should do when the action is handed to them. */
@@ -49,14 +51,14 @@ export function ruleLabel(name: string, rules: Readonly<Record<string, Level>>):
  * It cannot be turned off: the dot only ever sees the reviewed tool.
  */
 export function reviewed<I>(action: Action<I>, review: Review): GloveFoldArgs<I> {
-  const { recipient, handOff, ...tool } = action;
-  const level = levelFor(action.name, review.rules);
-  const described = { ...tool, description: `${tool.description} Rule: ${ruleLabel(action.name, review.rules)}.` };
+  const { recipient, handOff, rule = action.name, ...tool } = action;
+  const level = levelFor(rule, review.rules);
+  const described = { ...tool, description: `${tool.description} Rule: ${ruleLabel(rule, review.rules)}.` };
 
   if (level === "block") {
     return {
       ...described,
-      do: async (input) => notRun(action.name, `It stays with ${review.owner}. ${handOff(input)} ${review.tellPerson}`),
+      do: async (input) => notRun(rule, `It stays with ${review.owner}. ${handOff(input)} ${review.tellPerson}`),
     };
   }
   // The instruction check: writing to someone the person never heard from always asks.

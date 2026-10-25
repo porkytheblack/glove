@@ -5,20 +5,22 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Effect } from "effect";
 
-// Sam's dot, end to end on the real runtime with scripted models. No network:
-//   1. Sam's dot, Pip, his builder and their app conversation are seeded data.
-//      Pip's research schedule joins the app conversation.
-//   2. A research run reads the sources of both of Pip's responsibilities, keeps
-//      notes, suggests one thing, and has no tool that acts, no mesh and no computer.
-//      Spawned and background work is read-only too.
-//   3. "Ask": a reply to a customer waits for Sam's approval, then sends.
+// Sam's dot, end to end on the real runtime with scripted models and the
+// support mailbox Sam connected as a sample account. No network:
+//   1. Sam's dot, Pip, his builder and their app conversation are seeded data,
+//      with the support mailbox connected; its Gmail watch is running.
+//   2. A research run reads #feedback and the mailbox (in code, through the
+//      Gmail app), keeps notes, suggests one thing, and has no tool that acts,
+//      no mesh and no computer. Spawned and background work is read-only too.
+//   3. "Ask": a reply to a customer goes from the mailbox once Sam approves it.
 //   4. "Block": merging is handed to Sam in Slack. Changing a password is too,
 //      even with a rule of "allow": built-in safety.
 //   5. "Allow": a draft PR opens with no approval. Email to an address that
 //      never wrote in still asks.
 //   6. Sam DMs Pip in Slack: another conversation, the same memory. Strangers get nothing.
-//   7. Pip saves a file on its own computer.
-//   8. A coding job starts on Sam's builder over the mesh; its reply comes back to the app.
+//   7. New mail from a customer starts a read-only run: noted, nothing sent.
+//   8. Pip saves a file on its own computer.
+//   9. A coding job starts on Sam's builder over the mesh; its reply comes back to the app.
 
 const here = dirname(fileURLToPath(import.meta.url));
 const rootDir = resolve(here, "..");
@@ -27,14 +29,20 @@ process.env.DOTS_DATA_DIR = dataDir;
 process.env.DOTS_DEMO = "1"; // the checks below follow the scripts
 delete process.env.SLACK_BOT_TOKEN; // posts go to the offline outbox
 
-const { FoundryRuntime } = await import("glove-foundry");
+const { FoundryRuntime, installedApplicationTransmissionToolName } = await import("glove-foundry");
+const { z } = await import("zod");
 const { default: application, data, samsApp, samsBuilder, samsDot } = await import("../foundry.application.js");
 const { default: config } = await import("../foundry.config.js");
 const { CHANNELS, Dot, SAM } = await import("../lib/dot.js");
-const { ACTION_NAMES, actionsFor, performedActions } = await import("../lib/actions.js");
+const { ACTION_NAMES, performedActions } = await import("../lib/actions.js");
 const { reviewed } = await import("../lib/auto-review.js");
 const { notesFile } = await import("../lib/sources.js");
+const { entries } = await import("../lib/ledger.js");
+const { arrive } = await import("../demo/mailbox.js");
 const { readOnly, research } = await import("../agents/dot/research.js");
+const { default: gmailApp } = await import("../agents/dot/apps/gmail.app.js");
+const { default: gmail } = await import("../agents/dot/transmissions/gmail.transmission.js");
+const { default: slackMessages } = await import("../agents/dot/transmissions/slack-messages.transmission.js");
 
 const runtime = await FoundryRuntime.discover({
   rootDir,
@@ -110,14 +118,19 @@ assert.ok(builder, "Sam's builder is seeded");
 const app = (await runtime.listConversations(dot.id)).find((item) => item.id === samsApp.id)!;
 assert.ok(app, "Pip's app conversation is seeded");
 
+const sendTool = installedApplicationTransmissionToolName(gmailApp, gmail);
+
 try {
+  assert.deepEqual(dot.installations.filter((item) => item.kind === "application").map((item) => `${item.id} (${item.accountId})`),
+    ["slack (slack-bot)", "gmail (sam-gmail)"], "Slack and the support mailbox are installed");
   await ask(app.id, "Hi Pip, it's Sam.");
   const schedule = await until(async () =>
     (await runtime.listActivations()).find((item) => item.agentId === dot.id && item.scheduleName === "research"),
   "the research schedule");
   assert.deepEqual(schedule.timing, { kind: "every", intervalMs: 7_200_000 });
   assert.equal(schedule.conversationId, app.id);
-  console.log(`1. ${dot.name} (${dot.id}), Sam's builder and the app conversation are seeded data; research runs every 2h there`);
+  const watch = await until(async () => runtime.listApplicationConnections().find((item) => item.accountId === "sam-gmail" && item.status === "connected"), "the Gmail watch");
+  console.log(`1. ${dot.name} (${dot.id}), Sam's builder and the app conversation are seeded data; research runs every 2h there; the mailbox watch is ${watch.status}`);
 
   // 2. A research run, as the schedule would start it.
   const researchRun = await runtime.request("dot", {
@@ -129,42 +142,46 @@ try {
   });
   const suggestion = await finished(researchRun.id);
   assert.match(await readFile(notesFile(dot.id), "utf8"), /CSV export timeouts/);
-  // The scripted model reaches for reply_to_customer; the tool isn't there.
+  // The scripted model reaches for the Gmail send; the tool isn't there.
   const miss = await until(async () =>
     runtime.observability.list({ runId: researchRun.id, limit: 5_000 })
       .filter((event) => event.type === "agent.tool_use_result")
       .map((event) => event.data as { name?: string; result?: { message?: string } })
-      .find((result) => result.name === "reply_to_customer"),
+      .find((result) => result.name === sendTool),
   "the research run's tool results");
   const message = miss.result?.message ?? "";
-  assert.match(message, /^No tool called reply_to_customer exists/);
+  assert.match(message, new RegExp(`^No tool called ${sendTool} exists`));
   const available = (/Available tools: (.*)\.$/.exec(message)?.[1] ?? "").split(", ");
-  for (const name of ["read_channel", "read_email", "keep_note", "suggest"]) assert.ok(available.includes(name), name);
-  for (const name of [...ACTION_NAMES, "post_to_slack", "glove_mesh_send_message", "write_file"]) {
+  for (const name of ["read_channel", "execute_js", "keep_note", "suggest"]) assert.ok(available.includes(name), name);
+  for (const name of [...ACTION_NAMES, sendTool, "gmail__create_draft", "post_to_slack", "glove_mesh_send_message", "write_file"]) {
     assert.ok(!available.includes(name), `${name} was mounted on a research run`);
   }
+  assert.ok(!available.includes("gmail__search_threads"), "the mailbox is read in code, not as a tool");
   assert.equal((await performedActions()).length, 0);
   // Work the dot starts for itself is read-only too, so a research run can't spawn its way to an action.
-  const from = (kind: "direct" | "transmission" | "mesh" | "activation" | "spawn" | "background") =>
-    readOnly({ agentId: dot.id, conversationId: app.id, workspaceId: dot.workspaceId, message: "", source: { kind } });
-  assert.deepEqual((["activation", "spawn", "background"] as const).map(from), [true, true, true]);
-  assert.deepEqual((["direct", "transmission", "mesh"] as const).map(from), [false, false, false]);
-  console.log(`2. research read both responsibilities' sources, kept notes and suggested: "${suggestion}"`);
-  console.log(`   ${available.length} tools mounted, none that act (no ${ACTION_NAMES.join(", ")}, post_to_slack), no mesh, no computer`);
-  console.log("   runs from spawn and background are read-only too");
+  const from = (kind: "direct" | "transmission" | "mesh" | "activation" | "spawn" | "background", provider?: string) =>
+    readOnly({ agentId: dot.id, conversationId: app.id, workspaceId: dot.workspaceId, message: "", source: { kind, ...(provider ? { provider } : {}) } });
+  assert.deepEqual((["activation", "spawn", "background"] as const).map((kind) => from(kind)), [true, true, true]);
+  assert.deepEqual([from("direct"), from("mesh"), from("transmission", slackMessages.id)], [false, false, false]);
+  assert.equal(from("transmission", gmail.id), true, "new mail is from anyone, so it only reads");
+  console.log(`2. research read #feedback and the mailbox in code, kept notes and suggested: "${suggestion}"`);
+  console.log(`   ${available.length} tools mounted, none that act (no ${ACTION_NAMES.join(", ")}, Gmail send, post_to_slack), no mesh, no computer`);
+  console.log("   runs from spawn, background and new mail are read-only too");
 
-  // 3. "Ask": the reply waits for Sam.
+  // 3. "Ask": the reply waits for Sam, then goes from the mailbox.
   const replyRun = await runtime.send(dot.id, app.id, "Reply to Dana at dana@acme.test and tell her the CSV fix ships Friday.");
   const approval = await until(async () =>
     (await runtime.listApprovals({ status: "pending" })).find((item) => item.runId === replyRun.id),
   "the reply to wait for approval");
-  assert.equal(approval.toolName, "reply_to_customer");
-  assert.equal((await ran("reply_to_customer")).length, 0, "nothing sent before approval");
+  assert.equal(approval.toolName, sendTool);
+  assert.equal((await entries("email")).length, 0, "nothing sent before approval");
   await runtime.resolveApproval(approval.id, "approve");
   const sent = await finished(replyRun.id);
   assert.match(sent, /Sent the reply to dana@acme\.test/);
-  assert.equal((await ran("reply_to_customer")).length, 1);
-  console.log(`3. "ask": reply_to_customer waited for approval; approved: "${sent}"`);
+  const [email] = await entries("email");
+  assert.equal(email?.from, "support@example.com");
+  assert.equal(email?.threadId, "t-1031", "in Dana's thread");
+  console.log(`3. "ask": the Gmail send waited for approval; approved: "${sent}"`);
 
   // 4. "Block": merging is Sam's. Decisions route to Slack, so Pip tells him there.
   const merge = await ask(app.id, "Merge the fix PR, #42.");
@@ -189,10 +206,12 @@ try {
   assert.match(draft.reply, /Opened draft PR #\d+/);
   assert.equal((await runtime.listApprovals({ runId: draft.id })).length, 0);
   assert.equal((await ran("open_draft_pr")).length, 1);
-  const email = reviewed(actionsFor(dot.id).find((item) => item.name === "send_email")!, {
-    owner: "Sam", rules: { send_email: "allow" }, contacts: ["dana@acme.test"], tellPerson: "",
-  });
-  const gate = email.requiresPermission as (input: { to: string }) => boolean;
+  // The same review wraps the Gmail send: on "allow", an address that never wrote in still asks.
+  const send = reviewed({
+    name: "send", rule: "send_email", description: "Send", inputSchema: z.object({ to: z.string() }),
+    recipient: (input: { to: string }) => input.to, handOff: () => "", do: async () => ({ status: "success" as const, data: null }),
+  }, { owner: "Sam", rules: { send_email: "allow" }, contacts: ["dana@acme.test"], tellPerson: "" });
+  const gate = send.requiresPermission as (input: { to: string }) => boolean;
   assert.equal(gate({ to: "dana@acme.test" }), false);
   assert.equal(gate({ to: "dana@acme-billing.test" }), true);
   console.log(`5. "allow": open_draft_pr ran with no approval: "${draft.reply}"`);
@@ -220,16 +239,24 @@ try {
   console.log(`6. Slack DM from Sam joined "${slack!.id}"; answered there: "${answer!.text}"`);
   console.log("   a stranger's mention started nothing");
 
-  // 7. Pip's own computer.
-  const saved = await ask(app.id, "Put this week's grouped feedback in a file on your computer.");
-  assert.match(saved.reply, /Saved/);
-  const pipFiles = await until(async () => {
-    const files = await computerFiles(dot);
-    return files.some((path) => path.endsWith("feedback-this-week.md")) ? files : undefined;
-  }, "the file on Pip's computer");
-  console.log(`7. on Pip's own computer: ${pipFiles.filter((path) => path.startsWith("/workspace/")).join(", ")}`);
+  // 7. New mail from a customer: a read-only run in the app conversation. It notes; it cannot send.
+  const mail = {
+    id: "msg-1034", threadId: "t-1034", from: "ken@umbrella.test", subject: "CSV export stuck again",
+    body: "Our big export hangs at 90%.", receivedAt: new Date().toISOString(), labels: ["INBOX"],
+  };
+  await arrive(dataDir, "support@example.com", mail);
+  const [mailRun] = await runtime.dispatchInbound({
+    routeId: "sam-gmail-in", eventId: mail.id, threadKey: mail.threadId, conversationKey: CHANNELS.app.key, conversationScope: "agent",
+    raw: { messageId: mail.id, threadId: mail.threadId, from: mail.from, subject: mail.subject, snippet: mail.body, receivedAt: mail.receivedAt, rfcMessageId: "<1034@umbrella.test>" },
+  });
+  assert.equal(mailRun?.conversationId, app.id, "new mail lands where progress goes");
+  const noted = await finished(mailRun!.id);
+  assert.match(await readFile(notesFile(dot.id), "utf8"), /ken@umbrella\.test/);
+  assert.equal((await runtime.listApprovals({ runId: mailRun!.id })).length, 0);
+  assert.equal((await entries("email")).length, 1, "nothing sent in reply to new mail");
+  console.log(`7. new mail started a read-only run: "${noted}"`);
 
-  // 8. A coding job starts on Sam's builder over the mesh, and its reply comes back to the app.
+  // 8. Pip's own computer.  // 9. A coding job starts on Sam's builder over the mesh, and its reply comes back to the app.
   await ask(app.id, "Build a weekly feedback report I can share on Mondays.");
   const report = await until(async () =>
     (await runtime.listRuns("dot")).find((run) =>
@@ -243,9 +270,9 @@ try {
     return files.includes("/out/weekly-feedback.md") ? files : undefined;
   }, "the report on the builder's computer");
   assert.ok(builderFiles.includes("/out/weekly-feedback.md"));
-  console.log(`8. started on ${builder.name} (${builder.id}) over the mesh; back in the app: "${text(report)}"`);
+  console.log(`9. started on ${builder.name} (${builder.id}) over the mesh; back in the app: "${text(report)}"`);
 
-  console.log("\nDots verified: seeded data, read-only research, Custom Rules (ask, block, allow), built-in safety, channels, shared memory, its own computer, the builder on the mesh.");
+  console.log("\nDots verified: seeded data, a connected mailbox read in code, read-only research and new mail, Custom Rules (ask, block, allow) on actions and on Gmail's send, built-in safety, channels, shared memory, its own computer, the builder on the mesh.");
 } finally {
   await runtime.stop();
   await rm(dataDir, { recursive: true, force: true });
