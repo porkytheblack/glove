@@ -823,6 +823,52 @@ importers:
         specifier: ^5.9.3
         version: 5.9.3
 
+  examples/foundry-personal-agent:
+    dependencies:
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.29.0
+        version: 1.29.0(zod@4.3.6)
+      effect:
+        specifier: ^3.22.1
+        version: 3.22.1
+      glove-classifier:
+        specifier: workspace:*
+        version: link:../../packages/glove-classifier
+      glove-core:
+        specifier: workspace:*
+        version: link:../../packages/glove
+      glove-env-fetch:
+        specifier: workspace:*
+        version: link:../../packages/glove-env-fetch
+      glove-env-secret:
+        specifier: workspace:*
+        version: link:../../packages/glove-env-secret
+      glove-foundry:
+        specifier: workspace:*
+        version: link:../../packages/glove-foundry
+      glove-js:
+        specifier: workspace:*
+        version: link:../../packages/glove-js
+      glove-memory:
+        specifier: workspace:*
+        version: link:../../packages/glove-memory
+      glove-working-environment:
+        specifier: workspace:*
+        version: link:../../packages/glove-working-environment
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
+    devDependencies:
+      '@types/node':
+        specifier: ^25.2.3
+        version: 25.2.3
+      tsx:
+        specifier: ^4.21.0
+        version: 4.21.0
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+
   examples/foundry-proactive-partner:
     dependencies:
       '@modelcontextprotocol/sdk':

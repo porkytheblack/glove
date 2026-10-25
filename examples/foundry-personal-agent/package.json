@@ -1,0 +1,33 @@
+{
+  "name": "glove-foundry-personal-agent",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "glove foundry dev",
+    "start": "glove foundry start",
+    "onboard": "node --env-file-if-exists=.env --import tsx scripts/onboard.ts",
+    "connect": "node --env-file-if-exists=.env --import tsx scripts/connect.ts",
+    "whatsapp-webhook": "node --env-file-if-exists=.env --import tsx scripts/whatsapp-webhook.ts",
+    "verify": "node --env-file-if-exists=.env --import tsx scripts/verify.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "effect": "^3.22.1",
+    "glove-classifier": "workspace:*",
+    "glove-core": "workspace:*",
+    "glove-env-fetch": "workspace:*",
+    "glove-env-secret": "workspace:*",
+    "glove-foundry": "workspace:*",
+    "glove-js": "workspace:*",
+    "glove-memory": "workspace:*",
+    "glove-working-environment": "workspace:*",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^25.2.3",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  }
+}

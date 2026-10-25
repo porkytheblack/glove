@@ -1,0 +1,23 @@
+[
+  {
+    "id": "m-101",
+    "from": "Leo Martin <leo@example.com>",
+    "subject": "Dinner Friday?",
+    "body": "Still on for Friday? Four of us: you, me, Priya and Sam. Somewhere quiet near Union Square?",
+    "receivedAt": "2026-10-24T06:40:00Z"
+  },
+  {
+    "id": "m-102",
+    "from": "Fresh Market <orders@freshmarket.example>",
+    "subject": "Your basket from last week",
+    "body": "Pasta, basil, parmesan: $23.40. Order again for Friday delivery?",
+    "receivedAt": "2026-10-24T06:12:00Z"
+  },
+  {
+    "id": "m-103",
+    "from": "The Weekly Tab <news@weeklytab.example>",
+    "subject": "This week in design systems",
+    "body": "Five links you might have missed.",
+    "receivedAt": "2026-10-24T05:00:00Z"
+  }
+]

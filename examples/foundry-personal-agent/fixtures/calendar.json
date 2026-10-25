@@ -1,0 +1,5 @@
+[
+  { "id": "e-1", "title": "Dentist", "start": "10:00", "end": "10:45" },
+  { "id": "e-2", "title": "Design review", "start": "14:00", "end": "15:00" },
+  { "id": "e-3", "title": "Dinner with Leo, Priya and Sam", "start": "19:00", "end": "21:00" }
+]
