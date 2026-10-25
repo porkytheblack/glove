@@ -38,7 +38,8 @@ export default function ClaudeDuetRebuildPage() {
         <li>A morning brief and check-ins through the day. You choose what you hear about and how often.</li>
         <li>It flags problems you didn&apos;t ask about, such as a client call that clashes with a flight.</li>
         <li>One ongoing thread rather than separate chats. You hand it work by text or voice.</li>
-        <li>Its own virtual machine with a browser, so your devices can be off while it works. It tells you when a task is done.</li>
+        <li>Its own virtual machine with a browser, so your devices can be off while it works. It tells you when a background task finishes or needs your review.</li>
+        <li>Your memory, skills and connected apps carry over from your Claude account, with over 6,000 connectors and plugins.</li>
         <li>It asks before sending messages, making payments, signing documents or deleting files. Some things, such as trading securities or moving money between accounts, it will not do even with your approval.</li>
         <li>It never sees your passwords. A classifier always rejects card numbers and government ID numbers, and shares health or financial details only when you explicitly ask.</li>
       </ul>
@@ -98,6 +99,21 @@ export function computerFor(person: Pick<Person, "id">) {
 }
 
 export const threadFor = (person: Pick<Person, "id">) => ({ id: \`\${person.id}-thread\`, workspaceId: person.id, title: "Partner" });`}
+      />
+      <p>
+        The example seeds Ada&apos;s account with <code>defineAgentInstance</code>, and{" "}
+        <code>scripts/onboard.ts</code> creates the same records for anyone else:
+      </p>
+      <CodeBlock
+        filename="foundry.application.ts"
+        language="typescript"
+        code={`const ada = defineAgentInstance(partner, partnerFor(DEMO_PERSON));
+
+export const data = new FileFoundryDataAdapter({
+  file: dataPath("foundry.json"),
+  agents: [ada, defineAgentInstance(computer, computerFor(DEMO_PERSON))],
+  conversations: [createConversation(ada, threadFor(DEMO_PERSON))],
+});`}
       />
       <p>The definition only says what a partner can be. Every part it names lives beside it:</p>
       <CodeBlock

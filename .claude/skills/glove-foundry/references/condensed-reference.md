@@ -269,7 +269,9 @@ and non-secret environment values. Pass artifact paths, not copied documents.
 
 defineWorkingEnvironment({ options, persistence? }) mounts glove-working-environment
 (guarded VFS, scripts, checkpoints, export). It closes after every run; add
-foundryDataEnvironmentPersistence({ scope }) or a native persistent Vfs to keep files.
+foundryDataEnvironmentPersistence({ scope: "agent" | "conversation" | "workspace" })
+(workspace = one tree shared by every agent in the workspace) or a native
+persistent Vfs to keep files.
 defineRepl({ language: "javascript" | "python" | "lisp", session, mount?,
 programmaticTools? }) — one REPL per run. programmaticTools.select projects exact
 live tools into the sandbox (maxCalls default 50); permission-gated tools are refused

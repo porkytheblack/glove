@@ -11,7 +11,7 @@ export function buildFoundryLlmsTxt(): string {
     "Key facts:",
     "- Install: npx glove-foundry init my-agents; run: pnpm dev (http://127.0.0.1:4141). Node 22+; 22.13+ for SQLite memory.",
     "- composeAgent(...) only makes shared tools, apps and MCP servers available; an instance must install() them. Always-on tools go in defineAgent's tools field.",
-    "- Agents are data. A definition (defineAgent) is everything a kind of agent can be, like a server-rendered page; each agent is an instance whose name, description, context, installations and workspaceId are data. Never write one definition per agent or put a name, job or per-user setting in code: a new agent is createAgent, a rename is configureAgent or a tool that writes the instance, and neither needs a deploy. Branch on instance data (context.role), not on ids. Split definitions only by what an agent can do or must load.",
+    "- Agents are data. A definition (defineAgent) is everything a kind of agent can be, like a server-rendered page; each agent is an instance whose name, description, context, installations and workspaceId are data. Never write one definition per agent or put a name, job or per-user setting in code: a new agent is createAgent, a rename is configureAgent or a tool that writes the instance, and neither needs a deploy. Branch on instance data (context.primary), not on ids. Split definitions only by what an agent can do or must load. Seed known agents with defineAgentInstance(importedDefinition, data) in the data adapter; create the rest with createAgent(route, data) at runtime.",
     "- Instances are data (FoundryDataAdapter); every run reloads the instance and conversation and re-resolves the definition against the new message.",
     "- Each run executes in a fresh child process: a plain MemoryStore and other in-memory state reset on every message. Persist four things separately: runtime data, transcripts (store), memory, and working-environment files.",
     "- Install capabilities with install() at creation, client.install, or PUT /api/installations; the inspector only displays installations.",
@@ -306,7 +306,9 @@ and non-secret environment values. Pass artifact paths, not copied documents.
 
 defineWorkingEnvironment({ options, persistence? }) mounts glove-working-environment
 (guarded VFS, scripts, checkpoints, export). It closes after every run; add
-foundryDataEnvironmentPersistence({ scope }) or a native persistent Vfs to keep files.
+foundryDataEnvironmentPersistence({ scope: "agent" | "conversation" | "workspace" })
+(workspace = one tree shared by every agent in the workspace) or a native
+persistent Vfs to keep files.
 defineRepl({ language: "javascript" | "python" | "lisp", session, mount?,
 programmaticTools? }) — one REPL per run. programmaticTools.select projects exact
 live tools into the sandbox (maxCalls default 50); permission-gated tools are refused

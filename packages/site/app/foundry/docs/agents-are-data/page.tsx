@@ -19,6 +19,12 @@ export default function AgentsAreDataPage() {
         teammates are data too. Get this right and adding an agent is a write to a database.
         Get it wrong and it is a deploy.
       </p>
+      <p>
+        This is how Foundry has always worked: a definition is code, an{" "}
+        <Link href="/foundry/docs/definitions-and-instances">instance</Link> is a record, and{" "}
+        <code>defineAgentInstance</code> describes one in code by pointing at the imported
+        definition. What is easy to get wrong is how far it goes.
+      </p>
 
       <h2 id="analogy">A page and its props</h2>
       <p>
@@ -29,8 +35,8 @@ export default function AgentsAreDataPage() {
       </p>
       <p>
         Foundry works the same way. <code>agents/bot/agent.ts</code> is the page. Each bot a
-        person creates (&ldquo;Sales Outbound&rdquo;, &ldquo;Inbox Manager&rdquo;, their
-        Chief) is an instance of it. The definition reads the instance and assembles the
+        person creates (&ldquo;Sales Outbound&rdquo;, &ldquo;Inbox Manager&rdquo;, the main
+        bot they named &ldquo;Chief&rdquo;) is an instance of it. The definition reads the instance and assembles the
         right agent for every run.
       </p>
       <CodeBlock
@@ -45,21 +51,49 @@ export default function AgentsAreDataPage() {
   mesh: { waitMs: 60_000 },                                       // bots message each other by id
 });`}
       />
+      <p>
+        A person&apos;s agents are records. Describe them as plain data, then either seed them
+        or create them when the person signs up:
+      </p>
       <CodeBlock
-        filename="when Maya makes a bot"
+        filename="lib/people.ts"
         language="typescript"
-        code={`await foundry.createAgent("bot", {
-  id: "maya-bot-4",
-  workspaceId: "maya",                    // her team
-  name: "Inbox Manager",                  // who it is
-  description: "Gets Maya's inbox to zero every morning and drafts the replies.",
-  context: { owner: "Maya" },
-  installations: [install(gmail)],        // what it may use
-});
+        code={`export function botFor(person: Person, bot: { id: string; name?: string; job?: string }) {
+  return {
+    id: bot.id,
+    workspaceId: person.id,                 // her team
+    name: bot.name ?? "New bot",            // who it is
+    ...(bot.job ? { description: bot.job } : {}),
+    context: { owner: person.name },
+    installations: connected(person),       // what it may use: the apps she connected
+  };
+}`}
+      />
+      <CodeBlock
+        filename="foundry.application.ts: the demo account, seeded"
+        language="typescript"
+        code={`import bot from "./agents/bot/agent.js";
+
+const chief = defineAgentInstance(bot, mainBotFor(maya));     // the definition is imported, not named
+
+export const data = new FileFoundryDataAdapter({
+  file: ".data/foundry.json",
+  agents: [chief],                                           // written only if the id is missing
+  conversations: [createConversation(chief, { id: "maya-main", title: "Chief" })],
+});`}
+      />
+      <CodeBlock
+        filename="your app: when someone makes a bot"
+        language="typescript"
+        code={`await foundry.createAgent("bot", botFor(maya, { id: "maya-bot-4", name: "Inbox Manager" }));
 
 // Later, a rename is one more write. No deploy.
 await foundry.configureAgent("maya-bot-4", { name: "Inbox Zero" });`}
       />
+      <p>
+        Over HTTP the kind of agent is its route, because a request crosses a process
+        boundary. Inside the project, refer to the definition by importing it.
+      </p>
 
       <h2 id="where">What goes where</h2>
       <table>
@@ -107,7 +141,7 @@ await foundry.configureAgent("maya-bot-4", { name: "Inbox Zero" });`}
           <tr>
             <td>Branches on identity: <code>if (agentId === &quot;maya-chief&quot;)</code></td>
             <td>Behaviour depends on ids baked into code, and breaks for the next person.</td>
-            <td>Branch on data the instance carries: <code>context.role === &quot;chief&quot;</code>.</td>
+            <td>Branch on data the instance carries: <code>context.primary === true</code>.</td>
           </tr>
           <tr>
             <td>Per-user settings in environment variables or constants</td>

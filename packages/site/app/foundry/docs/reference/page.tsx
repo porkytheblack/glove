@@ -150,7 +150,7 @@ const groups: ReadonlyArray<Group> = [
     values: [
       ["defineWorkingEnvironment", "function", "Sandboxed persistent VFS plus named scripts for the `workingEnvironment` field."],
       ["defineRepl", "function", "One native JavaScript, Python or Lisp REPL for the `repl` field, with optional programmatic tool calling (`programmaticTools`, `maxCalls` default 50, max 1000)."],
-      ["foundryDataEnvironmentPersistence", "function", "VFS persistence through the data adapter's private snapshot methods: `foundryDataEnvironmentPersistence({ scope: \"agent\" | \"conversation\" })` (default `agent`)."],
+      ["foundryDataEnvironmentPersistence", "function", "VFS persistence through the data adapter's private snapshot methods: `foundryDataEnvironmentPersistence({ scope: \"agent\" | \"conversation\" | \"workspace\" })` (default `agent`; `workspace` is one tree shared by every agent in the workspace)."],
     ],
     types: ["DefineFoundryReplOptions", "DefineFoundryWorkingEnvironmentOptions", "FoundryJavaScriptReplDefinition", "FoundryLispReplDefinition", "FoundryMountedRepl", "FoundryProgrammaticToolContext", "FoundryProgrammaticToolSelection", "FoundryProgrammaticTools", "FoundryPythonReplDefinition", "FoundryReplDefinition", "FoundryVfs", "FoundryVfsHandle", "FoundryWorkingEnvironmentCreateContext", "FoundryWorkingEnvironmentDefinition", "FoundryWorkingEnvironmentPersistenceAdapter", "FoundryWorkingEnvironmentPersistenceContext"],
   },

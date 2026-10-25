@@ -22,7 +22,7 @@ A definition is the realm of what a kind of agent can be, like a server-rendered
 
 - One definition per kind of agent, never one per agent. A person making a bot, renaming it or giving it Gmail is a write (`createAgent`, `configureAgent`, `install`), not a deploy.
 - No names, jobs or per-user settings in code: the prompt reads `ctx.agentInstance.name`, `.description` and `.context`.
-- Branch on data the instance carries (`context.role === "chief"`), never on its id.
+- Branch on data the instance carries (`context.primary === true`), never on its id.
 - Agents can change their own data with a tool. A bot told its job names itself:
 
   ```ts

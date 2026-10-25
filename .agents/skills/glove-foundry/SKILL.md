@@ -32,7 +32,8 @@ A definition is not an agent. It is everything a kind of agent *can* be, like a 
 
 - **Never one definition per agent.** `agents/sales-outbound/` next to `agents/inbox-manager/` means nobody can make a new one without a deploy. Write one `bot` definition; each bot is an instance.
 - **Never put names, jobs or per-user settings in code** (a prompt that says "You are Sales Outbound", a constant, an env var per customer). Put them on the instance and read them in resolvers.
-- **Branch on instance data, not ids**: `ctx.agentInstance.context.role === "chief"`, never `ctx.agentId === "maya-chief"`.
+- **Branch on instance data, not ids**: `ctx.agentInstance.context.primary === true`, never `ctx.agentId === "maya-chief"`.
+- **Seed known agents with `defineAgentInstance`; create the rest at runtime.** Describe a person's agents as plain data in `lib/`. Seed a demo or fixed account with `defineAgentInstance(importedDefinition, data)` in the data adapter (`agents: [...]`, `conversations: [createConversation(instance, …)]`; written only when the id is missing). Create everyone else with `createAgent(route, data)` when they sign up: the route string belongs at the HTTP boundary, an import everywhere else.
 - **Agents can change their own data with a tool.** A `take_job` tool writes `name` and `description` with `ctx.data.putAgent(...)`; your app does the same with `configureAgent(id, { name })`.
 - **A workspace is a tenant** (a person, a team, a company). Agents in one are mesh peers and share workspace entries. A conversation carries data too (`conversation.context`, such as the members of a group chat).
 - **Split definitions only by what an agent can do or must load**: a voice front with its own `run`, a worker that loads a sandbox SDK, a read-only agent whose tools must never mix with acting ones. Even then, every agent of that kind is an instance.

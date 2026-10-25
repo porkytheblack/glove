@@ -71,20 +71,9 @@ export default function LayeredAgentsPage() {
         code={`export function teamFor(person: { id: string; name: string }) {
   const workspaceId = person.id;
   return {
-    assistant: {
-      definition: "assistant",
-      options: { id: person.id, workspaceId, name: "Iris", description: \`\${person.name}'s assistant\`, context: { name: person.name } },
-    },
-    workers: [
-      {
-        definition: "coder",
-        options: { id: \`\${person.id}-coder\`, workspaceId, name: "Coder", description: "Writes and runs code in its own workspace. Takes minutes. Give it the whole task." },
-      },
-      {
-        definition: "researcher",
-        options: { id: \`\${person.id}-researcher\`, workspaceId, name: "Researcher", description: "Reads the web and reports back with sources. Takes a minute or two." },
-      },
-    ],
+    assistant: { id: person.id, workspaceId, name: "Iris", description: \`\${person.name}'s assistant\`, context: { name: person.name } },
+    coder: { id: \`\${person.id}-coder\`, workspaceId, name: "Coder", description: "Writes and runs code in its own workspace. Takes minutes. Give it the whole task." },
+    researcher: { id: \`\${person.id}-researcher\`, workspaceId, name: "Researcher", description: "Reads the web and reports back with sources. Takes a minute or two." },
   };
 }`}
       />
@@ -138,12 +127,30 @@ export default defineAgent({
   mesh: { waitMs: 120_000 },   // a blocking question waits this long in-run
 });`}
       />
+      <p>
+        The example seeds Maya&apos;s team with <code>defineAgentInstance</code>, which points
+        at each imported definition. Anyone else is created over HTTP when they sign up, where
+        the kind of agent is its route:
+      </p>
+      <CodeBlock
+        filename="foundry.application.ts"
+        language="typescript"
+        code={`const team = teamFor({ id: "maya", name: "Maya" });
+const maya = defineAgentInstance(assistant, team.assistant);
+
+export const data = new FileFoundryDataAdapter({
+  file: dataPath("foundry.json"),
+  agents: [maya, defineAgentInstance(coder, team.coder), defineAgentInstance(researcher, team.researcher)],
+  conversations: [createConversation(maya, { id: "maya-chat", title: "Chat with Maya" })],
+});`}
+      />
       <CodeBlock
         filename="scripts/onboard.ts"
         language="typescript"
-        code={`const team = teamFor({ id: "maya", name: "Maya" });
-await foundry.createAgent(team.assistant.definition, team.assistant.options);
-for (const worker of team.workers) await foundry.createAgent(worker.definition, worker.options);`}
+        code={`const team = teamFor({ id: "ada", name: "Ada" });
+await foundry.createAgent("assistant", team.assistant);
+await foundry.createAgent("coder", team.coder);
+await foundry.createAgent("researcher", team.researcher);`}
       />
       <p>What <code>mesh</code> gives an agent:</p>
       <ul>
