@@ -96,7 +96,12 @@ export interface InboundDeliveryClaim {
 }
 
 export interface FoundryWorkingEnvironmentSnapshotOwner {
-  readonly scope: "agent" | "conversation";
+  /**
+   * "agent": one snapshot per instance. "conversation": one per conversation.
+   * "workspace": one for every agent in the workspace, such as a computer a
+   * person's agents share; definitionId and agentId are empty.
+   */
+  readonly scope: "agent" | "conversation" | "workspace";
   readonly definitionId: string;
   readonly agentId: string;
   readonly conversationId: string;

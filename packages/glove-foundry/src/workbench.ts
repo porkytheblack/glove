@@ -149,9 +149,12 @@ function assertSnapshot(value: unknown): EnvSnapshot {
 }
 
 function environmentSnapshotOwner(
-  scope: "agent" | "conversation",
+  scope: "agent" | "conversation" | "workspace",
   context: FoundryWorkingEnvironmentPersistenceContext,
 ): import("./primitives.js").FoundryWorkingEnvironmentSnapshotOwner {
+  if (scope === "workspace") {
+    return { scope, definitionId: "", agentId: "", conversationId: "", workspaceId: context.workspaceId };
+  }
   return {
     scope,
     definitionId: context.definitionId,
@@ -164,9 +167,13 @@ function environmentSnapshotOwner(
 /**
  * Convenience persistence over the configured FoundryDataAdapter's private
  * snapshot seam. VFS contents never become public workspace entries.
+ * Scope "agent" (default) keeps one snapshot per instance, "conversation" one
+ * per conversation, and "workspace" one shared by every agent in the
+ * workspace. Saves replace the snapshot, so with "workspace" the last run to
+ * finish wins; give agents that write at the same time a live machine instead.
  */
 export function foundryDataEnvironmentPersistence(
-  options: { readonly scope?: "agent" | "conversation" } = {},
+  options: { readonly scope?: "agent" | "conversation" | "workspace" } = {},
 ): FoundryWorkingEnvironmentPersistenceAdapter {
   const scope = options.scope ?? "agent";
   const adapter: FoundryWorkingEnvironmentPersistenceAdapter = {
