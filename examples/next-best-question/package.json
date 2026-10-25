@@ -1,0 +1,26 @@
+{
+  "name": "glove-next-best-question-example",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Classifiers that reorder a form or a goal program around the conversation: what to confirm, what to ask next, which step or goal to steer to.",
+  "scripts": {
+    "demo": "tsx --env-file-if-exists=../../.env src/demo.ts",
+    "bench": "tsx --env-file-if-exists=../../.env src/bench.ts",
+    "phrasing": "tsx --env-file-if-exists=../../.env src/phrasing.ts",
+    "test": "node --test --import tsx tests/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@huggingface/transformers": "^4.2.0",
+    "glove-classifier": "workspace:*",
+    "glove-core": "workspace:*",
+    "glove-memory": "workspace:*",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^25.2.3",
+    "tsx": "^4.19.0",
+    "typescript": "^5.9.3"
+  }
+}
