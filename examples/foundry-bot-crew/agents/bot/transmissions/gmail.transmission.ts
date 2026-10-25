@@ -17,7 +17,7 @@ export const sendAsOwner = {
  * A person's Gmail, in and out. In: each new inbox message, which the
  * gmail-watch connection reads as Gmail announces it. Out: one email, sent
  * from the person's address. Foundry delivers it in its own process, inside
- * the account session, after the person approves the exact message; the bot
+ * the account session, after the person approves the exact message; the agent
  * that asked never sees the token.
  */
 export default defineTransmission({

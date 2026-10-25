@@ -2,7 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { createServer } from "node:http";
 import { fileURLToPath } from "node:url";
 import { createFoundryClient, discoverAgents } from "glove-foundry";
-import { APP_NAMES, PROVIDERS, connectApp, writesVia, type AppName } from "../lib/connect.js";
+import { APP_NAMES, PROVIDERS, SCOPES, connectApp, writesVia, type AppName } from "../lib/connect.js";
 import { authorizeUrl, exchange, identify } from "../lib/oauth.js";
 
 // Connect one of a person's apps from a terminal: the provider's sign-in in
@@ -29,7 +29,7 @@ const code = await new Promise<string>((resolve, reject) => {
     if (url.searchParams.get("state") !== state || !returned) reject(new Error(url.searchParams.get("error") ?? "The sign-in did not return a code."));
     else resolve(returned);
   }).listen(53683, "127.0.0.1");
-  console.log(`Open this to connect ${app} for ${person}:\n${authorizeUrl(provider, { redirectUri, state, codeChallenge })}`);
+  console.log(`Open this to connect ${app} for ${person}:\n${authorizeUrl(provider, { scope: SCOPES[app], redirectUri, state, codeChallenge })}`);
 });
 
 const tokens = await exchange(provider, { code, redirectUri, codeVerifier });

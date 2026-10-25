@@ -11,8 +11,6 @@ const PROVIDERS = {
   google: {
     authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
     tokenUrl: "https://oauth2.googleapis.com/token",
-    // What Google's Gmail MCP server asks for. gmail.compose also covers sending.
-    scope: "https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.compose",
     // A refresh token, so the bots keep working after the hour is up.
     extra: { access_type: "offline", prompt: "consent" },
     client: () => ({ id: process.env.GOOGLE_CLIENT_ID, secret: process.env.GOOGLE_CLIENT_SECRET }),
@@ -20,7 +18,6 @@ const PROVIDERS = {
   linear: {
     authorizeUrl: "https://linear.app/oauth/authorize",
     tokenUrl: "https://api.linear.app/oauth/token",
-    scope: "read,write",
     extra: {},
     client: () => ({ id: process.env.LINEAR_CLIENT_ID, secret: process.env.LINEAR_CLIENT_SECRET }),
   },
@@ -37,14 +34,15 @@ function client(provider: Provider) {
   return { id, secret };
 }
 
-export function authorizeUrl(provider: Provider, options: { readonly redirectUri: string; readonly state: string; readonly codeChallenge: string }): string {
+/** `scope` is what the app needs, in the provider's format (see SCOPES in connect.ts). */
+export function authorizeUrl(provider: Provider, options: { readonly scope: string; readonly redirectUri: string; readonly state: string; readonly codeChallenge: string }): string {
   const config = PROVIDERS[provider];
   const url = new URL(config.authorizeUrl);
   url.search = new URLSearchParams({
     client_id: client(provider).id,
     redirect_uri: options.redirectUri,
     response_type: "code",
-    scope: config.scope,
+    scope: options.scope,
     state: options.state,
     code_challenge: options.codeChallenge,
     code_challenge_method: "S256",
@@ -92,10 +90,11 @@ export async function identify(provider: Provider, accessToken: string): Promise
 }> {
   const authorization = `Bearer ${accessToken}`;
   if (provider === "google") {
-    const response = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/profile", { headers: { authorization } });
-    if (!response.ok) throw new Error(`Gmail profile: ${response.status}`);
-    const { emailAddress } = await response.json() as { emailAddress: string };
-    return { externalAccountId: emailAddress, label: emailAddress, metadata: { email: emailAddress } };
+    // Every Google app asks for `openid email`, so one lookup names the account.
+    const response = await fetch("https://openidconnect.googleapis.com/v1/userinfo", { headers: { authorization } });
+    if (!response.ok) throw new Error(`Google userinfo: ${response.status}`);
+    const { email } = await response.json() as { email: string };
+    return { externalAccountId: email, label: email, metadata: { email } };
   }
   const response = await fetch("https://api.linear.app/graphql", {
     method: "POST",

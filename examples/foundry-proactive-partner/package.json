@@ -6,15 +6,19 @@
   "scripts": {
     "dev": "glove foundry dev",
     "start": "glove foundry start",
+    "onboard": "node --env-file-if-exists=.env --import tsx scripts/onboard.ts",
+    "connect": "node --env-file-if-exists=.env --import tsx scripts/connect.ts",
     "verify": "node --env-file-if-exists=.env --import tsx scripts/verify.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "effect": "^3.22.1",
     "glove-classifier": "workspace:*",
     "glove-core": "workspace:*",
     "glove-env-fetch": "workspace:*",
     "glove-foundry": "workspace:*",
+    "glove-js": "workspace:*",
     "glove-memory": "workspace:*",
     "glove-voice-s2s": "workspace:*",
     "glove-working-environment": "workspace:*",

@@ -1,6 +1,10 @@
 import type { ModelAdapter } from "glove-core";
 import { createAdapter } from "glove-core/models/providers";
 import { s2sDrivenModel } from "glove-voice-s2s";
+import { installedApplicationTransmissionToolName } from "glove-foundry";
+import gmailApp from "../agents/partner/apps/gmail.app.js";
+import gmail from "../agents/partner/transmissions/gmail.transmission.js";
+import { gmailRoutes } from "./connect.js";
 import { DemoModel, type DemoStep, type DemoTurn } from "./demo-model.js";
 
 // The partner judges what matters, so it gets the strongest model. The computer
@@ -12,8 +16,8 @@ function scripted(): boolean {
   return process.env.PARTNER_DEMO === "1" || !process.env.ANTHROPIC_API_KEY;
 }
 
-export function partnerModel(): ModelAdapter {
-  if (scripted()) return new DemoModel("partner", partnerScript);
+export function partnerModel(person: string): ModelAdapter {
+  if (scripted()) return new DemoModel("partner", (turn) => partnerScript(person, turn));
   return anthropic(process.env.PARTNER_MODEL ?? "claude-opus-5-5");
 }
 
@@ -37,10 +41,25 @@ function anthropic(model: string): ModelAdapter {
 const say = (text: string): DemoStep => ({ say: text });
 const call = (tool: string, input: Record<string, unknown>): DemoStep => ({ call: tool, input });
 
-function partnerScript({ text, called, lastResult, results }: DemoTurn): DemoStep {
+/** A field of the Gmail event in a serialized inbound transmission. */
+const mailField = (text: string, name: string) => (new RegExp(`${name}&quot;:&quot;(.*?)&quot;`).exec(text)?.[1] ?? "")
+  .replaceAll("&lt;", "<").replaceAll("&gt;", ">").replaceAll("&amp;", "&");
+
+function partnerScript(person: string, { text, called, lastResult, results }: DemoTurn): DemoStep {
+  const sendTool = installedApplicationTransmissionToolName(gmailApp, gmail);
+  const email = (payload: Record<string, string>) => call(sendTool, { routeId: gmailRoutes(`${person}-gmail`).out.id, payload });
   if (text.startsWith("Morning brief.")) {
-    if (!called.includes("read_inbox")) return call("read_inbox", {});
-    if (!called.includes("read_calendar")) return call("read_calendar", {});
+    // Inbox and calendar in one program, over the connected apps.
+    if (!called.includes("execute_js")) {
+      return call("execute_js", {
+        code: [
+          'const mail = gmail.search_threads({ query: "in:inbox" }).threads.map((thread) => thread.latest.subject);',
+          "const today = calendar.list_events({}).events.map((event) => `${event.start}-${event.end} ${event.summary}`);",
+          "({ mail, today })",
+        ].join("\n"),
+      });
+    }
+    if (!/Flight to Austin/.test(lastResult) || !/Northwind renewal/.test(lastResult)) return say("I couldn't read your calendar, so no brief today.");
     const brief = [
       "1. Your 16:30 Northwind call overlaps your 16:00 flight to Austin. Want me to move the call to tomorrow at 10:00?",
       "2. Priya needs your signature on NW-2026-114 by Friday.",
@@ -50,8 +69,15 @@ function partnerScript({ text, called, lastResult, results }: DemoTurn): DemoSte
     return say(brief);
   }
   if (text.startsWith("Check-in.")) {
-    if (!called.includes("read_inbox")) return call("read_inbox", {});
-    const invoice = /(INV-\d+)/.exec(lastResult)?.[1];
+    if (!called.includes("execute_js")) {
+      return call("execute_js", { code: 'gmail.search_threads({ query: "subject:failed" }).threads.length' });
+    }
+    return say(/"value":0/.test(lastResult) ? "(nothing new)" : "Something failed; I'll look at it.");
+  }
+  // New mail, as it arrives.
+  if (text.includes('<transmission direction="inbound"')) {
+    const subject = mailField(text, "subject");
+    const invoice = /(INV-\d+)/.exec(subject)?.[1];
     if (!invoice) return say("(nothing new)");
     if (!called.includes("notify_person")) {
       return call("notify_person", { title: `Payment failed: ${invoice}`, body: `Acme Hosting could not charge your card for ${invoice} ($240, due today). Want me to pay it from your bank account?` });
@@ -72,10 +98,16 @@ function partnerScript({ text, called, lastResult, results }: DemoTurn): DemoSte
     return say(/"paid":true/.test(lastResult) ? "Paid INV-88: $240 to Acme Hosting." : "You declined, so I did not pay INV-88.");
   }
   if (/card number/i.test(text)) {
-    if (!called.includes("send_message")) {
-      return call("send_message", { to: "Sam", via: "text", text: "Ada's card for the hotel: 4242 4242 4242 4242" });
+    if (!called.includes(sendTool)) {
+      return email({ to: "sam@example.com", subject: "Hotel booking", body: "Ada's card for the hotel: 4242 4242 4242 4242" });
     }
     return say("I won't send card numbers, even to Sam. I can send him the hotel's booking link instead.");
+  }
+  if (/\bleo\b/i.test(text)) {
+    if (!called.includes(sendTool)) {
+      return email({ to: "leo@example.com", subject: "Re: Lunch moved?", body: "1:30 works. See you there.", threadId: "t-102" });
+    }
+    return say(/"messageId"/.test(lastResult) ? "Told Leo 1:30 works." : "You didn't approve it, so Leo hasn't heard back.");
   }
   if (/\b(build|dashboard)\b/i.test(text)) {
     if (!called.includes("glove_mesh_list_agents")) return call("glove_mesh_list_agents", {});

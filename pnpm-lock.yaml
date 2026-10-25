@@ -825,6 +825,9 @@ importers:
 
   examples/foundry-proactive-partner:
     dependencies:
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.29.0
+        version: 1.29.0(zod@4.3.6)
       effect:
         specifier: ^3.22.1
         version: 3.22.1
@@ -840,6 +843,9 @@ importers:
       glove-foundry:
         specifier: workspace:*
         version: link:../../packages/glove-foundry
+      glove-js:
+        specifier: workspace:*
+        version: link:../../packages/glove-js
       glove-memory:
         specifier: workspace:*
         version: link:../../packages/glove-memory

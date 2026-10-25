@@ -26,6 +26,15 @@ export const APPS = { gmail: gmailApp, linear: linearApp } as const;
 export type AppName = keyof typeof APPS;
 export const APP_NAMES = Object.keys(APPS) as AppName[];
 export const PROVIDERS: Record<AppName, Provider> = { gmail: "google", linear: "linear" };
+/**
+ * What each app asks the provider for. Gmail's are what Google's Gmail MCP
+ * server needs (gmail.compose also covers sending), plus `openid email` to
+ * name the account.
+ */
+export const SCOPES: Record<AppName, string> = {
+  gmail: "openid email https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.compose",
+  linear: "read,write",
+};
 
 /** The writes connecting needs, from the runtime in a script or the typed client in your app. */
 export interface FoundryWrites {
