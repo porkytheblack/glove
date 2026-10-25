@@ -5,9 +5,11 @@ to the person; the others do the work. Use it as a starting point for any
 assistant that has to stay responsive while real work happens elsewhere.
 
 The definitions in `agents/` say what an assistant, a coder and a researcher
-can be. The agents themselves are data: `lib/team.ts` creates Maya's assistant
-("Iris") and her two workers in her own workspace, with their names and what
-they do. They message each other over Glove Mesh, which Foundry hosts.
+can be. The agents themselves are data: `lib/team.ts` describes a person's
+assistant ("Iris") and two workers in their own workspace, with their names and
+what they do. `foundry.application.ts` seeds Maya's team with
+`defineAgentInstance`, and `scripts/onboard.ts` creates the same records for
+anyone else. The agents message each other over Glove Mesh, which Foundry hosts.
 
 ```
             person (chat or call)
@@ -52,7 +54,6 @@ lib/
   models.ts       one model choice per layer
   demo-model.ts   scripted models used when no API key is set
   file-store.ts   durable transcripts
-  workspaces.ts   saves each thread's workspace
 scripts/
   verify.ts       the whole exchange, offline
   onboard.ts      create a person's team on a running Foundry
@@ -67,8 +68,9 @@ cp .env.example .env                                    # add ANTHROPIC_API_KEY
 pnpm --filter glove-foundry-layered-assistant dev       # inspector at http://localhost:4142
 ```
 
-Create a person's team with `pnpm tsx scripts/onboard.ts maya "Maya"`. Then, in
-the inspector, open WebChat with Iris and ask for some code. Iris sends the work
+Maya's team is there from the start. In the inspector, open WebChat with Iris
+and ask for some code (`pnpm tsx scripts/onboard.ts ada "Ada"` adds another
+person's team). Iris sends the work
 to the coder and keeps talking. If the coder needs to know something, its
 question comes back to Iris, who answers from memory or asks you. The reply
 arrives as a new turn in the same chat.

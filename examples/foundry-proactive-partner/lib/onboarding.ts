@@ -47,5 +47,8 @@ export function computerFor(person: Pick<Person, "id">) {
   };
 }
 
+/** The person the example starts with. */
+export const DEMO_PERSON: Person = { id: "ada", name: "Ada", timezone: "America/New_York" };
+
 /** The one thread. Its id is derived from the person, so there is never a second. */
 export const threadFor = (person: Pick<Person, "id">) => ({ id: `${person.id}-thread`, workspaceId: person.id, title: "Partner" });

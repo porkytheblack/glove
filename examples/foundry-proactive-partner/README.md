@@ -9,10 +9,12 @@ for long jobs, and nothing sent, paid, signed or deleted without your approval.
 This is an independent example. It is not affiliated with or endorsed by
 Anthropic.
 
-The partner and its computer are data: `lib/onboarding.ts` creates them in the
+The partner and its computer are data: `lib/onboarding.ts` describes them in the
 person's own workspace, with the person's name, time zone and preferences (when
 the brief goes out, which hours are worth a look, what they want to hear about).
-The definitions in `agents/` say what a partner and a computer can be.
+`foundry.application.ts` seeds Ada's account with `defineAgentInstance`, and
+`scripts/onboard.ts` creates the same records for anyone else. The definitions
+in `agents/` say what a partner and a computer can be.
 
 ```
    07:30 morning brief      10:00 · 13:00 · 16:00 · 19:00 check-ins
@@ -84,7 +86,7 @@ pnpm install
 pnpm --filter glove-foundry-proactive-partner verify   # offline, no keys
 cp .env.example .env                                    # add ANTHROPIC_API_KEY
 pnpm --filter glove-foundry-proactive-partner dev       # inspector at http://localhost:4147
-pnpm tsx scripts/onboard.ts ada "Ada" America/New_York
+pnpm tsx scripts/onboard.ts sam "Sam" Europe/London   # Ada is seeded; add someone else
 ```
 
 `verify` runs a day on the real runtime with a scripted model: the schedules

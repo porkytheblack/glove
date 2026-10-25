@@ -27,7 +27,7 @@ delete process.env.PUSH_URL;
 const { FoundryRuntime } = await import("glove-foundry");
 const { default: application } = await import("../foundry.application.js");
 const { default: config } = await import("../foundry.config.js");
-const { computerFor, partnerFor, threadFor } = await import("../lib/onboarding.js");
+const { DEMO_PERSON, threadFor } = await import("../lib/onboarding.js");
 const { deliver } = await import("../lib/connectors.js");
 const { entries } = await import("../lib/ledger.js");
 
@@ -53,11 +53,13 @@ async function until<T>(read: () => Promise<T | undefined>, what: string, timeou
 const reply = (run: { output?: unknown } | null | undefined) => String((run?.output as { value?: unknown } | undefined)?.value);
 
 try {
-  const ada = { id: "ada", name: "Ada", timezone: "America/New_York" };
-  // Ada's account is data: her partner, with her preferences, and its computer.
-  const partner = await runtime.createAgent("partner", partnerFor(ada));
-  await runtime.createAgent("computer", computerFor(ada));
-  const thread = await runtime.createConversation(partner.id, threadFor(ada));
+  // Ada's account is data, seeded by foundry.application.ts: her partner with
+  // her preferences, its computer, and her one thread.
+  const agents = new Map((await runtime.listAgentInstances()).map((agent) => [agent.id, agent]));
+  const partner = agents.get(DEMO_PERSON.id)!;
+  assert.deepEqual([partner.definitionId, agents.get(`${DEMO_PERSON.id}-computer`)?.definitionId], ["partner", "computer"]);
+  const thread = (await runtime.listConversations(partner.id)).find((item) => item.id === threadFor(DEMO_PERSON).id)!;
+  assert.ok(thread, "the seeded thread");
   const finished = async (run: { id: string }) => {
     const done = await runtime.waitForRun(run.id, { timeoutMs: 60_000 });
     assert.equal(done?.status, "completed", `run ${run.id} ended ${done?.status}: ${done?.error ?? ""}`);
