@@ -15,6 +15,7 @@ import linearApp from "../agents/bot/apps/linear.app.js";
 import gmail, { sendAsOwner } from "../agents/bot/transmissions/gmail.transmission.js";
 import { accountsOf, saveAccount, type ConnectedAccount, type Tokens } from "./accounts.js";
 import type { Provider } from "./oauth.js";
+import { CHAT } from "./people.js";
 
 // Connecting an app, as data. Your OAuth callback saves the account, then
 // writes what Foundry needs to use it: for Gmail, a route in (new mail) and a
@@ -70,11 +71,11 @@ function withLazy<T extends object>(value: T, key: string, read: () => string): 
   return Object.freeze(copy);
 }
 
-/** A person's Gmail routes. New mail joins their main bot's main thread. */
+/** A person's Gmail routes. New mail joins the chat of each bot whose routine is on new mail. */
 export function gmailRoutes(accountId: string) {
   const shared = { transmissionId: "pending", accountId, visibility: "private", enabled: true };
   return {
-    in: withLazy(Schema.decodeUnknownSync(InboundRoute)({ ...shared, id: `${accountId}-in`, direction: "inbound", config: { label: "INBOX", conversation: "main" } }), "transmissionId", () => gmail.id),
+    in: withLazy(Schema.decodeUnknownSync(InboundRoute)({ ...shared, id: `${accountId}-in`, direction: "inbound", config: { label: "INBOX", conversation: CHAT.key } }), "transmissionId", () => gmail.id),
     out: withLazy(Schema.decodeUnknownSync(OutboundRoute)({ ...shared, id: `${accountId}-out`, direction: "outbound", config: {} }), "transmissionId", () => gmail.id),
   };
 }

@@ -4,12 +4,14 @@ import type { AgentAssemblyContext } from "glove-foundry";
 import { z } from "zod";
 import { accountsOf } from "../../lib/accounts.js";
 import { APP_NAMES, type AppName } from "../../lib/connect.js";
+import type { EventRoutine } from "../../lib/people.js";
 import { loadSkills, saveSkill } from "./skills.js";
 
 /**
  * What any bot can do to itself and its owner's account. Each one writes
- * data; none of it needs new code. A rename is a write to the instance, and
- * connecting an app writes the account and gives it to every bot the owner has.
+ * data; none of it needs new code. A rename or a routine is a write to the
+ * bot's own instance, and connecting an app writes the account and gives it
+ * to every bot the owner has.
  */
 export async function botTools(ctx: AgentAssemblyContext): Promise<GloveFoldArgs<any>[]> {
   const tools: GloveFoldArgs<any>[] = [
@@ -55,6 +57,28 @@ export async function botTools(ctx: AgentAssemblyContext): Promise<GloveFoldArgs
       async do(skill: { readonly name: string; readonly description: string; readonly steps: string }) {
         await saveSkill(ctx.data, ctx.workspaceId, { ...skill, by: ctx.agentId });
         return { status: "success" as const, data: { saved: skill.name } };
+      },
+    },
+    {
+      name: "add_routine",
+      description: "Run a workflow every time an event happens, on you. For a routine on a schedule, use glove_foundry_schedule instead.",
+      inputSchema: z.object({
+        on: z.enum(["new-mail"]).describe("new-mail: each new email in your owner's Gmail."),
+        skill: z.string().optional().describe("A saved skill to run, by name."),
+        instruction: z.string().min(1).describe("What to do each time, in a sentence or two."),
+      }),
+      // A routine belongs to one bot. It is a write to this bot's own data; the
+      // playbook built from it takes effect from the next run.
+      async do(routine: EventRoutine) {
+        const current = await Effect.runPromise(ctx.data.getAgent(ctx.agentId));
+        if (!current) return { status: "error" as const, data: null, message: "This bot no longer exists." };
+        const routines = ((current.context.routines ?? []) as ReadonlyArray<EventRoutine>).filter((item) => item.on !== routine.on);
+        await Effect.runPromise(ctx.data.putAgent({
+          ...current,
+          context: { ...current.context, routines: [...routines, routine] },
+          updatedAt: new Date().toISOString(),
+        }));
+        return { status: "success" as const, data: { routine: routine.on, skill: routine.skill ?? null } };
       },
     },
     {

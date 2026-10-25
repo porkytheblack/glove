@@ -1,9 +1,10 @@
-import type { AgentInstallation, CreateAgentInstanceOptions } from "glove-foundry";
+import type { AgentInstallation, CreateAgentInstanceOptions, CreateConversationOptions } from "glove-foundry";
 
 /**
  * A person's account, as data. Their workspace is their team: every bot they
- * own lives there and only sees the others there. These functions return
- * plain instance data. The application seeds a demo person with them through
+ * own lives there and only sees the others there. The bots are siblings: one
+ * definition, no bot above the others. These functions return plain instance
+ * data. The application seeds a demo person with them through
  * defineAgentInstance, and your app creates everyone else's at runtime.
  */
 export interface Person {
@@ -12,49 +13,50 @@ export interface Person {
 }
 
 /**
- * The person's main bot. It takes everyday requests that belong to no other
- * bot, routes work to the bot whose job fits, and reads new mail when Gmail
- * is connected. Its name is the person's to choose.
+ * A routine that runs after an event, on the one bot it belongs to. Routines
+ * on a schedule are Foundry schedules the bot makes with glove_foundry_schedule;
+ * a routine after an event is a playbook built from this data.
  */
-export function mainBotFor(
-  person: Person,
-  bot: { readonly name: string; readonly installations?: ReadonlyArray<AgentInstallation> },
-): CreateAgentInstanceOptions {
-  return {
-    id: `${person.id}-main`,
-    workspaceId: person.id,
-    name: bot.name,
-    description: `${person.name}'s main bot. Takes everyday requests and hands work to the bot whose job fits.`,
-    context: { owner: person.name, primary: true },
-    installations: [...(bot.installations ?? [])],
-  };
+export interface EventRoutine {
+  readonly on: "new-mail";
+  /** The saved skill it runs, if any. */
+  readonly skill?: string;
+  readonly instruction: string;
 }
 
 /**
- * Any other bot. Without a job it introduces itself and asks for one; with a
- * job it starts ready. Its id is the app's to choose and never changes; its
- * name can change any time. Give it the person's apps with giveAccounts.
+ * A bot. Without a job it introduces itself and asks for one; with a job it
+ * starts ready. Its id is the app's to choose and never changes; its name can
+ * change any time. Give it the person's apps with giveAccounts, or pass the
+ * installations here when seeding.
  */
 export function botFor(
   person: Person,
-  bot: { readonly id: string; readonly name?: string; readonly job?: string },
+  bot: {
+    readonly id: string;
+    readonly name?: string;
+    readonly job?: string;
+    readonly routines?: ReadonlyArray<EventRoutine>;
+    readonly installations?: ReadonlyArray<AgentInstallation>;
+  },
 ): CreateAgentInstanceOptions {
   return {
     id: bot.id,
     workspaceId: person.id,
     name: bot.name ?? "New bot",
     ...(bot.job ? { description: bot.job } : {}),
-    context: { owner: person.name },
+    context: { owner: person.name, routines: [...(bot.routines ?? [])] },
+    installations: [...(bot.installations ?? [])],
   };
 }
 
-/** A group chat: a conversation on the bot that hosts it, whose data lists the bots in it. */
-export function groupChat(chat: { readonly id: string; readonly name: string; readonly members: ReadonlyArray<string> }) {
-  return { id: chat.id, title: chat.name, context: { group: { name: chat.name, members: [...chat.members] } } };
-}
+/** Every bot's own chat with its person. New mail for a bot joins it through its key. */
+export const CHAT = { key: "chat", title: "Chat" } as const;
 
-/** The main bot's thread. New mail joins it through its key. */
-export const MAIN_THREAD = { key: "main", title: "Main" } as const;
+/** The options that open a bot's chat. */
+export function chatWith(botId: string): CreateConversationOptions {
+  return { id: `${botId}-chat`, title: CHAT.title, context: { conversationKey: CHAT.key } };
+}
 
 /** The demo account `pnpm dev` and `pnpm verify` start with. */
 export const MAYA: Person = { id: "maya", name: "Maya" };

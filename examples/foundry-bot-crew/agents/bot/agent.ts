@@ -7,15 +7,18 @@ import gmailApp from "./apps/gmail.app.js";
 import linearApp from "./apps/linear.app.js";
 import memory from "./bot.memory.js";
 import { computer } from "./computer.js";
+import type { EventRoutine } from "../../lib/people.js";
 import { newMailFor } from "./playbook.js";
 import { botPrompt } from "./prompt.js";
 import { botTools } from "./tools.js";
 
 /**
- * Every bot, as one definition: what a bot can be. Which bot this is lives in
- * data: its name and job on the instance, the accounts its owner connected,
- * whether it is its owner's main bot, and the conversation it is in. A person
- * makes a new bot by creating an instance, not by adding a file here.
+ * Every bot, as one definition: what a bot can be. The bots are siblings, and
+ * which bot this is lives in data: its name and job on the instance, the
+ * accounts its owner connected, its routines, and the conversation it is in.
+ * A bot runs when its person writes to it, when it is @-mentioned in a group
+ * chat, when a sibling hands it work, and when one of its routines fires. A
+ * person makes a new bot by creating an instance, not by adding a file here.
  */
 export default defineAgent({
   description: "A bot: an AI teammate with its own job and memory, working in its owner's apps and on a computer it shares with their other bots",
@@ -27,7 +30,7 @@ export default defineAgent({
   store: ({ conversationId }) => FileStore.open(conversationId),
   memory: [memory],
 
-  // take_job, connect_app, save_skill, request_sign_in, and the skill library.
+  // take_job, connect_app, save_skill, add_routine, request_sign_in, and the skill library.
   tools: (_agent, ctx) => botTools(ctx),
   workingEnvironment: computer,
 
@@ -46,10 +49,13 @@ export default defineAgent({
   // their team, so a bot only ever sees its owner's other bots.
   mesh: { waitMs: 60_000 },
 
-  // New mail goes to the main bot, once Gmail is connected.
+  // Routines after an event: new mail reaches the bots whose routines say so,
+  // once Gmail is connected. Routines on a schedule are the bot's own
+  // Foundry schedules (glove_foundry_schedule).
   playbooks: (_agent, { agentInstance, installations }) => {
     const mail = installations.find((item) => item.kind === "application" && item.id === gmailApp.id);
-    return agentInstance.context.primary === true && mail?.accountId ? [newMailFor(mail.accountId)] : [];
+    const routine = ((agentInstance.context.routines ?? []) as ReadonlyArray<EventRoutine>).find((item) => item.on === "new-mail");
+    return mail?.accountId && routine ? [newMailFor(mail.accountId, routine)] : [];
   },
 
   // The credential boundary: apps, the Gmail watch and every send ask for an

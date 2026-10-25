@@ -1,11 +1,12 @@
 # Bot crew
 
 AI teammates you keep around, built with Glove Foundry. It follows the shape of
-Grok Bot: a person makes bots, names them and gives each a job; their main bot
-takes everyday requests and routes the rest; every bot works in the apps the
-person connected (Gmail, Linear, any app with an MCP server); bots message each
-other, share group chats and pass work along; they learn skills and run them as
-routines; and they come back when something needs approval.
+Grok Bot: a person makes bots, names them and gives each a job. The bots are
+siblings: none sits above the others. Each one runs when its person writes to
+it, when it is @-mentioned in a group chat, when a sibling hands it work, or
+when one of its routines fires. Every bot works in the apps the person
+connected (Gmail, Linear, any app with an MCP server), learns skills, and comes
+back when something needs approval.
 
 This is an independent example. It is not affiliated with or endorsed by xAI,
 and it is not how Grok Bot is built.
@@ -18,10 +19,9 @@ Every bot is an instance of it:
 ```
   Maya's workspace (her account)
   ┌──────────────────────────────────────────────────────────────────────┐
-  │  Chief             Sales Outbound      Bug Triage        Engineer    │
-  │  primary: true     (was "New bot")                                   │
-  │      │  glove_mesh_send_message, by id      ▲                        │
-  │      └──────────────────────────────────────┘── each bot is a row    │
+  │  Inbox Manager     Sales Outbound      Bug Triage  ───►  Engineer    │
+  │  routine: new mail (was "New bot")     routine: new mail             │
+  │        siblings: each bot is a row; they message each other by id   │
   │  her accounts on every bot: gmail (maya-gmail), linear (maya-linear) │
   │  one computer and one skill library for all of them                  │
   └──────────────────────────────────────────────────────────────────────┘
@@ -29,18 +29,23 @@ Every bot is an instance of it:
 
 - **Name and job** are the instance's `name` and `description`. A new bot has
   neither: it asks what it is for, then calls `take_job`, which writes them.
-- **The main bot** is the bot whose `context.primary` is `true`. Its name is
-  whatever the person calls it (Maya named hers Chief). It takes everyday
-  requests, hands work to the bot whose job fits, and reads new mail.
+- **Siblings.** No bot routes work to the others. A bot runs when:
+  - its person writes to it, in its own chat;
+  - it is @-mentioned in a group chat, or the message mentions nobody;
+  - a sibling hands it work over Glove Mesh;
+  - one of its routines fires: on a schedule (a Foundry schedule the bot owns)
+    or after an event (new mail, a playbook built from `context.routines`).
 - **Apps are the person's**, not a bot's. Connecting one saves the person's
   account and installs the app with that account on every one of their bots; a
   bot made later gets the same.
 - **Teammates** are the other instances in the person's workspace. Bots message
   each other by id over Glove Mesh, which Foundry hosts.
-- **A group chat** is a conversation on the bot that hosts it, whose
-  `context.group` lists its members.
-- **The model** is chosen from the bot's data: a quick one for the main bot, a
-  stronger one for the rest.
+- **A group chat** has no host. Each member keeps its own conversation for it,
+  whose `context.group` lists the members, and your app shows them merged.
+  `postToGroup` (`lib/groups.ts`) sends a message to the bots it @-mentions,
+  or to every member when it mentions nobody or says `@everyone`; a bot with
+  nothing to add replies with nothing.
+- **The model** is the same for every bot.
 
 Making a bot, renaming it or connecting an app is a write. None of it needs a
 deploy.
@@ -55,7 +60,7 @@ the person's account. It owns everything about talking to that provider:
   Google's Gmail MCP │ mcp: search, read, draft                │ ──► gmail.search_threads(…) in code
   server             │   opened with Maya's account            │
                      │ outbound: send (transmission)           │ ──► Foundry delivers it, after she approves
-  Gmail push ──────► │ connections: gmail-watch                │ ──► new mail to her main bot (playbook)
+  Gmail push ──────► │ connections: gmail-watch                │ ──► new mail to each bot whose routine asks
   (Pub/Sub)          └─────────────────────────────────────────┘
                           ▲ every call: accountSessions("maya-gmail", operation)
                           │ tokens stay in your store (lib/accounts.ts)
@@ -91,24 +96,25 @@ stores or refreshes a token; `accountSessions` does, inside the boundary.
 | Grok Bot | Here |
 | --- | --- |
 | Make a bot, name it and give it a job | `createAgent("bot", botFor(…))` with no job; it asks "what do you want me around for?" and calls `take_job`, a tool that writes its own instance |
-| A main bot for everyday requests | The instance with `context.primary: true`; it finds the right bot with `glove_mesh_list_agents` |
+| Bots are equals, each with its own chat | One definition, an instance per bot, a `chat` conversation per bot; nothing routes between them |
 | Connect apps (Gmail and more) for all your bots | A Foundry app per provider, installed on every bot with the person's account: MCP reads, transmission sends, a connection for incoming events |
 | A bot asks for access as it needs it | `connect_app` asks; the approval is your Connect button, which runs the provider's sign-in and saves the account |
 | Allow once, Always allow, Deny | Approvals on tools that ask; "Always allow" adds the tool to the installation's `alwaysAllow` |
 | Bots pass work and ownership | `glove_mesh_send_message` by instance id; each handoff names the output under `/workspace`, what is done, evidence, open questions and the next owner |
-| Group chats of 2–6 bots | A conversation whose data lists its members; the host sends each @-mentioned bot its part and uses `glove_mesh_broadcast` for `@everyone` |
+| Group chats of 2–6 bots | A conversation per member, whose data lists the members; a message goes to the bots it @-mentions (all of them for `@everyone` or no mention) |
 | One computer for all your bots | `foundryDataEnvironmentPersistence({ scope: "workspace" })` |
 | Sign-in handed back to you | `request_sign_in` hands the computer back for SSO, a passkey or a CAPTCHA |
-| Skills shared across bots, routines | `save_skill` (the person reviews it) writes a workspace entry; `glove_foundry_schedule` runs it on a cron |
+| Skills shared across bots | `save_skill` (the person reviews it) writes a workspace entry every bot reads |
+| A routine assigns a workflow to one bot, on a schedule or after an event | On a schedule: `glove_foundry_schedule`, owned by that bot. After an event: `add_routine` writes `context.routines`, and the bot's playbook is built from it |
 
 ## Files
 
 ```
 agents/bot/
   agent.ts            the one definition: apps it may have, REPL, playbook, accountSessions
-  prompt.ts           built from the bot's data: name, job, main bot or not, apps, group chat
-  tools.ts            take_job, connect_app, save_skill, request_sign_in, the skill library
-  playbook.ts         new mail to the main bot
+  prompt.ts           built from the bot's data: name, job, routines, apps, group chat
+  tools.ts            take_job, connect_app, save_skill, add_routine, request_sign_in, the skill library
+  playbook.ts         a routine on new mail, built from the bot's data
   apps/               gmail (MCP + send + watch), linear (MCP)
   transmissions/      gmail: new mail in, email out
   connections/        gmail-watch: users.watch, Pub/Sub, history.list
@@ -119,7 +125,8 @@ lib/
   oauth.ts            Google and Linear OAuth, token refresh
   google.ts           Gmail and Pub/Sub over REST
   mcp-servers.ts      each app's MCP server, credentials and tool policy
-  people.ts           an account as data: mainBotFor, botFor, groupChat
+  people.ts           an account as data: botFor, chatWith, routines
+  groups.ts           group chats: openGroup, postToGroup (your app's code)
   models.ts           the model per bot, and scripts for offline runs
 demo/                 local MCP servers with Google's and Linear's tool names, for sample accounts
 scripts/
@@ -142,15 +149,15 @@ pnpm connect ada gmail                        # needs GOOGLE_CLIENT_ID and frien
 `verify` runs on the real runtime with scripted models and Maya's sample
 accounts, whose apps use the local servers in `demo/`:
 
-1. Maya's account is seeded: her main bot, Chief, with her Gmail; its watch is connected.
+1. Maya's account is seeded: her first bot, Inbox Manager, with her Gmail and a routine on new mail; the watch is connected.
 2. She makes a new bot and tells it its job; it names itself Sales Outbound and gets her apps.
 3. Bug Triage asks for Linear; she signs in and always allows filing; all four bots have it.
-4. Her main bot hands a bug to Bug Triage, which files it in Linear from code and hands the fix to Engineer.
+4. She tells Bug Triage about a bug; it files it in Linear and hands the fix to Engineer, a sibling.
 5. Sales Outbound finds this week's signups in her inbox in code and emails Dana once she approves.
 6. A Salesforce sign-in is handed back to her.
-7. A workflow she describes becomes a skill (after she reviews it) and a Monday routine.
-8. In the Offsite crew group chat, the host asks two bots, and both answer there.
-9. New mail from Lena reaches her main bot, which replies in Lena's thread once she approves.
+7. A workflow she describes becomes a skill (after she reviews it) and Sales Outbound's Monday routine; Bug Triage adds a routine on new mail.
+8. In the Offsite crew group chat she @-mentions two bots; both answer, and the third member stays quiet.
+9. New mail from Lena wakes the two bots with a routine on new mail: Bug Triage passes, and Inbox Manager replies in Lena's thread once she approves.
 
 Sample sends and issues are listed in `.data/ledger.jsonl`.
 
@@ -218,8 +225,8 @@ a Kuiper browser with a profile per person, so a sign-in carries over; both from
 - Approvals are per tool, with "Always allow" kept per installation. Grok Bot also
   runs an auto-review model with natural-language "Ask first" and "Allow
   automatically" rules; see the Dots rebuild (`examples/foundry-standing-agents`).
-- Routines run on schedules; an event can start one through a playbook, as new
-  mail does here.
+- The only event a routine can follow here is new mail. Another event is
+  another connection and playbook on the app that owns it.
 - The computer is a Glove working environment (files and scripts) until you swap
   in a Kuiper sandbox and browser per person.
 - A direct message to a busy bot starts the next run; in Grok Bot it redirects
@@ -229,7 +236,7 @@ a Kuiper browser with a profile per person, so a sign-in carries over; both from
 ## Sources
 
 - [Grok Bot overview](https://cursor.com/docs/grok-bot), [Work with Grok Bot](https://cursor.com/docs/grok-bot/work), [Get started](https://cursor.com/docs/grok-bot/get-started), [Teams](https://cursor.com/docs/grok-bot/teams) and [Security](https://cursor.com/docs/grok-bot/security), Cursor docs
-- [Skills and routines](https://docs.x.ai/grok-bot/skills-routines-and-automations), xAI docs
+- [Skills and routines](https://docs.x.ai/grok-bot/skills-routines-and-automations) and [FAQ](https://docs.x.ai/grok-bot/faq), xAI docs
 - [Grok Bot 101](https://x.ai/bot/guides/grok-bot-101), xAI
 - [Push notifications](https://developers.google.com/workspace/gmail/api/guides/push), [history.list](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.history/list) and [the Gmail MCP server](https://developers.google.com/workspace/gmail/api/reference/mcp), Google
 - [Linear MCP server](https://linear.app/docs/mcp), Linear

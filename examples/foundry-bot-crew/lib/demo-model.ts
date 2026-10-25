@@ -47,13 +47,3 @@ export class DemoModel implements ModelAdapter {
     return { messages: [message], tokens_in: 1, tokens_out: 1 };
   }
 }
-
-/** An attribute of the first <mesh-message> in a text. */
-export function meshAttribute(text: string, name: string): string {
-  return new RegExp(`<mesh-message[^>]* ${name}="([^"]*)"`).exec(text)?.[1] ?? "";
-}
-
-/** The body of the first <mesh-message> in a text. */
-export function meshBody(text: string): string {
-  return /<mesh-message[^>]*>\n([\s\S]*?)\n<\/mesh-message>/.exec(text)?.[1] ?? "";
-}

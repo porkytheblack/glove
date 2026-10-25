@@ -5,26 +5,21 @@ import gmailApp from "../agents/bot/apps/gmail.app.js";
 import gmail from "../agents/bot/transmissions/gmail.transmission.js";
 import { installedApplicationTransmissionToolName } from "glove-foundry";
 import { gmailRoutes } from "./connect.js";
-import { DemoModel, meshAttribute, meshBody, type DemoStep, type DemoTurn } from "./demo-model.js";
+import { DemoModel, type DemoStep, type DemoTurn } from "./demo-model.js";
 
-// The model comes from the bot's data, like everything else: the main bot
-// takes everyday requests and routes work, so it stays quick; the other bots
-// do the work and can be slower and stronger. Without ANTHROPIC_API_KEY every bot runs a short
-// script, so `pnpm verify` and `pnpm dev` work offline. On Kuiper,
-// ANTHROPIC_BASE_URL points the same adapter at the model gateway.
+// Every bot uses the same model; which bot it is comes from its data. Without
+// ANTHROPIC_API_KEY every bot runs a short script picked by its data, so
+// `pnpm verify` and `pnpm dev` work offline. On Kuiper, ANTHROPIC_BASE_URL
+// points the same adapter at the model gateway.
 
 function scripted(): boolean {
   return process.env.CREW_DEMO === "1" || !process.env.ANTHROPIC_API_KEY;
 }
 
 export function botModel(_agent: unknown, { agentInstance: bot }: AgentAssemblyContext): ModelAdapter {
-  const main = bot.context.primary === true;
   if (scripted()) return new DemoModel(bot.id, scriptFor(bot));
-  const model = main
-    ? process.env.MAIN_BOT_MODEL ?? "claude-haiku-5-5"
-    : process.env.BOT_MODEL ?? "claude-sonnet-5-5";
   const baseURL = process.env.ANTHROPIC_BASE_URL;
-  return createAdapter({ provider: "anthropic", model, stream: true, ...(baseURL ? { baseURL } : {}) });
+  return createAdapter({ provider: "anthropic", model: process.env.BOT_MODEL ?? "claude-sonnet-5-5", stream: true, ...(baseURL ? { baseURL } : {}) });
 }
 
 // ── The scripts ─────────────────────────────────────────────────────────────
@@ -32,7 +27,6 @@ export function botModel(_agent: unknown, { agentInstance: bot }: AgentAssemblyC
 
 const say = (text: string): DemoStep => ({ say: text });
 const call = (tool: string, input: Record<string, unknown>): DemoStep => ({ call: tool, input });
-const count = (called: ReadonlyArray<string>, tool: string) => called.filter((name) => name === tool).length;
 
 /** The id of a teammate by name, from a glove_mesh_list_agents result. */
 function idOf(results: ReadonlyArray<string>, name: string): string | undefined {
@@ -58,19 +52,15 @@ function sendMail(bot: AgentInstance, payload: Record<string, string>): DemoStep
 const sendTool = () => installedApplicationTransmissionToolName(gmailApp, gmail);
 
 function scriptFor(bot: AgentInstance): (turn: DemoTurn) => DemoStep {
-  if (bot.context.primary === true) return (turn) => mainScript(bot, turn);
   if (!bot.description) return newBotScript;
+  if (bot.name === "Inbox Manager") return (turn) => inboxScript(bot, turn);
   if (bot.name === "Sales Outbound") return (turn) => salesScript(bot, turn);
   if (bot.name === "Bug Triage") return bugTriageScript;
   return () => say("Patched on branch fix/empty-export: export returns an empty file for an empty report. Added a test.");
 }
 
-function mainScript(bot: AgentInstance, { text, called, results, lastResult }: DemoTurn): DemoStep {
-  if (text.startsWith("<mesh-message")) {
-    if (/status="(replied|failed)"/.test(text)) return say(`${meshAttribute(text, "name")}: ${meshBody(text)}`);
-    return call("glove_mesh_send_message", { to: meshAttribute(text, "from"), in_reply_to: meshAttribute(text, "id"), content: "Use the main branch." });
-  }
-  // New mail from the Gmail connection: answer it from Maya's address.
+function inboxScript(bot: AgentInstance, { text, called, lastResult }: DemoTurn): DemoStep {
+  // New mail, through its routine: answer it from Maya's address.
   if (text.includes('<transmission direction="inbound"')) {
     const from = mailField(text, "from");
     if (!called.includes(sendTool())) {
@@ -84,29 +74,7 @@ function mainScript(bot: AgentInstance, { text, called, results, lastResult }: D
     }
     return say(/"messageId"/.test(lastResult) ? `Replied to ${from.replace(/\s*<.*/, "")} about pricing.` : "You didn't approve the reply, so nothing went out.");
   }
-  // A group chat it hosts: everyone, or each @-mentioned bot its part.
-  if (/@everyone\b/.test(text)) {
-    if (!called.includes("glove_mesh_broadcast")) return call("glove_mesh_broadcast", { content: text.replace(/@everyone\s*/, "") });
-    return say("Asked everyone. Answers will land here.");
-  }
-  const mentions = [...text.matchAll(/@([A-Z][a-z]+(?: [A-Z][a-z]+)*)\s+([^@]+)/g)].map((match) => ({ name: match[1]!, ask: match[2]!.trim() }));
-  if (mentions.length > 0) {
-    if (!called.includes("glove_mesh_list_agents")) return call("glove_mesh_list_agents", {});
-    const next = mentions[count(called, "glove_mesh_send_message")];
-    if (next) return call("glove_mesh_send_message", { to: idOf(results, next.name) ?? next.name, content: next.ask });
-    return say(`Asked ${mentions.map((mention) => mention.name).join(" and ")}. Their answers will land here.`);
-  }
-  if (/crash|bug|broken/i.test(text)) {
-    if (!called.includes("glove_mesh_list_agents")) return call("glove_mesh_list_agents", {});
-    if (!called.includes("glove_mesh_send_message")) {
-      return call("glove_mesh_send_message", {
-        to: idOf(results, "Bug Triage") ?? "",
-        content: "Reproduce and fix: the export button crashes on empty reports.",
-      });
-    }
-    return say("Bug Triage has it. I'll tell you when it's fixed.");
-  }
-  return say("Noted.");
+  return say("Hi Maya. I'm watching your inbox and will answer what I can from your address.");
 }
 
 function newBotScript({ called }: DemoTurn): DemoStep {
@@ -120,7 +88,8 @@ function newBotScript({ called }: DemoTurn): DemoStep {
 }
 
 function salesScript(bot: AgentInstance, { text, called, lastResult }: DemoTurn): DemoStep {
-  if (text.startsWith("<mesh-message")) return say("14 new leads this week, 9 intros drafted and waiting for you.");
+  // Mentioned in a group chat, or asked by a sibling: answer its own part.
+  if (/@Sales Outbound\b/.test(text) || text.startsWith("<mesh-message")) return say("14 new leads this week, 9 intros drafted and waiting for you.");
   if (/every monday/i.test(text)) {
     if (!called.includes("save_skill")) {
       return call("save_skill", {
@@ -157,6 +126,16 @@ function salesScript(bot: AgentInstance, { text, called, lastResult }: DemoTurn)
 }
 
 function bugTriageScript({ text, called, results, lastResult }: DemoTurn): DemoStep {
+  // Its routine on new mail: only bug reports are its job.
+  if (text.includes('<transmission direction="inbound"')) {
+    return say(/crash|bug|error/i.test(mailField(text, "subject")) ? "Filing the bug from that email." : "Not a bug report, so nothing to file.");
+  }
+  if (/lands in (my|your) inbox/i.test(text)) {
+    if (!called.includes("add_routine")) {
+      return call("add_routine", { on: "new-mail", instruction: "If the email reports a bug, reproduce it and file it in Linear. Otherwise do nothing." });
+    }
+    return say("Done. I'll file bug reports from your inbox as they arrive.");
+  }
   if (/connect|linear/i.test(text) && !text.startsWith("<mesh-message")) {
     if (!called.includes("connect_app")) return call("connect_app", { app: "linear", why: "To file and track the bugs I triage." });
     return say(/"connected":"linear"/.test(lastResult) ? "Linear is connected for all your bots." : "Not connected yet, so I'll keep bugs in notes for now.");
