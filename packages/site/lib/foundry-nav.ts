@@ -188,7 +188,7 @@ export const foundrySections: FoundryNavSection[] = [
       {
         label: "Inspector & WebChat",
         href: "/foundry/docs/observability",
-        summary: "The built-in inspector, WebChat, run traces, keyboard shortcuts, the event envelope, and custom subscribers.",
+        summary: "The built-in inspector, WebChat, runs opened like DevTools (Network, Console, Context), keyboard shortcuts, the event envelope, and custom subscribers.",
       },
       {
         label: "Persistence",

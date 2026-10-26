@@ -455,8 +455,11 @@ side effect.
 glove foundry dev serves the inspector at the server URL: Overview, Agents,
 definition and instance pages, Chat (WebChat over exact stored transcripts, with
 attachments, Stop and Redirect), Runs (filters in the URL: ?status=&source=&q=),
-run detail (phase spine + event trace), Automations, Integrations, Workspaces.
-⌘K search, j/k navigation, c to start a run. Events stream from /api/events;
+a run opened like browser DevTools (Network: each model request with the system
+prompt, messages, runtime context/memory and tools it was sent, and each tool
+call with input, result and approval; Console: levelled log; Context: what the
+agent had; Summary; URL state ?tab=&item=&pane=), Automations, Integrations,
+Workspaces. ⌘K search, j/k navigation, 1-4 run views, c to start a run. Events stream from /api/events;
 custom sinks use defineSubscriber or a FoundryObservabilityAdapter. Use
 controls.emit({ type, data }) for safe work notes; never emit secrets or hidden
 reasoning. The event envelope carries the definition id and run id (not instance,
