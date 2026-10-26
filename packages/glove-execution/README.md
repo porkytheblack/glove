@@ -58,6 +58,61 @@ Foundry has no browser/sandbox definition fields or dependency on this package. 
 
 Foundry can host these providers on its existing managed Station: configure `daemon: stationDaemon({ stationId, resources, onReady })` in the application, importing the helper from `glove-foundry/station`. The resource factory returns browser and/or sandbox provider adapters once per daemon; `onReady` gives trusted host code the private connection. Agent mounts stay the same. See [the shared-daemon setup](../glove-foundry/docs/execution.md#one-station-for-jobs-and-resources).
 
+## Kuiper
+
+`glove-execution/kuiper` mounts [Kuiper](https://kuiper.sh)'s browsers (real Chrome) and sandboxes through `@kuiper-sh/sdk`:
+
+```sh
+pnpm add glove-execution @kuiper-sh/sdk playwright-core
+```
+
+A Kuiper session or sandbox belongs to the project, not to the process that made it. Any process holding the project's gateway key can find it again by ID. A Foundry run is one process, so it mounts these directly in `configure`, without a Station daemon. What the run keeps, the next run picks up.
+
+```ts
+import { Kuiper } from "@kuiper-sh/sdk";
+import { mountBrowser, mountSandbox } from "glove-execution";
+import { kuiperBrowser, kuiperSandbox } from "glove-execution/kuiper";
+
+// The key is KUIPER_GATEWAY_KEY ('${{browsers.API_KEY}}' on a unit); the URL a variable you name ('${{browsers.BASE_URL}}').
+const kuiper = new Kuiper({ gatewayUrl: process.env.BROWSERS_URL });
+
+export default defineAgent({
+  // …
+  async configure(agent, context) {
+    const saved = context.agentInstance.context.browser as { sessionId?: string; profileId?: string } | undefined;
+    const adapter = kuiperBrowser({
+      browsers: kuiper.browsers,
+      sessionIds: saved?.sessionId ? [saved.sessionId] : [],
+      // Start from the person's logins and save what changes; hibernate when idle.
+      session: { profileId: saved?.profileId, persistProfile: true, timeout: 60 * 60_000, inactivityTimeout: 10 * 60_000, kuiper: { onInactive: "hibernate", record: true } },
+      cleanup: "keep",
+      guard: ({ url, method }) => method === "GET" || allowedHosts.includes(url.host),
+      onHandOff: ({ url, reason }) => sendToThePerson(context.agentId, reason, url),
+      onOpen: (session) => saveBrowser(context.agentId, { sessionId: session.id, profileId: session.profileId }),
+    });
+    let close = () => adapter.close();
+    context.onCleanup(() => close());
+    const browser = mountBrowser(agent, { adapter });
+    close = () => browser.close();
+  },
+});
+```
+
+- **Browser operations:** `open`, `sessions`, `navigate`, `back`, `observe` (the accessibility tree or the visible text), `interact` (`click`, `fill`, `select`, `press`, `check`, `uncheck`, `hover`, `wait` on a `{ by: "role" | "label" | "text" | "placeholder" | "title" | "testId" | "css" }` target), `screenshot` and `close`. `handOff` is added with `onHandOff`, and `evaluate` with `allowEvaluate`.
+- **Session options are yours:** `session` is passed to `kuiper.browsers.create()` as it is. It covers profiles, timeouts, `kuiper.onInactive` and recording. The model never chooses them.
+- **`guard`** sees every request the browser makes while the run is connected, before it leaves: pages, form posts, scripts' fetches and WebSockets, with service workers bypassed. Returning false blocks the request, and so does throwing. A blocked page load fails with `blocked`. Requests a click caused come back in that result's `blocked` list.
+- **`handOff`** sends Kuiper's interactive live view to your `onHandOff`, never to the model, and stops the run from using that browser. Use it for a person's step: signing in, a CAPTCHA, a second factor. The live view takes clicks and keys, so treat its URL like a password.
+- **`cleanup`:**
+  - `release` (the default) ends the scope's sessions, and a persisted profile is saved.
+  - `hibernate` saves each session's cookies and tabs and gives its browser back.
+  - `keep` leaves sessions as they are, for the next run or for a person in the live view. Pair it with `inactivityTimeout` and `kuiper.onInactive: "hibernate"`.
+  - Connecting to a hibernated session resumes it.
+- **`kuiperSandbox`** is the same `execute_sandbox` surface as Station's, on `kuiper.sandboxes`. You set `sandbox` (image, size, timeouts). A hibernated sandbox resumes before anything runs in it. `exec` returns when the command ends, with its output.
+- **Uncertain outcomes:**
+  - A gateway refusal (a 4xx) is definitive.
+  - A create with no answer counts as an uncertain opening and stops further opens. Reconcile it with `kuiper browsers sessions` or `kuiper sandboxes`.
+  - A failed click, fill or press says its outcome is unknown. Look at the page before repeating it.
+
 ## Browser scripts
 
 The default model tool is **`execute_browser({ code })`**, backed by Glove's persistent, bounded JavaScript interpreter. Compose a complete observation/action loop in one model call:
