@@ -43,7 +43,7 @@ export function researchTools(agentId: string): GloveFoldArgs<any>[] {
   return [
     {
       name: "read_channel",
-      description: "Read recent messages in a Slack channel you watch. Read-only.",
+      description: "Read recent messages in a Slack channel, through Slack read access. Read-only.",
       inputSchema: z.object({ channel: z.string().describe("For example #feedback.") }),
       async do({ channel }: { channel: string }) {
         const log = await readJson<ChannelLog>("feedback-channel.json");

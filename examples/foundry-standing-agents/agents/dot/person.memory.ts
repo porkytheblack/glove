@@ -1,3 +1,3 @@
 import { instanceMemory } from "../../lib/memory.js";
 
-export default instanceMemory("What the dot knows about its person and their work, in every channel");
+export default instanceMemory("The person's account memory, and what the dot knows about them and their work, in every channel");

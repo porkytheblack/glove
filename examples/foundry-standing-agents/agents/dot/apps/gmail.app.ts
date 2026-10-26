@@ -5,7 +5,9 @@ import gmailWatch from "../connections/gmail-watch.connection.js";
 import { readOnly } from "../research.js";
 import gmail from "../transmissions/gmail.transmission.js";
 
-const reads = ["search_threads", "get_thread", "get_message", "list_drafts", "list_labels"];
+/** The mailbox's reads, for servers that don't mark them. */
+export const GMAIL_READS: ReadonlyArray<string> = ["search_threads", "get_thread", "get_message", "list_drafts", "list_labels"];
+const reads = GMAIL_READS;
 const policy = askUnlessAllowed([...reads, "create_draft"]);
 
 /**

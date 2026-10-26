@@ -13,6 +13,8 @@ export function aroundTool(
   wrap: (inner: {
     readonly name: string;
     readonly description: string;
+    /** The tool's own Zod schema, when it has one, so the wrapper validates the same way. */
+    readonly inputSchema?: Tool<unknown>["input_schema"];
     readonly jsonSchema: Record<string, unknown>;
     readonly run: (input: unknown, signal?: AbortSignal) => Promise<ToolResultData>;
   }) => GloveFoldArgs<any> | undefined,
@@ -22,6 +24,7 @@ export function aroundTool(
   const next = wrap({
     name: tool.name,
     description: tool.description,
+    ...(tool.input_schema ? { inputSchema: tool.input_schema } : {}),
     jsonSchema: getToolJsonSchema(tool) as Record<string, unknown>,
     run: (input, signal) => tool.run(input, undefined, signal),
   });

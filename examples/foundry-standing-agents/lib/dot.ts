@@ -4,12 +4,17 @@ import { z } from "zod";
 import slackApp from "../agents/dot/apps/slack.app.js";
 import { slackBot } from "../agents/dot/topology.js";
 
+/** A dot's handle comes from its name, like @pip-dot. */
+export const handleOf = (name: string): string =>
+  `@${name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "my"}-dot`;
+
 /**
- * Custom Rules: for each action, whether the dot may take it on its own, must
- * ask first, or must not take it at all (then it hands the action to you).
- * Built-in safety rules apply on top, whatever these say.
+ * Custom Rules: for each action, whether the dot acts without asking, acts
+ * without asking only on a run you started ("when_asked"), asks first, or
+ * hands the action to you ("block"). Built-in safety applies on top,
+ * whatever these say.
  */
-export const LEVELS = ["allow", "ask", "block"] as const;
+export const LEVELS = ["allow", "when_asked", "ask", "block"] as const;
 export type Level = (typeof LEVELS)[number];
 
 /** Where the dot talks with its person. Each is a conversation on the one instance. */
@@ -47,8 +52,10 @@ export const Dot = z.object({
   routing: z.object({ progress: z.enum(["app", "slack"]), decisions: z.enum(["app", "slack"]) }),
   /** The owner's Slack user id, once they connect Slack. */
   slackUserId: z.string().optional(),
+  /** A paused dot only reads. Its person, or the monitor (lib/monitor.ts), pauses it. */
+  paused: z.boolean().default(false),
 });
-/** A dot as you write it; `kind` defaults to "primary". */
+/** A dot as you write it; `kind` defaults to "primary" and `paused` to false. */
 export type Dot = z.input<typeof Dot>;
 /** A dot as stored and read back. */
 export type ParsedDot = z.output<typeof Dot>;

@@ -4,6 +4,7 @@ import { accountSessions as connectedAccounts } from "../../lib/accounts.js";
 import { currentDot } from "../../lib/dot.js";
 import { FileStore } from "../../lib/file-store.js";
 import { callModel, dotModel } from "../../lib/models.js";
+import { monitored } from "../../lib/monitor.js";
 import { OFFLINE_SLACK_TOKEN } from "../../lib/slack-api.js";
 import gmailApp from "./apps/gmail.app.js";
 import slackApp from "./apps/slack.app.js";
@@ -12,7 +13,7 @@ import person from "./person.memory.js";
 import { dotPlaybooks } from "./playbook.js";
 import { dotPrompt } from "./prompt.js";
 import { readOnly, research } from "./research.js";
-import { dotTools, reviewSends } from "./tools.js";
+import { configureDot, dotTools, reviewedTools } from "./tools.js";
 import { slackBot } from "./topology.js";
 import { dotComputer } from "./workspace.js";
 
@@ -45,14 +46,14 @@ export default defineAgent({
     mount: { discovery: "auto" },
     programmaticTools: { select: ({ apps }) => apps.flatMap((app) => app.tools.filter((tool) => tool.readOnly)), keepDirect: false },
   }),
-  // Gmail's send, under auto-review; gone on runs the dot starts itself.
-  configure: (agent, ctx) => reviewSends(agent, ctx),
+  // Gmail's send under auto-review, and follow-ups; gone on read-only runs.
+  configure: (agent, ctx) => configureDot(agent, ctx),
 
-  // Its own computer, but not on research runs: those only read.
-  workingEnvironment: (_agent, ctx) => (readOnly(ctx.request) ? undefined : dotComputer),
+  // Its own computer, but not on read-only runs.
+  workingEnvironment: async (_agent, ctx) => (readOnly(ctx.request, await currentDot(ctx)) ? undefined : dotComputer),
 
   // Coding jobs start on the person's builder over the mesh. Research runs get
-  // no mesh tools.
+  // no mesh tools; a paused dot loses them in configureDot.
   mesh: {
     peers: (_self, peer) => peer.definitionId === "builder",
     mount: (ctx) => !readOnly(ctx.request),
@@ -68,5 +69,6 @@ export default defineAgent({
       : connectedAccounts.withSession(request, use),
   },
 
-  run: (agent, ctx) => (isCall(ctx) ? call(agent, ctx) : ctx.defaultRun()),
+  // The monitor pauses the dot after hand-offs and denials in a row.
+  run: (agent, ctx) => (isCall(ctx) ? call(agent, ctx) : monitored(agent, ctx, reviewedTools(), () => ctx.defaultRun())),
 });

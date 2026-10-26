@@ -1,4 +1,7 @@
+import type { IGloveRunnable } from "glove-core";
 import { defineSchedule, type FoundryRequest } from "glove-foundry";
+import { z } from "zod";
+import { aroundTool } from "../../lib/tool-policy.js";
 import slackMessages from "./transmissions/slack-messages.transmission.js";
 
 /**
@@ -31,10 +34,65 @@ export function startedByPerson(request: FoundryRequest): boolean {
 }
 
 /**
- * Runs on the dot's own time: the research schedule, wake-ups, work it
- * spawned for itself, and new mail. They get only read-only tools. A run the
- * person started, or the builder's reply to work they started, may act.
+ * A follow-up: a run the dot started on a run that could act, such as a
+ * schedule the person set or work it split off. followUps() stamps its
+ * payload, and Foundry passes the payload on. Transmissions never count,
+ * whatever their payload says.
  */
-export function readOnly(request: FoundryRequest): boolean {
-  return !(startedByPerson(request) || request.source?.kind === "mesh");
+export function followUp(request: FoundryRequest): boolean {
+  const kind = request.source?.kind;
+  return (kind === "activation" || kind === "spawn" || kind === "background")
+    && (request.payload as { followUp?: unknown } | null | undefined)?.followUp === true;
+}
+
+/**
+ * Runs that only read: the research schedule, wake-ups, new mail, and every
+ * run of a paused dot. A run the person started, a follow-up of one, or the
+ * builder's reply may act, under the Custom Rules.
+ */
+export function readOnly(request: FoundryRequest, dot?: { readonly paused?: unknown }): boolean {
+  if (dot?.paused === true) return true;
+  return !(startedByPerson(request) || followUp(request) || request.source?.kind === "mesh");
+}
+
+/** Foundry's tools that start runs of the dot, now or later. */
+const STARTS_RUNS = ["glove_foundry_schedule", "glove_foundry_spawn", "glove_foundry_background"];
+
+/**
+ * Follow-ups. On a run that may act, every run the dot starts with Foundry's
+ * tools carries `followUp: true`, so it acts under the same rules; a spawn
+ * with no target is a run of this dot. On a read-only run those tools are gone
+ * and schedules can only be listed, so research can't start a run that acts
+ * or change one.
+ */
+export function followUps(agent: IGloveRunnable, agentId: string, acts: boolean): void {
+  if (!acts) {
+    for (const name of STARTS_RUNS) aroundTool(agent, name, () => undefined);
+    aroundTool(agent, "glove_foundry_schedules", (schedules) => ({
+      name: schedules.name,
+      description: "List your schedules. On this run you can't create or change them.",
+      inputSchema: z.object({ status: z.enum(["active", "paused", "completed", "cancelled", "all"]).default("active") }),
+      do: (input: { status: string }, _display, _glove, signal) => schedules.run({ action: "list", ...input }, signal),
+    }));
+    return;
+  }
+  for (const name of STARTS_RUNS) {
+    aroundTool(agent, name, ({ run, ...tool }) => ({
+      ...tool,
+      do: (input: Record<string, unknown>, _display, _glove, signal) => run({
+        ...input,
+        ...(name === "glove_foundry_spawn" && !input.agentId && !input.definitionId ? { agentId } : {}),
+        payload: { followUp: true, ...(input.payload !== undefined ? { payload: input.payload } : {}) },
+      }, signal),
+    }));
+  }
+  // An update never changes what a schedule carries, so no run can stamp the
+  // research schedule and make research act.
+  aroundTool(agent, "glove_foundry_schedules", ({ run, ...tool }) => ({
+    ...tool,
+    do: (input: Record<string, unknown>, _display, _glove, signal) => {
+      const { payload: _payload, ...kept } = input;
+      return run(kept, signal);
+    },
+  }));
 }

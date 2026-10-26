@@ -25,6 +25,18 @@ export function dotScript(person: string, { text, called, lastResult, results, c
   if (text.startsWith("<mesh-message") && meshAttribute(text, "status") === "replied") {
     return say(`The builder finished. ${meshBody(text)}`);
   }
+  // A follow-up the person sets, in their time zone.
+  if (/^every monday\b/i.test(text)) {
+    if (!called.includes("glove_foundry_schedule")) {
+      return call("glove_foundry_schedule", {
+        message: "Your weekly follow-up: open a draft PR for the week's export fixes.",
+        timing: { kind: "cron", expression: "0 9 * * 1", timezone: "America/New_York" },
+      });
+    }
+    return say(/"accepted":true/.test(lastResult)
+      ? "Set: every Monday at 9:00 New York time, I'll open a draft PR for the week's export fixes."
+      : `Not set. ${resultMessage(lastResult)}`);
+  }
   if (/\bremember\b/i.test(text)) {
     if (!called.includes("glove_context_set")) {
       const fact = text.replace(/^.*?\bremember( that)?\s*/i, "");
