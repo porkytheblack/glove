@@ -31,9 +31,9 @@ export default function AgentsRebuiltPost() {
       <p>
         Grok Bot lets you make bots and tell each one its job. A new bot asks what you want it
         around for, then names itself for the work: Sales Outbound, Inbox Manager. The bots are
-        siblings: you write to the one whose job it is, mention them in a group chat, or one
-        hands another part of its work. They all work on one cloud computer and in the apps you
-        connect, like Gmail.
+        siblings: you write to the one whose job it is, ask your starred Primary Bot, mention
+        them in a group chat, or one hands another part of its work. They all work on one cloud
+        computer and in the apps you connect, like Gmail.
       </p>
       <p>
         Our first build got this wrong. It had a definition per bot (a chief, an outreach bot, a
@@ -62,10 +62,12 @@ export default function AgentsRebuiltPost() {
         <Link href="/foundry/docs/agents-are-data">Agents are data</Link> for the rule.
       </p>
       <p>
-        We also first built from launch coverage and got details wrong. We gave the team a
-        chief, then a main bot that routed work. Grok Bot has neither: the bots are siblings,
-        and what starts one is the request that reaches it. Apps belong to the account, not to a
-        bot, and group chats let the bots decide who answers. The rebuild follows that now.
+        We also first built from launch coverage and got details wrong. We first built a chief
+        and a router as definitions of their own. Grok Bot has no coordinator kind: the bots are
+        siblings, and what starts one is the request that reaches it. The starred Primary Bot
+        that takes everyday asks is one of them, and the star is data you can move. Apps belong
+        to the account, not to a bot, and group chats let the bots decide who answers. The
+        rebuild follows that now.
       </p>
       <p>
         Connecting apps took a second pass too. The quick way is to point the agent at each
@@ -111,9 +113,10 @@ export default function AgentsRebuiltPost() {
       <p>
         You name your dot and make it your own. It keeps notes on your ongoing
         responsibilities, researches in the background with read-only tools, and works on a
-        computer of its own. Before it acts, an auto-review checks your Custom Rules (allow,
-        ask, or block) and built-in safety. You reach the same dot in ChatGPT, Slack or on a
-        call.
+        computer of its own. Your Custom Rules say, per action, whether it acts without asking,
+        acts when you ask, asks first or hands it to you, and an auto-review you can&apos;t switch
+        off checks sensitive actions before they run. Password changes and money transfers are
+        always yours. You reach the same dot in ChatGPT, Slack or on a call.
       </p>
       <p>
         In Foundry, a dot is an instance whose data holds its name, your responsibilities and
@@ -130,7 +133,8 @@ export default function AgentsRebuiltPost() {
       <p>
         Muse is one agent per person that sends the email, books the table and pays, on a
         computer of its own. You reach it in its app or on WhatsApp, you choose what it may do
-        in each app, and a separate Sentinel decides what may leave its computer.
+        in each app, and a separate Sentinel decides what may leave its computer. When a site
+        turns agents away, it stops and tells you.
       </p>
       <p>
         Most of it was already there. WhatsApp is a Foundry app with a transmission each way.
@@ -141,7 +145,9 @@ export default function AgentsRebuiltPost() {
         Sentinel. The browser adapter calls a <code>guard</code> for every request the browser
         makes, outside the page, so the Sentinel sits there with its own small model. It never
         sees Muse&apos;s conversation or the pages it read, which is the point: a page that tells
-        Muse to send your email address somewhere cannot talk the Sentinel round. Sign-ins are
+        Muse to send your email address somewhere cannot talk the Sentinel round. Here it guards
+        the browser; app reads and sends go through Foundry&apos;s apps, at the access you chose
+        and after approval. Sign-ins are
         yours: Muse hands you Kuiper&apos;s live view of its browser, you sign in, and your profile
         keeps it. The card for a purchase is typed in by host code, so Muse never sees it. The
         log of what Muse did is written by a subscriber from

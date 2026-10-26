@@ -12,14 +12,14 @@ export function CrewStory() {
     <FlowStory
       id="rgb"
       viewBox="0 0 936 352"
-      label="Four sibling bots, all instances of one definition in Maya's workspace: a new bot names itself with take_job, a bot asks for an app and her account goes on every bot, Maya writes to Bug Triage directly, it hands the fix to Engineer over the mesh and the answer comes back, a group chat with no host reaches only the bots she mentions, skills are shared in the workspace, sending waits for approval, and new mail wakes each bot whose routine asks for it"
+      label="Four sibling bots, all instances of one definition in Maya's workspace, with Inbox Manager starred for the asks that name no bot: a new bot names itself with take_job, a bot asks for an app and her account goes on every bot, Maya writes to Bug Triage directly, it hands the fix to Engineer over the mesh and the answer comes back, a group chat with no host reaches only the bots she mentions, skills are shared in the workspace, sending waits for approval, and new mail wakes each bot whose routine asks for it"
       boxes={[
         { id: "group", x: 16, y: 16, w: 170, h: 56, title: "Offsite crew", sub: "group chat · no host", tone: "system", dashed: true },
         { id: "maya", x: 258, y: 16, w: 170, h: 56, title: "Maya", sub: "the app" },
         { id: "sales", x: 16, y: 140, w: 170, h: 72, title: "Sales Outbound", sub: "was “New bot”", tone: "harness" },
         { id: "triage", x: 258, y: 140, w: 170, h: 72, title: "Bug Triage", sub: "routine: new mail", tone: "harness" },
         { id: "engineer", x: 500, y: 140, w: 170, h: 72, title: "Engineer", sub: "fixes on a branch", tone: "harness" },
-        { id: "inbox", x: 742, y: 140, w: 170, h: 72, title: "Inbox Manager", sub: "routine: new mail", tone: "harness" },
+        { id: "inbox", x: 742, y: 140, w: 170, h: 72, title: "Inbox Manager", sub: "starred · new mail", tone: "harness" },
         { id: "workspace", x: 16, y: 284, w: 400, h: 56, title: "Workspace: maya", sub: "accounts · skills · one computer", tone: "system", dashed: true },
         { id: "approval", x: 500, y: 284, w: 170, h: 56, title: "Approval", sub: "Maya says yes", tone: "system" },
         { id: "apps", x: 742, y: 284, w: 170, h: 56, title: "Her apps", sub: "Gmail · Linear" },
@@ -70,8 +70,10 @@ export function CrewStory() {
           title: "Maya writes to the bot whose job it is",
           text: (
             <>
-              The bots are siblings: one definition, different data, and nothing routing between
-              them. Maya writes to Bug Triage in its own chat. That message is what starts it.
+              The bots are siblings: one definition, different data, and no coordinator kind.
+              Maya writes to Bug Triage in its own chat, and that message is what starts it. An
+              ask that names no bot would go to her starred bot, Inbox Manager, which hands
+              specialists their part.
             </>
           ),
         },
@@ -124,7 +126,8 @@ export function CrewStory() {
           text: (
             <>
               Maya describes her Monday signup sweep. <code>save_skill</code> waits for her review,
-              then stores it in her workspace for every bot. The routine belongs to Sales Outbound:
+              then stores it in her workspace, and any bot runs it with{" "}
+              <code>/monday-signups</code>. The routine belongs to Sales Outbound:
               a schedule it sets with <code>glove_foundry_schedule</code>. A routine after an event
               is data on the bot, written by <code>add_routine</code>.
             </>
@@ -377,10 +380,10 @@ export function StandingAgentStory() {
     <FlowStory
       id="rod"
       viewBox="0 0 932 290"
-      label="A dot the person names holds their responsibilities and Custom Rules, researches on a schedule with read-only tools, talks in the app, Slack or a call with one memory, works on its own computer, sends every action through an auto-review that allows it, asks, or hands it to the person, and starts coding jobs on a builder over the mesh"
+      label="A dot the person names holds their responsibilities and Custom Rules, researches on a schedule with read-only tools, talks in the app, Slack or a call with one memory, works on its own computer, sends each action through an auto-review that lets it act, asks first, or hands it to the person, and starts coding jobs on a builder over the mesh"
       boxes={[
         { id: "brief", x: 16, y: 16, w: 150, h: 64, title: "Responsibilities", sub: "jobs · sources · must not" },
-        { id: "rules", x: 16, y: 113, w: 150, h: 64, title: "Custom Rules", sub: "allow · ask · block" },
+        { id: "rules", x: 16, y: 113, w: 150, h: 64, title: "Custom Rules", sub: "four levels per action" },
         { id: "clock", x: 16, y: 210, w: 150, h: 64, title: "Schedule", sub: "research every 2h", tone: "system" },
         { id: "dot", x: 256, y: 100, w: 180, h: 90, title: "Pip", sub: "Sam's dot · its own computer", tone: "harness" },
         { id: "channels", x: 526, y: 16, w: 150, h: 64, title: "App · Slack · call", sub: "a thread per channel", tone: "system" },
@@ -457,9 +460,11 @@ export function StandingAgentStory() {
           title: "It runs, asks, or hands it to you",
           text: (
             <>
-              &ldquo;Allow&rdquo; runs. &ldquo;Ask&rdquo; becomes a Foundry approval.
-              &ldquo;Block&rdquo; does not run and tells you what to do yourself. Changing a password
-              is always yours, whatever the rules say.
+              &ldquo;Act without asking&rdquo; runs. &ldquo;Act when asked&rdquo; runs when you
+              started the run, and asks otherwise. &ldquo;Ask first&rdquo; becomes a Foundry
+              approval. &ldquo;Hand off to you&rdquo; does not run and tells you what to do yourself.
+              Password changes are always yours, whatever the rules say, and three hand-offs or
+              denials in a row pause the dot.
             </>
           ),
         },
@@ -475,9 +480,9 @@ export function StandingAgentStory() {
           title: "Coding jobs start on the builder",
           text: (
             <>
-              Pip works on its own computer, and starts bigger coding jobs on Sam&apos;s builder
-              over the mesh, the way a dot starts a task in Codex. It checks the reply and
-              reports. Research runs get no mesh tools at all.
+              Pip works on its own computer, can split work across runs of its own, and starts
+              bigger coding jobs on Sam&apos;s builder over the mesh, the way a dot starts a task in
+              Codex. It checks the reply and reports. Research runs get no mesh tools at all.
             </>
           ),
         },
@@ -588,7 +593,8 @@ export function MuseStory() {
             <>
               Booking posts a form to a site she hasn&apos;t allowed, so the Sentinel says ask. Muse calls{" "}
               <code>request_access</code>, which waits for Rosa only because the Sentinel asked. Her
-              yes adds the site to her list; nothing else can.
+              yes lets Muse send to that site; nothing else can. Reading a site and sending to it
+              are separate grants.
             </>
           ),
         },
@@ -624,7 +630,8 @@ export function MuseStory() {
             <>
               A subscriber writes every tool call from Foundry&apos;s side of the run, the Sentinel
               writes every decision, and the browser&apos;s host code writes each hand-off. What Muse plans comes from Foundry too: its schedules,
-              like the fare it checks every six hours, and the approvals waiting on Rosa.
+              like the fare it checks every six hours, the open steps of its plans, and the approvals
+              waiting on Rosa.
             </>
           ),
         },
@@ -665,7 +672,7 @@ export function RebuildShapes() {
           viewBox="0 0 936 300"
           role="img"
           className="dg-svg"
-          aria-label="Four shapes. Grok Bot: sibling bots, all instances of one definition, each started by a message, a mention, a handoff over the mesh or its own routine. Claude Duet: one partner per person with its own clock and a computer it messages. OpenAI Dots: one dot per person that they name, reached from several channels, researching on a schedule, with an auto-review in front of every action. Meta Muse: one agent per person, in the app and on WhatsApp, with a browser of its own whose every request passes a separate Sentinel."
+          aria-label="Four shapes. Grok Bot: sibling bots, all instances of one definition, one starred for the asks that name no bot, each started by a message, a mention, a handoff over the mesh or its own routine. Claude Duet: one partner per person with its own clock and a computer it messages. OpenAI Dots: one dot per person that they name, reached from several channels, researching on a schedule, with each action checked against its person's Custom Rules. Meta Muse: one agent per person, in the app and on WhatsApp, with a browser of its own whose every request passes a separate Sentinel."
         >
           <defs>
             <marker id="rshape-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
@@ -681,7 +688,7 @@ export function RebuildShapes() {
           <Mini x={124} y={202} w={100} h={50} title="Handoffs" sub="over the mesh" tone="harness" />
           <Arrow d="M66,202 L66,166" label="wakes" lx={58} ly={186} anchor="end" />
           <Arrow d="M174,166 L174,198" />
-          <text x={120} y={284} textAnchor="middle" className="dg-sub">no bot above the others</text>
+          <text x={120} y={284} textAnchor="middle" className="dg-sub">one starred, no coordinator</text>
 
           <g className="tone-harness"><text x={352} y={22} textAnchor="middle" className="dg-group-label">Claude Duet · a partner</text></g>
           <Mini x={248} y={40} w={208} h={44} title="You" sub="one thread · chat or call" />
@@ -700,7 +707,7 @@ export function RebuildShapes() {
           <Arrow d="M618,84 L602,110" />
           <Mini x={504} y={112} w={160} h={50} title="Pip" sub="named · responsibilities" tone="harness" />
           <Mini x={480} y={202} w={100} h={50} title="Research" sub="read-only" tone="system" />
-          <Mini x={588} y={202} w={100} h={50} title="Auto-review" sub="allow·ask·block" dashed />
+          <Mini x={588} y={202} w={100} h={50} title="Auto-review" sub="rules · safety" dashed />
           <Arrow d="M530,202 L550,166" />
           <Arrow d="M618,166 L638,198" />
           <text x={584} y={284} textAnchor="middle" className="dg-sub">one dot you name</text>
@@ -721,7 +728,7 @@ export function RebuildShapes() {
       <figcaption>
         The same parts, arranged four ways. Grok Bot spreads work across sibling bots a person
         makes as data. Claude Duet keeps one partner with its own clock. A dot holds its
-        person&apos;s responsibilities and puts a review in front of every action. Muse does the
+        person&apos;s responsibilities and checks each action against their Custom Rules. Muse does the
         work in a browser of its own, behind a Sentinel that decides what leaves it.
       </figcaption>
     </figure>

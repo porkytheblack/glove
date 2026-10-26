@@ -651,27 +651,41 @@ account (installation.accountId):
   and asks when the route's transmission asks.
 
 Grok Bot → examples/foundry-bot-crew (${SITE_URL}/foundry/docs/rebuilds/grok-bot)
-Facts from Cursor's and xAI's Grok Bot docs: bots have a name, title and job;
-all of a person's bots share one cloud computer and the person's connected
-apps (Gmail and others); bots hand work to each other and share group chats of
-2-6 bots; skills are shared; a routine assigns a workflow to one bot and runs on
-a schedule or after an event.
-- The bots are siblings: one definition, no bot above the others, nothing
-  routing between them. A bot runs when its person writes to it (its "chat"
-  conversation), when it is @-mentioned in a group chat (or nobody is), when a
-  sibling hands it work over the mesh, or when one of its routines fires.
+Facts from Cursor's and xAI's Grok Bot docs: launched in beta on 11 August
+2026, on Cursor's cloud; bots have a name, a job and a working style; a starred
+Primary Bot takes everyday asks and routes to specialists; all of a person's
+bots share one cloud computer and the person's connected apps, so isolation is
+per person, not per bot; bots hand work to each other and share group chats of
+2-6 bots; skills are shared and invoked with /; a routine assigns a workflow to
+one bot on a schedule or after an event (up to 50 per bot, up to 50 bots);
+approvals are allow once, deny or always allow, and require-approval rules win;
+you take over for passwords, 2FA and CAPTCHAs, and other secrets go through a
+masked request. SpaceXAI picks the model; here the operator sets one.
+- The bots are siblings: one definition and no coordinator kind. One is
+  starred as the Primary Bot (context.starred; lib/people.ts primaryOf,
+  starBot moves the star); askPrimary (lib/groups.ts) sends an ask that names
+  no bot to its chat, and it hands siblings their part over the mesh. A bot runs
+  when its person writes to it (its "chat" conversation), when it is
+  @-mentioned in a group chat (or nobody is), when a sibling hands it work over
+  the mesh, or when one of its routines fires.
 - One definition, agents/bot/agent.ts. Every bot is an instance in the person's
-  workspace: lib/people.ts botFor({ id, name?, job?, routines?, installations? })
-  (name "New bot" until it has a job), chatWith(botId) (conversation key
-  "chat"). foundry.application.ts seeds Maya's first bot, Inbox Manager, with
-  her Gmail and a routine on new mail, plus its chat.
+  workspace: lib/people.ts botFor({ id, name?, job?, style?, starred?,
+  routines?, installations? }) (name "New bot" until it has a job),
+  chatWith(botId) (conversation key "chat"). lib/connect.ts makeBot creates
+  every bot with the person's apps and refuses a 51st. foundry.application.ts
+  seeds Maya's first bot, Inbox Manager, starred, with her Gmail and a routine
+  on new mail, plus its chat.
 - Prompt and playbooks are built from instance data; every bot uses the same
   model. A bot without a description asks what it is for and calls take_job,
-  which writes name and description with ctx.data.putAgent (no deploy).
+  which writes name, description and an optional working style
+  (context.style) with ctx.data.putAgent (no deploy).
 - Routines: on a schedule, glove_foundry_schedule (owned by that bot); after an
   event, add_routine writes context.routines ([{ on: "new-mail", skill?,
   instruction }]) and the playbooks resolver builds newMailFor(accountId,
-  routine) from it. New mail reaches every bot whose routine asks, in its chat.
+  routine) from it; a bot can have several on one event. add_routine refuses a
+  51st routine, counting its schedules. New mail reaches every bot whose
+  routine asks, in its chat. configure wraps glove_foundry_schedule with the
+  same 50-routine count (one-off "at" schedules don't count).
 - Group chats have no host (lib/groups.ts): openGroup creates a conversation per
   member (key "group:<id>", context.group.members); postToGroup sends the
   person's message to the bots it @-mentions, or to all members for @everyone
@@ -685,9 +699,19 @@ a schedule or after an event.
   Handoffs name output path, done, evidence, open questions, next owner.
 - One computer per workspace: foundryDataEnvironmentPersistence({ scope:
   "workspace" }). Skills are workspace entries "skill:<name>" (save_skill has
-  requiresPermission), loaded in the tools resolver.
+  requiresPermission), read with glove_read_skill and invoked by the person as
+  /name through the definition's skills resolver (agents/bot/skills.ts).
+- lib/templates.ts: duplicateBot copies name (as "<name> (copy)"), job, style, routines, schedules
+  (context.schedules, armed by the schedules resolver on its first run) and
+  installations, not memory or chats; templateOf / fromTemplate carry
+  instructions, chosen memories, skills, routines and first-party apps, never
+  accounts, chats, custom MCP or scripts; MARKETPLACE lists ready-made ones.
+- Each app installation has alwaysAllow and alwaysAsk; alwaysAsk wins.
 - Gmail's send, save_skill and request_sign_in ask first (sign-in = the person
-  does one step on the shared computer; the bot never sees the password).
+  takes over for a password, a 2FA code, a CAPTCHA or single sign-on on the
+  shared computer; the bot never sees the password).
+- Left out on purpose: routing bot traffic through the person's desktop to get
+  past datacenter-IP blocks. Not built: teach-a-task recording.
 
 Claude Duet → examples/foundry-proactive-partner (${SITE_URL}/foundry/docs/rebuilds/claude-duet)
 - lib/onboarding.ts: partnerFor(person, preferences) (workspace = person id,
@@ -716,28 +740,49 @@ Claude Duet → examples/foundry-proactive-partner (${SITE_URL}/foundry/docs/reb
   to the thread and the partner notifies the person. voiceCall for calls.
 
 OpenAI Dots → examples/foundry-standing-agents (${SITE_URL}/foundry/docs/rebuilds/openai-dots)
-Facts from OpenAI's announcement and help center: a primary dot you name, with
-its own cloud computer and browser, notes on preferences, decisions and ongoing
-responsibilities; proactive research with read-only tools; Custom Rules allow,
-require approval or block an action; auto-review checks actions against your
-instructions, rules and safety (proceed, approval, or yours to do); changing a
-password always stays with you; ChatGPT, Slack, Teams and voice; specialist
-dots with their own identity and credentials for organisations.
+Facts from OpenAI's announcement and help center: launched at DevDay on 29
+September 2026 on GPT-6 Astra; one primary dot you name, with a handle like
+@pip-dot (more dots and teams of dots planned), its own cloud computer and
+browser, and notes on preferences, decisions and ongoing responsibilities; a
+coordinator that splits work across background agents and Codex; proactive
+research with read-only tools; triggers: self-scheduled follow-ups, fixed
+schedules with a time zone, event triggers; Custom Rules per action: act
+without asking, act when asked, ask first, or hand off to you; an auto-review
+you can't switch off checks sensitive actions; password changes and money
+transfers are always handed to you, and permanent deletion, software installs
+and saved-card purchases always need approval; memory = chat + account memory
++ the dot's own notes; Activity View to redirect or pause; safety monitoring
+can pause or stop a dot; ChatGPT, Slack, Teams and voice (Teams isn't built
+here); specialist dots with their own identity for organisations, in preview.
 - One dot definition; each dot is an instance (workspace = owner) whose context
-  holds name, kind (primary | specialist), responsibilities [{ job, sources,
-  attention, mustNot }], rules (action → "allow" | "ask" | "block") and routing
-  { progress, decisions }. primaryDot(owner, dot), specialistFor(org, { …,
+  holds name, kind (primary | specialist), responsibilities [{ job,
+  sources, attention, mustNot }], rules (action → "allow" | "when_asked" |
+  "ask" | "block", labelled act without asking, act when asked, ask first, hand
+  off to you), paused and routing { progress, decisions }. primaryDot(owner, dot), specialistFor(org, { …,
   account }) and builderFor(owner) build the data; foundry.application.ts seeds
   Sam's dot (Pip), builder and app conversation with defineAgentInstance.
 - research schedule every 2h. On runs not started by the person (not direct,
-  not the owner's Slack message, not a reply over the mesh), the tools resolver returns only read tools,
+  not the owner's Slack message, not a reply over the mesh, not a follow-up),
+  and on every run of a paused dot, the tools resolver returns only read tools,
   the Gmail app hides everything but reads, configure removes Gmail's send,
   workingEnvironment resolves to undefined and mesh.mount is false. New mail is
-  one of those read-only runs.
-- reviewed(action, review) wraps every acting tool: built-in safety
-  (change_password) is always "block"; block never runs and hands it to the
-  person; ask → requiresPermission: true; allow runs, but an unknown recipient
-  asks (function form of requiresPermission). No rule → ask. Gmail's send goes
+  one of those read-only runs (an event trigger that only reads).
+- Follow-ups act: on acting runs, followUps() (agents/dot/research.ts) wraps
+  glove_foundry_schedule and glove_foundry_spawn so their payload carries
+  followUp: true, and readOnly() treats an activation, spawn or background run
+  with that payload as acting. Read-only runs can only list schedules. Cron
+  takes a timezone.
+- reviewed(action, review) wraps every acting tool. levelFor: ALWAYS_YOURS
+  (change_password, transfer_money) is always "block", which never runs and
+  hands it to the person; ALWAYS_ASKS (delete_permanently, install_software,
+  buy_with_saved_card) never goes below "ask"; ask → requiresPermission: true;
+  when_asked acts without asking only on a run the person started; allow runs,
+  but an unknown recipient asks (function form of requiresPermission). No rule
+  → ask.
+- lib/monitor.ts: the run hook counts hand-offs and denials in a row; after
+  PAUSE_AFTER (3) it writes paused: true with ctx.data.putAgent. A paused dot
+  only reads; configureDot also removes its write tools and the mesh. The
+  person resumes it with configureAgent. Stopping doesn't undo actions taken. Gmail's send goes
   through the same review in configure (rule send_email, recipient payload.to;
   known contacts come from gmail__search_threads).
 - The dot's own computer: a working environment with
@@ -745,8 +790,9 @@ dots with their own identity and credentials for organisations.
   the person's Builder over the mesh (peers: only the builder; the builder has
   peers: () => false).
 - Channels are conversations on one instance (conversationKey "app" and
-  "slack"), plus voiceCall for calls; one defineMemory namespace per instance
-  shares learning. Slack through a transmission, a predicate on the owner's
+  "slack"), plus voiceCall for calls. Memory is the person's account memory
+  (one namespace per workspace, read-only to the dot) under the dot's own notes
+  (per instance), shared across channels. Slack through a transmission, a predicate on the owner's
   Slack user id and a playbook; a forwarder answers url_verification and checks
   x-slack-signature.
 - Resolvers read the instance fresh from ctx.data.getAgent, because recurring
@@ -754,17 +800,32 @@ dots with their own identity and credentials for organisations.
   (porkytheblack/glove#199).
 
 Meta Muse → examples/foundry-personal-agent (${SITE_URL}/foundry/docs/rebuilds/meta-muse)
-Facts from Meta's announcement and reviews: one personal agent per person that
-does the work (email, bookings, forms, purchases); the Muse app and WhatsApp;
-connectors where you choose what each may do (read mail only, or also send);
-Muse Secure VM with its own browser; a Sentinel agent on the same machine,
+Facts from Meta's announcement and reviews: announced 8 September 2026 by Meta
+Superintelligence Labs, on its Muse Spark model; one personal agent per person
+that does the work (email, bookings, forms, purchases) and turns a goal into a
+plan; you set its name, avatar and style; the Muse app and WhatsApp; email,
+calendar, banks through Plaid and retail partners, with read and write granted
+separately per app; Muse Secure VM, a dedicated VM per person holding the
+credentials of connected services; a Sentinel agent on the same machine,
 isolated from Muse, without whose approval nothing reaches the internet, which
-asks you when it needs input; logins it uses but cannot read; purchases through
-Link with a one-time card; checks before sending or buying; keeps working after
-the app closes; remembers and forgets; a log of what it did and plans.
-- One instance per person (lib/people.ts museFor; context { name, phone,
-  sentinel { allowed, blocked } }), conversations "app" and "whatsapp", one
-  defineMemory profile. glove_context_unset is how it forgets.
+asks you when needed; it can't see passwords or payment methods; checkout with
+Stripe's Link, whose agent wallet issues single-use cards; checks before sending
+or buying; keeps working after the app closes; remembers, suggests unprompted
+and forgets on request; a log of what it did and plans.
+Here: Muse on Claude Sonnet and the Sentinel on Claude Haiku through Kuiper's
+model gateway; everyone's Muse shares one unit and its /data disk (memory and
+log per person); only the browser and its profile are per person; the Sentinel
+guards the browser, while app reads and sends go through Foundry's apps.
+- One instance per person (lib/people.ts museFor; name person.agentName ??
+  "Muse"; context { name, phone, avatar?, style?, sentinel { read, write,
+  blocked } }), conversations "app" and "whatsapp", one defineMemory profile.
+  glove_context_unset is how it forgets; the activity subscriber logs only
+  "memory changed" for glove_context_* tools, so the log never holds a fact
+  as a memory entry (what Muse sent, which may mention it, stays logged).
+- Plans are Foundry goals at instance scope (lib/memory.ts personalPlans, goals
+  resolver on the definition): one goal per plan, one item per step. A daily
+  "suggest" schedule runs a short pass that suggests one thing or replies
+  "(nothing to suggest)".
 - WhatsApp is a Foundry app (transmission in and out). Inbound on one shared
   route (Muse's business number, an app-owned account); each person's playbook
   has a from-person predicate on their number. Outbound on a route per person
@@ -793,18 +854,25 @@ the app closes; remembers and forgets; a log of what it did and plans.
   never Muse's conversation or pages. A blocked load fails with "blocked"
   without the reason, so request_access reads the run's decision: block stays
   blocked with no approval; ask has requiresPermission and the person's yes
-  adds the host to context.sentinel.allowed.
+  grants the host for reading (GET/HEAD) or writing, separately, in
+  context.sentinel.read / write. A read grant never lets it post.
+- Turned away: if a site says it doesn't allow automated agents, Muse stops and
+  tells the person. Its tabs say what they are: lib/kuiper.ts identify() adds
+  AGENT_TOKEN to the browser's real user agent (kuiperBrowser's connect
+  option), never a different browser's.
 - Sign-in: browser.handOff gives Kuiper's interactive live view to onHandOff,
   which sends it to the person on WhatsApp from host code; Muse never sees the
   link or the password. persistProfile keeps the login in their profile.
+  onOpen keeps the session's view-only debugUrl as context.browser.watchUrl for
+  the person's app; the prompt never reads it.
 - buy (requiresPermission) gets a one-time card and host code types it into
   the checkout open in Muse's browser, in a tab it closes (lib/payments.ts);
   the Sentinel allows that checkout for the run; Muse sees the last four
   digits. The example ships a stand-in issuer only.
 - The log (lib/activity.ts): a defineSubscriber in components records every
   tool_use_result; the Sentinel records every decision; the browser's host
-  code records opens and hand-offs; plans are Foundry's activations and
-  pending approvals (logFor).
+  code records opens and hand-offs; plans are open plan steps, Foundry's
+  activations and pending approvals (logFor).
 `;
 
 // Keep both full-reference routes on the same complete source.

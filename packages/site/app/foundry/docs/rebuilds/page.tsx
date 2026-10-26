@@ -13,7 +13,7 @@ const pages = [
     href: "/foundry/docs/rebuilds/grok-bot",
     title: "Grok Bot",
     by: "xAI",
-    shape: "Sibling bots a person makes and names, all instances of one definition, working in the apps the person connects (Gmail, Linear). Each runs on its own requests: a message, an @-mention, a sibling's handoff or its own routine. They share group chats, one computer and a skill library.",
+    shape: "Sibling bots a person makes and names, all instances of one definition, working in the apps the person connects (Gmail, Linear). Each runs on its own requests: a message, an @-mention, a sibling's handoff or its own routine, and the starred Primary Bot takes asks that name no bot. They share group chats, one computer and a skill library.",
     example: "foundry-bot-crew",
   },
   {
@@ -27,14 +27,14 @@ const pages = [
     href: "/foundry/docs/rebuilds/openai-dots",
     title: "OpenAI Dots",
     by: "OpenAI",
-    shape: "A dot you name, holding your ongoing responsibilities and working from a connected mailbox. Read-only research between conversations, an auto-review with your Custom Rules before every action, its own computer, and the same dot in the app, Slack or a call.",
+    shape: "A dot you name, holding your ongoing responsibilities and working from a connected mailbox. Read-only research between conversations, follow-ups you ask for that act under your Custom Rules, an auto-review of sensitive actions, a pause, its own computer, and the same dot in the app, Slack or a call.",
     example: "foundry-standing-agents",
   },
   {
     href: "/foundry/docs/rebuilds/meta-muse",
     title: "Meta Muse",
     by: "Meta",
-    shape: "One personal agent per person, in the app and on WhatsApp, that does the work across the apps they connect at the access they choose. Its own computer, a separate Sentinel on everything that leaves it, logins it never sees, one-time cards, and a log of what it did and plans.",
+    shape: "One personal agent per person, named and styled as they like, in the app and on WhatsApp, that does the work across the apps they connect at the access they choose. Its own browser, a separate Sentinel on everything that browser sends, logins it never sees, one-time cards, plans it keeps, and a log of what it did and plans.",
     example: "foundry-personal-agent",
   },
 ];
@@ -78,14 +78,14 @@ export default function RebuildsPage() {
           <tr><th></th><th>Grok Bot</th><th>Claude Duet</th><th>OpenAI Dots</th><th>Meta Muse</th></tr>
         </thead>
         <tbody>
-          <tr><td><strong>Who you talk to</strong></td><td>The bot whose job it is; bots are siblings</td><td>One partner</td><td>Your dot, in the app, Slack or a call</td><td>Your Muse, in the app or on WhatsApp</td></tr>
+          <tr><td><strong>Who you talk to</strong></td><td>The bot whose job it is, or your starred Primary Bot; bots are siblings</td><td>One partner</td><td>Your dot, in the app, Slack or a call</td><td>Your Muse, in the app or on WhatsApp</td></tr>
           <tr><td><strong>Instances</strong></td><td>Every bot a person makes, all of one definition</td><td>A partner and a computer per person</td><td>A dot and a builder per person; specialist dots per organisation</td><td>One Muse per person</td></tr>
           <tr><td><strong>Conversations</strong></td><td>One chat per bot; a side of each group chat; one per mesh thread</td><td>Exactly one</td><td>One per channel, sharing memory</td><td>App and WhatsApp, sharing memory</td></tr>
-          <tr><td><strong>What wakes it</strong></td><td>A message, an @-mention, a sibling&apos;s handoff, its own routine (a schedule or new mail)</td><td>You, new mail, the morning brief, check-ins</td><td>You, new mail, a Slack message, the research schedule</td><td>You, new mail, checks it set itself</td></tr>
+          <tr><td><strong>What wakes it</strong></td><td>A message, an @-mention, a sibling&apos;s handoff, its own routine (a schedule or new mail)</td><td>You, new mail, the morning brief, check-ins</td><td>You, new mail, a Slack message, the research schedule, follow-ups and schedules you asked for</td><td>You, new mail, checks it set itself, a daily look for things to suggest</td></tr>
           <tr><td><strong>Connected apps</strong></td><td>Gmail and Linear, per person</td><td>Gmail and Google Calendar</td><td>Gmail (the support mailbox)</td><td>Gmail and Calendar, read or act, as the person chooses</td></tr>
-          <tr><td><strong>Who does long work</strong></td><td>The sibling whose job fits, over the mesh</td><td>Its computer, over the mesh</td><td>The builder, over the mesh</td><td>Muse, in its own browser on Kuiper</td></tr>
-          <tr><td><strong>What waits for you</strong></td><td>Sends, new skills, new apps and sign-ins</td><td>Send, pay, sign, delete</td><td>Whatever your Custom Rules say to ask about</td><td>Send, buy, and any site the Sentinel asks about</td></tr>
-          <tr><td><strong>The safety idea</strong></td><td>Your bots only see your workspace and your accounts</td><td>A guard on everything outbound</td><td>Read-only research, and a review before acting</td><td>A Sentinel it can&apos;t talk round, on everything its browser sends</td></tr>
+          <tr><td><strong>Who does long work</strong></td><td>The sibling whose job fits, over the mesh; the Primary Bot hands specialists their part</td><td>Its computer, over the mesh</td><td>The builder, over the mesh</td><td>Muse, in its own browser on Kuiper</td></tr>
+          <tr><td><strong>What waits for you</strong></td><td>Sends, new skills, new apps and sign-ins</td><td>Send, pay, sign, delete</td><td>Whatever your Custom Rules say to ask about, plus deletions, installs and saved-card purchases; password changes and money transfers are yours to do</td><td>Send, buy, and any site the Sentinel asks about</td></tr>
+          <tr><td><strong>The safety idea</strong></td><td>Approval rules, and require-approval rules win; isolation is per person, so bots are not a boundary from each other</td><td>A guard on everything outbound</td><td>Read-only research, an auto-review you can&apos;t switch off, and a monitor that pauses the dot</td><td>A Sentinel it can&apos;t talk round, on everything its browser sends, with read and write granted separately</td></tr>
         </tbody>
       </table>
 
