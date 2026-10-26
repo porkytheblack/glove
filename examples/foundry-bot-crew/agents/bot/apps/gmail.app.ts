@@ -21,6 +21,8 @@ export default defineApp({
   config: z.object({
     /** Tools the person chose "Always allow" for. */
     alwaysAllow: z.array(z.string()).default([]),
+    /** Tools that always ask, even if always allowed: require-approval rules win. */
+    alwaysAsk: z.array(z.string()).default([]),
   }),
   inbound: [gmail],
   outbound: [gmail],

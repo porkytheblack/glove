@@ -7,10 +7,10 @@ import { fileURLToPath } from "node:url";
 // Maya's bots, end to end on the real runtime. There is one bot definition;
 // every bot below is data, and so is every app she connects. With no API key
 // each bot runs a short script and her accounts are samples, so this needs no
-// network:
-// The bots are siblings: no bot routes work to the others.
-//   1. Maya's account is seeded: her first bot, Inbox Manager, with her Gmail and a routine on new mail.
-//   2. She makes a new bot and tells it its job; it names itself and gets her apps.
+// network.
+// The bots are siblings with no coordinator kind; one is starred and takes the asks that name no bot:
+//   1. Maya's account is seeded: her first bot, Inbox Manager, starred, with her Gmail and a routine on new mail.
+//   2. She makes a new bot and tells it its job; it names itself, keeps a working style and gets her apps.
 //   3. Bug Triage asks for Linear; she signs in and always allows filing; every bot has it.
 //   4. She tells Bug Triage about a bug; it files it in Linear and hands the fix to Engineer, a sibling.
 //   5. Sales Outbound reads her inbox in code and emails a signup, after she approves.
@@ -18,6 +18,9 @@ import { fileURLToPath } from "node:url";
 //   7. A workflow becomes a skill (after her review) and a Monday routine; Bug Triage gets a routine on new mail.
 //   8. A group chat with no host: the two bots she @-mentions answer; the third stays quiet.
 //   9. New mail reaches each bot whose routine is on new mail; Inbox Manager replies once she approves.
+//  10. An ask that names no bot goes to the starred bot, which hands Sales Outbound its part. The star moves.
+//  11. Any bot runs a saved skill by name: /monday-signups.
+//  12. A duplicate gets the job, style, routines and apps, not the memory or chats; a template carries no accounts.
 
 const here = dirname(fileURLToPath(import.meta.url));
 const rootDir = resolve(here, "..");
@@ -28,9 +31,12 @@ process.env.CREW_DEMO = "1"; // the checks below follow the scripts
 const { FoundryRuntime, installedApplicationTransmissionToolName } = await import("glove-foundry");
 const { default: application } = await import("../foundry.application.js");
 const { default: config } = await import("../foundry.config.js");
-const { CHAT, MAYA, botFor, chatWith } = await import("../lib/people.js");
-const { chatsVia, groupConversationId, openGroup, postToGroup } = await import("../lib/groups.js");
-const { connectApp, giveAccounts, sampleConnection, writesVia } = await import("../lib/connect.js");
+const { CHAT, MAYA, chatWith, primaryOf, starBot } = await import("../lib/people.js");
+const { askPrimary, chatsVia, groupConversationId, openGroup, postToGroup } = await import("../lib/groups.js");
+const { connectApp, makeBot, sampleConnection, writesVia } = await import("../lib/connect.js");
+const { askUnlessAllowed } = await import("../lib/mcp-servers.js");
+const { memoryOf } = await import("../lib/memory.js");
+const { duplicateBot, templateOf } = await import("../lib/templates.js");
 const { default: gmailApp } = await import("../agents/bot/apps/gmail.app.js");
 const { default: gmail } = await import("../agents/bot/transmissions/gmail.transmission.js");
 const { entries } = await import("../lib/ledger.js");
@@ -78,6 +84,7 @@ try {
   const inbox = (await instances()).find((agent) => agent.id === "maya-inbox");
   assert.ok(inbox, "Maya's first bot is seeded");
   assert.equal(inbox.name, "Inbox Manager");
+  assert.equal(primaryOf(await instances(), maya.id)?.id, inbox.id, "her first bot is starred");
   assert.deepEqual(appsOf(inbox), ["gmail (maya-gmail)"], "her Gmail, installed with her account");
   assert.deepEqual((inbox.context.routines as Array<{ on: string }>).map((routine) => routine.on), ["new-mail"]);
   const [inboxChat] = (await runtime.listConversations(inbox.id)).filter((item) => item.context.conversationKey === CHAT.key);
@@ -85,11 +92,10 @@ try {
   const hello = await runtime.send(inbox.id, inboxChat.id, "Hi, I'm Maya.");
   assert.equal((await runtime.waitForRun(hello.id, { timeoutMs: 60_000 }))?.status, "completed");
   const watching = await until(async () => runtime.listApplicationConnections().find((item) => item.accountId === "maya-gmail" && item.status === "connected"), "the Gmail watch");
-  console.log(`1. ${inbox.name} (${inbox.id}) has ${appsOf(inbox).join(", ")} and a routine on new mail; the Gmail watch is ${watching.status}`);
+  console.log(`1. ${inbox.name} (${inbox.id}), starred, has ${appsOf(inbox).join(", ")} and a routine on new mail; the Gmail watch is ${watching.status}`);
 
   // 2. A blank bot asks what it's for and names itself: a write to its own data.
-  const fresh = await runtime.createAgent("bot", botFor(maya, { id: "maya-bot-1" }));
-  await giveAccounts(writes, fresh.id, maya);
+  const fresh = await makeBot(writes, maya, { id: "maya-bot-1" });
   const freshChat = await runtime.createConversation(fresh.id, chatWith(fresh.id));
   const job = await runtime.send(fresh.id, freshChat.id,
     "Overnight pipeline generation and outbound. Pick eligible prospects from the signup emails, research them, and draft emails in my voice.");
@@ -97,6 +103,7 @@ try {
   const renamed = (await instances()).find((agent) => agent.id === fresh.id);
   assert.equal(renamed?.name, "Sales Outbound");
   assert.match(renamed?.description ?? "", /Overnight pipeline/);
+  assert.match(String(renamed?.context.style), /^Two-line intros/, "its working style");
   assert.deepEqual(appsOf(renamed!), ["gmail (maya-gmail)"], "a new bot gets her apps");
   console.log(`2. "${fresh.name}" became "${renamed?.name}": ${reply(renamedRun)}`);
 
@@ -105,8 +112,7 @@ try {
     ["maya-bot-2", "Bug Triage", "Reproduces bug reports and files them in Linear, then gets them fixed."],
     ["maya-bot-3", "Engineer", "Fixes filed bugs on a branch and adds a test."],
   ] as const) {
-    await runtime.createAgent("bot", botFor(maya, { id, name, job }));
-    await giveAccounts(writes, id, maya);
+    await makeBot(writes, maya, { id, name, job });
   }
 
   // 3. Apps are the account's: one bot asks, Maya signs in, every bot has it.
@@ -117,6 +123,8 @@ try {
   // Your app's Connect button: the provider's sign-in, then the account is saved
   // and given to every bot. Maya ticks "Always allow" for filing issues.
   await connectApp(writes, maya, "linear", { ...sampleConnection(maya, "linear"), alwaysAllow: ["save_issue"] });
+  // A require-approval rule wins over "Always allow".
+  assert.equal(askUnlessAllowed([])({ name: "save_issue", readOnly: false, destructive: false }, { config: { alwaysAllow: ["save_issue"], alwaysAsk: ["save_issue"] } }), "ask");
   await runtime.resolveApproval(ask.id, "approve");
   await until(() => said(triageChat.id, /^Linear is connected/), "Linear to connect");
   const team = (await instances()).filter((agent) => agent.workspaceId === maya.id);
@@ -207,7 +215,51 @@ try {
   }).then((again) => again.map((run) => run.id)), runs.map((run) => run.id), "the same message is handled once");
   console.log(`9. new mail woke Inbox Manager and Bug Triage. Bug Triage: not a bug. Inbox Manager: ${reply(answered)}`);
 
-  console.log("\nBots verified: one definition and sibling bots in data, connected apps read in code, sends approved and delivered by Foundry, handoffs between siblings, sign-in, skills and routines, a group chat with no host, new mail to the bots whose routines ask for it.");
+  // 10. An ask that names no bot goes to the starred bot, in its own chat. It
+  // does its part and hands Sales Outbound the sales part over the mesh.
+  const asked = await askPrimary(chats, maya.id, "How's this week looking?");
+  assert.equal(asked.botId, "maya-inbox");
+  const weekly = await until(() => said(inboxChat.id, /^Inbox is clear\. Sales Outbound says: 14 new leads/), "the starred bot's answer");
+  const [toSales] = await runtime.listThreads({ agentId: "maya-inbox" });
+  assert.equal(toSales?.to.name, "Sales Outbound", "it handed a sibling its part");
+  // The star is data: moving it is a write.
+  await starBot(writes, maya, "maya-bot-2");
+  assert.deepEqual((await instances()).filter((bot) => bot.context.starred).map((bot) => bot.id), ["maya-bot-2"]);
+  await starBot(writes, maya, "maya-inbox");
+  console.log(`10. an ask that named no bot went to Inbox Manager, the starred bot: ${reply(weekly)}`);
+
+  // 11. Any bot runs a saved skill by name: its steps go in just before the message.
+  await runtime.send("maya-inbox", inboxChat.id, "/monday-signups");
+  const ran = await until(() => said(inboxChat.id, /^Running monday-signups/), "the skill");
+  const transcript = await runtime.conversationTranscript("maya-inbox", inboxChat.id, { limit: 500 });
+  assert.ok(transcript.messages.some((message) => message.text.startsWith("[Skill: monday-signups]")), "the skill's steps reached the bot");
+  console.log(`11. /monday-signups, saved by Sales Outbound, in Inbox Manager's chat: ${reply(ran)}`);
+
+  // 12. A duplicate gets the job, style, routines and apps; memory and chats stay with the original.
+  await memoryOf(maya.id, "maya-bot-1").set(
+    { section: "preferences", content: "Maya signs off with M.", pinned: true },
+    { source: "verify", actor: "maya-bot-1", timestamp: new Date().toISOString() },
+  );
+  const original = (await instances()).find((agent) => agent.id === "maya-bot-1")!;
+  const copy = await duplicateBot(writes, maya, original.id, "maya-bot-4");
+  assert.equal(copy.name, "Sales Outbound (copy)");
+  assert.equal(copy.context.style, original.context.style);
+  assert.deepEqual(appsOf(copy), appsOf(original));
+  assert.equal((await memoryOf(maya.id, original.id).list()).length, 1);
+  assert.equal((await memoryOf(maya.id, copy.id).list()).length, 0, "memory stays with the original");
+  assert.equal((await runtime.listConversations(copy.id)).length, 0, "so do its chats");
+  // Its Monday routine came as data; Foundry arms it on the copy's first run.
+  const copyChat = await runtime.createConversation(copy.id, chatWith(copy.id));
+  await runtime.waitForRun((await runtime.send(copy.id, copyChat.id, "Hi")).id, { timeoutMs: 60_000 });
+  const copied = await until(async () =>
+    (await runtime.listActivations()).find((item) => item.agentId === copy.id && item.timing.kind === "cron"), "the copy's Monday routine");
+  assert.deepEqual(copied.timing, routine.timing);
+  const template = await templateOf(writes, original, { memories: ["Maya signs off with M."] });
+  assert.deepEqual(template.apps.map((item) => item.app).sort(), ["gmail", "linear"]);
+  assert.doesNotMatch(JSON.stringify(template), /maya-gmail|maya-linear/, "a template carries no accounts");
+  console.log("12. Sales Outbound duplicated with its job, style, apps and Monday routine, and none of its memory or chats; its template carries no accounts");
+
+  console.log("\nBots verified: one definition and sibling bots in data, a starred bot for asks that name no bot, connected apps read in code, sends approved and delivered by Foundry, handoffs between siblings, sign-in, skills by name and routines, a group chat with no host, new mail to the bots whose routines ask for it, duplicates without memory.");
 } finally {
   await runtime.stop();
   await rm(dataDir, { recursive: true, force: true });

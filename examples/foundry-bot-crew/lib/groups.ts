@@ -1,4 +1,5 @@
 import type { AgentInstance, Conversation, CreateConversationOptions, FoundryClient, FoundryRouteMap, FoundryRuntime } from "glove-foundry";
+import { chatWith, primaryOf } from "./people.js";
 
 /**
  * A group chat: the person and 2–6 of their bots. No bot hosts it. Each member
@@ -13,7 +14,7 @@ export interface GroupChat {
   readonly members: ReadonlyArray<string>;
 }
 
-/** What posting to a group needs, from the runtime in a script or the typed client in your app. */
+/** What posting a message needs, from the runtime in a script or the typed client in your app. */
 export interface FoundryChats {
   readonly agents: () => Promise<ReadonlyArray<AgentInstance>>;
   readonly createConversation: (agentId: string, options: CreateConversationOptions) => Promise<Conversation>;
@@ -67,4 +68,16 @@ export async function postToGroup(foundry: FoundryChats, chat: GroupChat, text: 
     runs.push({ botId, runId: run.id });
   }
   return runs;
+}
+
+/**
+ * An ask that names no bot goes to the person's starred bot, in its own chat.
+ * It does its part and hands each sibling theirs over the mesh. Group chats
+ * keep their own rule (postToGroup).
+ */
+export async function askPrimary(foundry: FoundryChats, personId: string, text: string): Promise<{ readonly botId: string; readonly runId: string }> {
+  const primary = primaryOf(await foundry.agents(), personId);
+  if (!primary) throw new Error(`${personId} has no starred bot.`);
+  const run = await foundry.send(primary.id, chatWith(primary.id).id!, text);
+  return { botId: primary.id, runId: run.id };
 }

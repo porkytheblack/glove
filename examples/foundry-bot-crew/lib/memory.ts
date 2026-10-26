@@ -14,15 +14,17 @@ export function botMemory(description: string) {
   return defineMemory({
     description,
     context: {
-      adapter: ({ workspaceId, agentId }) =>
-        Effect.sync(() => {
-          mkdirSync(dataDir, { recursive: true });
-          return createSqliteMemoryAdapters({
-            file: dataPath("memory.sqlite"),
-            namespace: `${workspaceId}/${agentId}`,
-            schema: new MemorySchema(),
-          }).context;
-        }),
+      adapter: ({ workspaceId, agentId }) => Effect.sync(() => memoryOf(workspaceId, agentId)),
     },
   });
+}
+
+/** One bot's notes, outside a run: to seed a bot made from a template, or to see what a copy has. */
+export function memoryOf(workspaceId: string, agentId: string) {
+  mkdirSync(dataDir, { recursive: true });
+  return createSqliteMemoryAdapters({
+    file: dataPath("memory.sqlite"),
+    namespace: `${workspaceId}/${agentId}`,
+    schema: new MemorySchema(),
+  }).context;
 }

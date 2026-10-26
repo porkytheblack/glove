@@ -56,10 +56,15 @@ export function mcpCredentials() {
 /**
  * The person decides what a tool may do without asking. Reads run; anything
  * else asks first, unless the person chose "Always allow" for it, which is a
- * write to the installation's config. Servers that don't mark their reads
- * are covered by `reads`.
+ * write to the installation's config. A require-approval rule (`alwaysAsk`)
+ * wins over both. Servers that don't mark their reads are covered by `reads`.
  */
 export function askUnlessAllowed(reads: ReadonlyArray<string>) {
-  return (tool: FoundryAppMcpTool, { config }: { readonly config: { readonly alwaysAllow: ReadonlyArray<string> } }): FoundryAppToolDecision =>
-    tool.readOnly || reads.includes(tool.name) || config.alwaysAllow.includes(tool.name) ? "allow" : "ask";
+  return (
+    tool: FoundryAppMcpTool,
+    { config }: { readonly config: { readonly alwaysAllow: ReadonlyArray<string>; readonly alwaysAsk: ReadonlyArray<string> } },
+  ): FoundryAppToolDecision => {
+    if (config.alwaysAsk.includes(tool.name)) return "ask";
+    return tool.readOnly || reads.includes(tool.name) || config.alwaysAllow.includes(tool.name) ? "allow" : "ask";
+  };
 }

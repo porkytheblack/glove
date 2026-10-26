@@ -1,12 +1,12 @@
 import { fileURLToPath } from "node:url";
 import { createFoundryClient, discoverAgents } from "glove-foundry";
-import bot from "../agents/bot/agent.js";
-import { giveAccounts, writesVia } from "../lib/connect.js";
-import { botFor, chatWith } from "../lib/people.js";
+import { makeBot, writesVia } from "../lib/connect.js";
+import { chatWith } from "../lib/people.js";
 
-// Sign a person up on a running Foundry: their first bot and its chat, with
-// any apps they already connected. The bot asks what it is for and names
-// itself. Make more bots the same way; connect apps with `pnpm connect`.
+// Sign a person up on a running Foundry: their first bot, starred as their
+// Primary Bot, and its chat, with any apps they already connected. The bot
+// asks what it is for and names itself. Make more bots the same way (up to
+// 50); connect apps with `pnpm connect`.
 //   pnpm onboard ada "Ada"
 
 const [id = "ada", name = "Ada"] = process.argv.slice(2);
@@ -18,8 +18,7 @@ const foundry = createFoundryClient({
   ...(process.env.FOUNDRY_TOKEN ? { authorization: { identifier: "onboard", headers: () => ({ authorization: `Bearer ${process.env.FOUNDRY_TOKEN}` }) } } : {}),
 });
 
-const created = await foundry.createAgent(bot.id, botFor(person, { id: `${id}-bot-1` }));
-await giveAccounts(writesVia.client(foundry), created.id, person);
+const created = await makeBot(writesVia.client(foundry), person, { id: `${id}-bot-1`, starred: true });
 const chat = await foundry.createConversation(created.id, chatWith(created.id));
 const hello = await foundry.send(created.id, chat.id, `Hi, I'm ${name}.`);
 await hello.wait({ timeoutMs: 120_000 });

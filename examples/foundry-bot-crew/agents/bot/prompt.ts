@@ -12,7 +12,7 @@ export async function botPrompt(ctx: AgentAssemblyContext): Promise<string> {
   if (!bot.description) {
     lines.push(
       `You are a new bot on ${owner}'s team and you have no job yet.`,
-      `Greet ${owner} and ask what they want you around for. When they tell you, call take_job with a short name for yourself and one sentence saying what you do, then confirm in one line.`,
+      `Greet ${owner} and ask what they want you around for. When they tell you, call take_job with a short name for yourself, one sentence saying what you do, and how they want you to work if they said, then confirm in one line.`,
     );
   } else {
     lines.push(
@@ -21,7 +21,11 @@ export async function botPrompt(ctx: AgentAssemblyContext): Promise<string> {
       "Work in the apps your owner connected and on the computer you share with your siblings. Come back only when you finish or need a decision.",
       "If part of the work is a sibling's job, find them with glove_mesh_list_agents and hand that part over with glove_mesh_send_message. Write it so it stands alone; their answer comes back to you.",
     );
+    if (bot.context.starred) {
+      lines.push(`You are ${owner}'s starred bot: asks that name no bot come to you. Do your part; hand each sibling's part to them with glove_mesh_send_message.`);
+    }
   }
+  if (typeof bot.context.style === "string" && bot.context.style) lines.push(`Your working style: ${bot.context.style}`);
   const routines = (bot.context.routines ?? []) as ReadonlyArray<{ on: string; skill?: string }>;
   if (routines.length > 0) {
     lines.push(`Your routines after an event: ${routines.map((routine) => `${routine.on}${routine.skill ? ` (skill ${routine.skill})` : ""}`).join(", ")}.`);

@@ -56,10 +56,10 @@ function scriptFor(bot: AgentInstance): (turn: DemoTurn) => DemoStep {
   if (bot.name === "Inbox Manager") return (turn) => inboxScript(bot, turn);
   if (bot.name === "Sales Outbound") return (turn) => salesScript(bot, turn);
   if (bot.name === "Bug Triage") return bugTriageScript;
-  return () => say("Patched on branch fix/empty-export: export returns an empty file for an empty report. Added a test.");
+  return ({ text }) => say(/^hi\b/i.test(text) ? "Hi Maya." : "Patched on branch fix/empty-export: export returns an empty file for an empty report. Added a test.");
 }
 
-function inboxScript(bot: AgentInstance, { text, called, lastResult }: DemoTurn): DemoStep {
+function inboxScript(bot: AgentInstance, { text, called, results, lastResult }: DemoTurn): DemoStep {
   // New mail, through its routine: answer it from Maya's address.
   if (text.includes('<transmission direction="inbound"')) {
     const from = mailField(text, "from");
@@ -74,6 +74,18 @@ function inboxScript(bot: AgentInstance, { text, called, lastResult }: DemoTurn)
     }
     return say(/"messageId"/.test(lastResult) ? `Replied to ${from.replace(/\s*<.*/, "")} about pricing.` : "You didn't approve the reply, so nothing went out.");
   }
+  // A saved skill, invoked by name: its steps arrive just before this message.
+  const skill = /\[invoked_extension__skill_([\w-]+)\]/.exec(text)?.[1];
+  if (skill) return say(`Running ${skill} from the steps you saved.`);
+  // An ask that named no bot came to it, the starred one: its part, and the sales part to Sales Outbound.
+  if (/this week/i.test(text)) {
+    if (!called.includes("glove_mesh_list_agents")) return call("glove_mesh_list_agents", {});
+    if (!called.includes("glove_mesh_send_message")) {
+      return call("glove_mesh_send_message", { to: idOf(results, "Sales Outbound") ?? "", content: "How many leads this week?", blocking: true });
+    }
+    const reply = /"reply":"([^"]+)"/.exec(lastResult)?.[1];
+    return say(`Inbox is clear. Sales Outbound says: ${reply ?? "no answer yet."}`);
+  }
   return say("Hi Maya. I'm watching your inbox and will answer what I can from your address.");
 }
 
@@ -82,6 +94,7 @@ function newBotScript({ called }: DemoTurn): DemoStep {
     return call("take_job", {
       name: "Sales Outbound",
       description: "Overnight pipeline generation and outbound: picks prospects from the signup emails, researches them and drafts emails in Maya's voice.",
+      style: "Two-line intros, no hype. Checks with Maya before anything goes out.",
     });
   }
   return say("Renamed to Sales Outbound. I'll start on tonight's batch.");

@@ -1,4 +1,4 @@
-import { composeAgent, defineAgent, defineRepl } from "glove-foundry";
+import { composeAgent, defineAgent, defineRepl, defineSchedule } from "glove-foundry";
 import { JsSession } from "glove-js";
 import { accountSessions } from "../../lib/accounts.js";
 import { FileStore } from "../../lib/file-store.js";
@@ -7,18 +7,20 @@ import gmailApp from "./apps/gmail.app.js";
 import linearApp from "./apps/linear.app.js";
 import memory from "./bot.memory.js";
 import { computer } from "./computer.js";
-import type { EventRoutine } from "../../lib/people.js";
+import type { EventRoutine, ScheduledRoutine } from "../../lib/people.js";
 import { newMailFor } from "./playbook.js";
 import { botPrompt } from "./prompt.js";
-import { botTools } from "./tools.js";
+import { slashSkills } from "./skills.js";
+import { botTools, capSchedules } from "./tools.js";
 
 /**
  * Every bot, as one definition: what a bot can be. The bots are siblings, and
- * which bot this is lives in data: its name and job on the instance, the
- * accounts its owner connected, its routines, and the conversation it is in.
- * A bot runs when its person writes to it, when it is @-mentioned in a group
- * chat, when a sibling hands it work, and when one of its routines fires. A
- * person makes a new bot by creating an instance, not by adding a file here.
+ * which bot this is lives in data: its name, job and working style, whether
+ * it is starred, the accounts its owner connected, its routines, and the
+ * conversation it is in. A bot runs when its person writes to it (asks that
+ * name no bot go to the starred one), when it is @-mentioned in a group chat,
+ * when a sibling hands it work, and when one of its routines fires. A person
+ * makes a new bot by creating an instance, not by adding a file here.
  */
 export default defineAgent({
   description: "A bot: an AI teammate with its own job and memory, working in its owner's apps and on a computer it shares with their other bots",
@@ -32,6 +34,10 @@ export default defineAgent({
 
   // take_job, connect_app, save_skill, add_routine, request_sign_in, and the skill library.
   tools: (_agent, ctx) => botTools(ctx),
+  // A schedule the bot adds is a routine too, and counts toward its 50.
+  configure: (agent, ctx) => capSchedules(agent, ctx),
+  // Every skill in the owner's library, invoked by name: "/monday-signups".
+  skills: (_agent, ctx) => slashSkills(ctx.data, ctx.workspaceId),
   workingEnvironment: computer,
 
   // The connected apps' reads as functions, one group per app:
@@ -51,12 +57,15 @@ export default defineAgent({
 
   // Routines after an event: new mail reaches the bots whose routines say so,
   // once Gmail is connected. Routines on a schedule are the bot's own
-  // Foundry schedules (glove_foundry_schedule).
+  // Foundry schedules (glove_foundry_schedule), plus any that came as data
+  // with a copy or a template, which Foundry arms on the bot's next run.
   playbooks: (_agent, { agentInstance, installations }) => {
     const mail = installations.find((item) => item.kind === "application" && item.id === gmailApp.id);
-    const routine = ((agentInstance.context.routines ?? []) as ReadonlyArray<EventRoutine>).find((item) => item.on === "new-mail");
-    return mail?.accountId && routine ? [newMailFor(mail.accountId, routine)] : [];
+    const routines = ((agentInstance.context.routines ?? []) as ReadonlyArray<EventRoutine>).filter((item) => item.on === "new-mail");
+    return mail?.accountId && routines.length > 0 ? [newMailFor(mail.accountId, routines)] : [];
   },
+  schedules: (_agent, { agentInstance }) =>
+    ((agentInstance.context.schedules ?? []) as ReadonlyArray<ScheduledRoutine>).map((item) => defineSchedule(item)),
 
   // The credential boundary: apps, the Gmail watch and every send ask for an
   // operation on an account and never see its token.

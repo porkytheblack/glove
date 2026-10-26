@@ -8,7 +8,8 @@ import { MAYA, botFor, chatWith } from "./lib/people.js";
 
 /**
  * The demo account: Maya, with a sample Gmail and her first bot, Inbox Manager,
- * whose routine runs on new mail. Her other bots are its siblings, made at runtime.
+ * starred as her Primary Bot, whose routine runs on new mail. Her other bots
+ * are its siblings, made at runtime.
  * Seeds are written only when nothing has that id yet, so everything Maya
  * changes afterwards (a rename, a new bot, connecting her real Gmail under the
  * same id) is kept. Everyone else signs up and connects apps at runtime.
@@ -20,6 +21,8 @@ const mayaInbox = defineAgentInstance(bot, botFor(MAYA, {
   id: "maya-inbox",
   name: "Inbox Manager",
   job: "Keeps Maya's inbox moving: answers what it can from her address and hands the rest to the bot whose job it is.",
+  style: "Short replies in Maya's voice. Checks with her before promising a date or a price.",
+  starred: true,
   routines: [{ on: "new-mail", instruction: "Read each new email. Answer the ones you can; hand the rest to a sibling or tell Maya in one line." }],
   installations: [installationFor(mayaGmail)],
 }));
