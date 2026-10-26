@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { Effect } from "effect";
 import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -15,10 +16,11 @@ import { fileURLToPath } from "node:url";
 //   5. A booking in its own browser: the Sentinel lets it read the page, blocks a hidden instruction to send her
 //      email address elsewhere, and asks her about booking. The site wants her signed in: Muse hands her the
 //      browser's live view on WhatsApp, she signs in there, and it books. Her login is in her profile afterwards.
+//      Her app has a view-only live view to watch it; sites see it is an agent; a read grant doesn't let it post.
 //   6. It pays at a checkout with a one-time card, typed in by host code, once she approves the purchase.
-//   7. It sets itself to watch a train fare and check back every 6 hours.
+//   7. It turns a goal into a plan, and sets itself to watch a train fare and check back every 6 hours.
 //   8. New mail that changes a plan reaches her on WhatsApp.
-//   9. She asks it to forget Priya, and it does.
+//   9. She asks it to forget Priya, and it does; the log says memory changed, not what it kept.
 //  10. Its log: what it did, written by Foundry's side of the run, and what it plans. She disconnects Calendar.
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -42,7 +44,9 @@ const { readAccount } = await import("../lib/accounts.js");
 const { Kuiper } = await import("@kuiper-sh/sdk");
 const { chromium } = await import("playwright-core");
 const { entries } = await import("../lib/ledger.js");
-const { logFor } = await import("../lib/activity.js");
+const { activityOf, logFor } = await import("../lib/activity.js");
+const { AGENT_TOKEN } = await import("../lib/kuiper.js");
+const { Sentinel } = await import("../agents/muse/sentinel.js");
 const { default: gmailApp } = await import("../agents/muse/apps/gmail.app.js");
 const { default: gmail } = await import("../agents/muse/transmissions/gmail.transmission.js");
 
@@ -149,12 +153,14 @@ try {
   await whatsappFromRosa("wamid.3", "Book Bistro Luna for the four of us on Friday at 7.");
   const access = await approve("request_access");
   assert.match(JSON.stringify(access.toolInput), /bistro-luna\.example/);
+  assert.equal((access.toolInput as { access?: string }).access, "write", "her approval card says it would send, not only read");
   await until(() => said(whatsapp, /^Bistro Luna wants you signed in/), "the hand-off");
   const link = await until(async () => (await entries("whatsapp")).find((item) => /opens Muse's browser/.test(String(item.text))), "the live view link");
   assert.equal(link.to, ROSA.phone, "the link goes to her alone");
-  const browserOf = async () => (await instance()).context.browser as { sessionId?: string; profileId?: string };
-  const { sessionId } = await browserOf();
+  const browserOf = async () => (await instance()).context.browser as { sessionId?: string; profileId?: string; watchUrl?: string };
+  const { sessionId, watchUrl } = await browserOf();
   assert.ok(sessionId && String(link.text).includes("token="), "a live view of the browser Muse kept");
+  assert.ok(watchUrl && !watchUrl.includes("token="), "a view-only live view, kept for her app's Watch link");
   // She signs in in the live view. Muse isn't connected; its run has ended.
   await kuiperHere.asPerson(sessionId!, async (page) => {
     await page.getByLabel("Email").fill("rosa@example.com");
@@ -170,12 +176,23 @@ try {
   assert.ok(sentinel.includes("GET bistro-luna.example/ → allow"));
   assert.ok(sentinel.includes("GET collect.example/c → block"), "the page's hidden instruction was blocked");
   assert.ok(sentinel.includes("POST bistro-luna.example/reserve → ask"));
-  assert.ok(sentinel.includes("allow bistro-luna.example → the person allowed it"));
+  assert.ok(sentinel.includes("allow sending to bistro-luna.example → the person allowed it"));
   assert.ok(sentinel.includes("POST bistro-luna.example/reserve → allow"));
-  assert.deepEqual((await instance()).context.sentinel, { allowed: ["bistro-luna.example"], blocked: [] });
+  assert.deepEqual((await instance()).context.sentinel, { read: [], write: ["bistro-luna.example"], blocked: [] });
+  // Sites see it is an agent: the browser's own user agent, with its token added.
+  assert.ok([...kuiperHere.userAgents].some((ua) => /^Mozilla\/5\.0 .*Chrome\//.test(ua) && ua.endsWith(` ${AGENT_TOKEN}`)), "it names itself to sites");
+  // A read she allows is not a send: posting to a site she only let Muse read still goes to the Sentinel.
+  const readOnly = new Sentinel({
+    agentId: "check-muse", workspaceId: "check", request: {}, messageText: "",
+    agentInstance: { context: { sentinel: { read: ["shop.example"], write: [], blocked: [] } } },
+    data: { getAgent: () => Effect.succeed(undefined) },
+  } as never);
+  assert.equal((await readOnly.decide(new URL("http://shop.example/item"), "GET")).verdict, "allow");
+  assert.equal((await readOnly.decide(new URL("http://shop.example/cart"), "POST")).verdict, "ask", "a read grant doesn't let it post");
   // Muse closed the browser, so her profile now holds the login: a new browser from it is signed in.
-  const { sessionId: afterBooking, profileId } = await browserOf();
+  const { sessionId: afterBooking, profileId, watchUrl: afterWatch } = await browserOf();
   assert.equal(afterBooking, undefined, "the closed browser is forgotten");
+  assert.equal(afterWatch, undefined, "and so is its live view");
   const kuiper = new Kuiper({ apiKey: kuiperHere.key, gatewayUrl: kuiperHere.url });
   const account = await kuiper.browsers.use({ profileId }, async (session) => {
     const browser = await chromium.connectOverCDP(session.websocketUrl);
@@ -188,7 +205,7 @@ try {
     }
   });
   assert.match(account, /Signed in as Rosa/, "her profile keeps the login");
-  console.log(`5. the Sentinel: ${sentinel.join("; ")}. She signed in in the live view. ${reply(booked)} Her profile keeps the login.`);
+  console.log(`5. the Sentinel: ${sentinel.join("; ")}. She signed in in the live view. ${reply(booked)} Her profile keeps the login. Her app could watch it; sites saw "${AGENT_TOKEN.split(" ")[0]}"; a read grant doesn't let it post.`);
 
   // 6. A one-time card, after she approves the purchase.
   await runtime.send(museId, app, "Order the groceries for Friday from Fresh Market.");
@@ -200,12 +217,14 @@ try {
   assert.equal(kuiperHere.orders[0]?.cardLast4, paid?.cardLast4, "the shop was paid with the one-time card");
   console.log(`6. ${reply(ordered)}`);
 
-  // 7. Long work: it checks back on its own.
+  // 7. A plan, and long work: it checks back on its own.
+  await runtime.send(museId, app, "Help me get ready for the half marathon on 6 December.");
+  const plan = await until(() => said(app, /^Here's the plan/), "the plan");
   await whatsappFromRosa("wamid.5", "Watch the train fare to Boston on the 14th and tell me when it's under $60.");
   await until(() => said(whatsapp, /^I'll check the fare every 6 hours/), "the watch");
   const watch = await until(async () => (await runtime.listActivations("rosa")).find((item) => item.status === "active" && /train fare/.test(item.message)), "the schedule");
   assert.deepEqual(watch.timing, { kind: "every", intervalMs: 6 * 60 * 60 * 1000 });
-  console.log("7. it will check the train fare every 6 hours, on its own");
+  console.log(`7. ${reply(plan)} And it will check the train fare every 6 hours, on its own`);
 
   // 8. New mail that changes a plan reaches her on WhatsApp.
   const mail = {
@@ -223,6 +242,8 @@ try {
   await until(() => said(app, /^Done\. I've forgotten/), "forgetting");
   await runtime.send(museId, app, "Who's vegetarian?");
   const forgotten = await until(() => said(app, /^I don't know of anyone vegetarian/), "the answer");
+  const memoryLog = (await activityOf("rosa")).filter((item) => item.what.startsWith("glove_context_"));
+  assert.ok(memoryLog.length >= 2 && memoryLog.every((item) => !/priya|vegetarian/i.test(item.detail ?? "")), "the log says memory changed, not what it kept");
   console.log(`9. after "forget": ${reply(forgotten)}`);
 
   // 10. The log, and she disconnects Calendar.
@@ -234,11 +255,13 @@ try {
   for (const tool of [installedApplicationTransmissionToolName(gmailApp, gmail), "execute_browser", "buy", "request_access", "glove_context_unset"]) {
     assert.ok(tools.includes(tool), `the log has ${tool}`);
   }
-  assert.ok(log.planned.some((item) => item.kind === "scheduled" && /train fare/.test(item.message)), "the plan is in the log");
+  assert.ok(log.planned.some((item) => item.kind === "scheduled" && /train fare/.test(item.message)), "the fare watch is in the log");
+  assert.ok(log.planned.some((item) => item.kind === "scheduled" && /^Suggestion pass/.test(item.message)), "so is the daily suggestion pass");
+  assert.ok(log.planned.some((item) => item.kind === "plan step" && item.step === "Register for the race"), "and the plan's open steps");
   await disconnect(writes, museId, "rosa-calendar");
   assert.deepEqual(await appsOf(), ["gmail (act)", "whatsapp"]);
   const decisions = log.done.filter((item) => item.kind === "sentinel").length;
-  console.log(`10. the log: ${tools.length} tool calls, ${decisions} Sentinel decisions and ${log.done.length - tools.length - decisions} browser events done, ${log.planned.length} planned (the fare watch); Calendar disconnected`);
+  console.log(`10. the log: ${tools.length} tool calls, ${decisions} Sentinel decisions and ${log.done.length - tools.length - decisions} browser events done, ${log.planned.length} planned (the fare watch, the daily suggestions, the plan's steps); Calendar disconnected`);
 
   // Her password, the card number and the live view never reached Muse: not in a transcript, a result or the log.
   const files = await readdir(dataDir, { recursive: true });
@@ -249,7 +272,7 @@ try {
   assert.ok(!new RegExp(`4000\\d{8}${paid?.cardLast4}`).test(everything), "the card number never left the payment");
   assert.ok(!muse.includes(String(link.text).split("token=")[1]), "the live view went to her on WhatsApp, never into Muse's context");
 
-  console.log("\nMuse verified: one Muse in the app and on WhatsApp with one memory, apps at the access she chose, reads in code, a browser on Kuiper whose every request passes the Sentinel, a sign-in she does herself in the live view and a profile that keeps it, approvals for sending and paying, a one-time card typed in by host code, long work it checks back on, news from new mail, forgetting, and a log of what it did and plans.");
+  console.log("\nMuse verified: one Muse in the app and on WhatsApp with one memory, apps at the access she chose, reads in code, a browser on Kuiper whose every request passes the Sentinel, a sign-in she does herself in the live view and a profile that keeps it, approvals for sending and paying, a one-time card typed in by host code, a plan made from a goal, long work it checks back on, news from new mail, forgetting, and a log of what it did and plans.");
 } finally {
   await runtime.stop();
   await kuiperHere.close();

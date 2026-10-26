@@ -1,6 +1,7 @@
 import { randomInt } from "node:crypto";
 import type { Browsers } from "@kuiper-sh/sdk";
 import { chromium } from "playwright-core";
+import { identify } from "./kuiper.js";
 import { record } from "./ledger.js";
 
 // Paying for things. Muse never holds the person's card, and its model never
@@ -57,6 +58,7 @@ export async function payAtCheckout(browsers: Pick<Browsers, "get">, sessionId: 
   const session = await browsers.get(sessionId);
   const browser = await chromium.connectOverCDP(session.websocketUrl, { timeout: 60_000 });
   try {
+    const name = await identify(browser);
     const context = browser.contexts()[0];
     const checkout = context?.pages().at(-1)?.url();
     if (!context || !checkout || new URL(checkout).host !== purchase.site) {
@@ -64,6 +66,7 @@ export async function payAtCheckout(browsers: Pick<Browsers, "get">, sessionId: 
     }
     const tab = await context.newPage();
     try {
+      await name(tab);
       await tab.goto(checkout, { waitUntil: "domcontentloaded" });
       const field = (name: string) => tab.locator(`input[autocomplete="${name}"]`).first();
       await field("cc-number").fill(card.number);

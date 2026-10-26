@@ -20,17 +20,22 @@ import whatsapp from "./transmissions/whatsapp.transmission.js";
  *
  * Three answers: allow, block, or ask the person. When it asks, Muse puts the
  * question to them with request_access; only their approval adds a site to
- * the list Muse works within.
+ * what Muse may do. Reading a site and sending to it are separate grants, so
+ * letting Muse read a site doesn't let it post there.
  */
 
 export type Verdict = "allow" | "ask" | "block";
 
 export interface SentinelRules {
-  /** Sites the person allowed, by host. */
-  readonly allowed: ReadonlyArray<string>;
+  /** Sites the person let Muse read (GET, HEAD), by host. */
+  readonly read: ReadonlyArray<string>;
+  /** Sites the person let Muse send to (forms, posts, WebSockets), by host. Sending implies reading. */
+  readonly write: ReadonlyArray<string>;
   /** Sites the person never wants reached, by host. */
   readonly blocked: ReadonlyArray<string>;
 }
+
+export type Grant = "read" | "write";
 
 export interface Decision {
   readonly verdict: Verdict;
@@ -42,7 +47,7 @@ export interface Decision {
 
 export function rulesOf(context: Readonly<Record<string, unknown>>): SentinelRules {
   const rules = context.sentinel as Partial<SentinelRules> | undefined;
-  return { allowed: [...(rules?.allowed ?? [])], blocked: [...(rules?.blocked ?? [])] };
+  return { read: [...(rules?.read ?? [])], write: [...(rules?.write ?? [])], blocked: [...(rules?.blocked ?? [])] };
 }
 
 /**
@@ -61,6 +66,17 @@ export function personalDataIn(url: URL): string | undefined {
 }
 
 const READS = new Set(["GET", "HEAD"]);
+
+/** The grant a request needs: reads need either, anything else needs write. */
+const grantFor = (method: string): Grant => (READS.has(method) ? "read" : "write");
+const granted = (rules: SentinelRules, host: string, method: string) =>
+  rules.write.includes(host) || (grantFor(method) === "read" && rules.read.includes(host));
+
+/** The model never lets a send through on its own: without a write grant, the person decides. */
+const writesWithoutGrant = (method: string, decided: Omit<Decision, "method" | "target">): Omit<Decision, "method" | "target"> =>
+  decided.verdict === "allow" && grantFor(method) === "write"
+    ? { verdict: "ask", reason: `it would send to a site you haven't allowed sending to` }
+    : decided;
 
 /**
  * The Sentinel's own model, separate from Muse's: on Kuiper through its model
@@ -86,7 +102,8 @@ async function judge(method: string, url: URL, asked: string | undefined, rules:
     state: {
       request: `${method} ${url.origin}${url.pathname}`,
       the_person_asked: asked ?? "(nobody: Muse is working on its own)",
-      sites_the_person_allowed: [...rules.allowed],
+      sites_the_person_allowed_reading: [...rules.read],
+      sites_the_person_allowed_sending_to: [...rules.write],
     },
     questions: {
       verdict: choice("Should this request leave the person's agent browser?", {
@@ -127,8 +144,8 @@ export class Sentinel {
       .then((current) => rulesOf(current?.context ?? this.ctx.agentInstance.context));
   }
 
-  allowed(host: string, rules: SentinelRules): void {
-    this.current = Promise.resolve({ ...rules, allowed: [...new Set([...rules.allowed, host])] });
+  allowed(host: string, grant: Grant, rules: SentinelRules): void {
+    this.current = Promise.resolve({ ...rules, [grant]: [...new Set([...rules[grant], host])] });
   }
 
   /** The person approved paying here: the checkout's own requests may go, this run only. */
@@ -140,18 +157,19 @@ export class Sentinel {
     const rules = await this.rules();
     const target = `${url.host}${url.pathname}`;
     const personal = personalDataIn(url);
-    const trusted = rules.allowed.includes(url.host) || this.purchases.has(url.host);
+    // Personal details may go only where she let Muse send.
+    const trusted = rules.write.includes(url.host) || this.purchases.has(url.host);
     const decided: Omit<Decision, "method" | "target"> = rules.blocked.includes(url.host)
       ? { verdict: "block", reason: "you blocked this site" }
       : personal && !trusted
         ? { verdict: "block", reason: `it would send ${personal} to a site you haven't allowed` }
-        : rules.allowed.includes(url.host)
-          ? { verdict: "allow", reason: "you allowed this site" }
+        : granted(rules, url.host, method)
+          ? { verdict: "allow", reason: `you allowed ${grantFor(method) === "read" ? "reading" : "sending to"} this site` }
           : this.purchases.has(url.host)
             ? { verdict: "allow", reason: "you approved this purchase" }
             : READS.has(method) && this.read.has(url.host)
               ? { verdict: "allow", reason: "it already read this site in this errand" }
-              : await judge(method, url, this.asked(), rules).catch(() => ({ verdict: "ask" as const, reason: "the Sentinel could not decide" }));
+              : writesWithoutGrant(method, await judge(method, url, this.asked(), rules).catch(() => ({ verdict: "ask" as const, reason: "the Sentinel could not decide" })));
     const decision = { ...decided, method, target };
     if (decision.verdict === "allow" && READS.has(method)) this.read.add(url.host);
     this.decisions.set(url.host, decision);
@@ -175,7 +193,7 @@ export class Sentinel {
   private async quickCheck(url: URL, method: string): Promise<boolean> {
     const rules = await this.rules();
     const personal = personalDataIn(url);
-    const trusted = rules.allowed.includes(url.host) || this.purchases.has(url.host);
+    const trusted = rules.write.includes(url.host) || this.purchases.has(url.host);
     if (!rules.blocked.includes(url.host) && !(personal && !trusted)) return true;
     await logActivity({ person: this.ctx.workspaceId, kind: "sentinel", what: `${method} ${url.host}${url.pathname}`, outcome: "block", detail: personal ? `it would send ${personal} to a site you haven't allowed` : "you blocked this site" });
     return false;
@@ -220,11 +238,12 @@ export function requestAccessTool(ctx: Parameters<typeof sentinelFor>[0]) {
       "After your browser was stopped from loading a page or sending something, ask the Sentinel why, and if it wants the person's say, ask them. Give the site and what it is for.",
     inputSchema: z.object({
       site: z.string().min(1).describe("The site, like bistro-luna.example."),
+      access: z.enum(["read", "write"]).describe("What the person would allow: reading the site, or sending to it. It must match what the Sentinel stopped."),
       why: z.string().min(1).describe("What you need it for, in the person's terms."),
     }),
     // The person is asked only when the Sentinel wants them to decide.
     requiresPermission: (input: { readonly site: string }) => sentinel.decisionFor(hostOf(input.site))?.verdict === "ask",
-    async do(input: { readonly site: string; readonly why: string }) {
+    async do(input: { readonly site: string; readonly access: "read" | "write"; readonly why: string }) {
       const host = hostOf(input.site);
       const decision = sentinel.decisionFor(host);
       if (!decision) {
@@ -236,18 +255,22 @@ export function requestAccessTool(ctx: Parameters<typeof sentinelFor>[0]) {
       if (decision.verdict === "allow") {
         return { status: "success" as const, data: { site: host, allowed: true, note: "Already allowed; the request failed for another reason." } };
       }
-      // The person approved: the site joins their list.
+      // The person approved what the card showed, and only that: reading the site, or sending to it.
+      const grant = grantFor(decision.method);
+      if (grant !== input.access) {
+        return { status: "error" as const, data: null, message: `The Sentinel stopped ${decision.method} ${decision.target}, which needs ${grant} access, not ${input.access}. Ask again with access "${grant}".` };
+      }
       const current = await Effect.runPromise(ctx.data.getAgent(ctx.agentId));
       if (!current) return { status: "error" as const, data: null, message: "This Muse no longer exists." };
       const rules = rulesOf(current.context);
       await Effect.runPromise(ctx.data.putAgent({
         ...current,
-        context: { ...current.context, sentinel: { ...rules, allowed: [...new Set([...rules.allowed, host])] } },
+        context: { ...current.context, sentinel: { ...rules, [grant]: [...new Set([...rules[grant], host])] } },
         updatedAt: new Date().toISOString(),
       }));
-      sentinel.allowed(host, rules);
-      await logActivity({ person: ctx.workspaceId, kind: "sentinel", what: `allow ${host}`, outcome: "the person allowed it", detail: input.why });
-      return { status: "success" as const, data: { site: host, allowed: true, note: "The person allowed it. Try the request again." } };
+      sentinel.allowed(host, grant, rules);
+      await logActivity({ person: ctx.workspaceId, kind: "sentinel", what: `allow ${grant === "read" ? "reading" : "sending to"} ${host}`, outcome: "the person allowed it", detail: input.why });
+      return { status: "success" as const, data: { site: host, allowed: true, access: grant, note: grant === "read" ? "The person allowed reading it, not sending to it. Try the request again." : "The person allowed it. Try the request again." } };
     },
   };
 }

@@ -3,8 +3,9 @@ import type { IGloveRunnable } from "glove-core";
 import { mountBrowser } from "glove-execution";
 import { kuiperBrowser, type KuiperHandOff } from "glove-execution/kuiper";
 import type { AgentAssemblyContext, FoundryExecutionContext } from "glove-foundry";
+import { chromium } from "playwright-core";
 import { logActivity } from "../../lib/activity.js";
-import { kuiper } from "../../lib/kuiper.js";
+import { identify, kuiper } from "../../lib/kuiper.js";
 import { record } from "../../lib/ledger.js";
 import { sendText } from "../../lib/whatsapp.js";
 import { sentinelFor } from "./sentinel.js";
@@ -17,10 +18,14 @@ import { sentinelFor } from "./sentinel.js";
  * same browser by ID, and a session nobody uses hibernates on its own.
  *
  * - The Sentinel is the browser's guard: every request it makes passes it first.
+ * - It says it is an agent: its tabs add AGENT_TOKEN to the browser's own
+ *   user agent (lib/kuiper.ts).
  * - Signing in is the person's: browser.handOff sends them Kuiper's live view
  *   of this browser on WhatsApp, from here, so the link never reaches Muse.
  *   They sign in; the cookies stay in the browser, and in their profile once
  *   Muse closes it.
+ * - Watching is theirs too: the session's view-only live view is kept here
+ *   for their app's Watch link. The prompt never reads it.
  */
 
 export interface MuseBrowser {
@@ -28,6 +33,8 @@ export interface MuseBrowser {
   readonly profileId?: string;
   /** The session Muse is using, kept between runs. */
   readonly sessionId?: string;
+  /** That session's view-only live view, for the person's app to show. Host code only: never in the prompt. */
+  readonly watchUrl?: string;
 }
 
 export const browserOf = (context: Readonly<Record<string, unknown>>): MuseBrowser => (context.browser ?? {}) as MuseBrowser;
@@ -46,7 +53,8 @@ async function remember(ctx: Pick<AgentAssemblyContext, "agentId" | "data">, cha
 async function sendLiveView(ctx: Pick<AgentAssemblyContext, "agentInstance" | "workspaceId">, handOff: KuiperHandOff): Promise<void> {
   const to = ctx.agentInstance.context.phone;
   if (typeof to !== "string") throw new Error("There is no private way to reach the person: add their WhatsApp number.");
-  const text = `Muse needs you for one step: ${handOff.reason}. This link opens Muse's browser for you (it is yours only): ${handOff.url}`;
+  const name = ctx.agentInstance.name ?? "Muse";
+  const text = `${name} needs you for one step: ${handOff.reason}. This link opens ${name}'s browser for you (it is yours only): ${handOff.url}`;
   const token = process.env.WHATSAPP_TOKEN;
   if (token) await sendText(token, { phoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID ?? "", to, text });
   else await record({ kind: "whatsapp", to, text, messageId: `offline-wa-${Date.now().toString(36)}` });
@@ -67,14 +75,24 @@ export function mountMuseBrowser(agent: IGloveRunnable, ctx: FoundryExecutionCon
       timeout: 2 * 60 * 60_000,
       inactivityTimeout: 10 * 60_000,
       dimensions: { width: 1280, height: 800 },
-      // Hibernate when nobody uses it; record it so the person can replay what Muse did.
+      // Hibernate when nobody uses it; record it, so your app can show a replay (session.recording()).
       kuiper: { onInactive: "hibernate", record: true },
     },
     cleanup: "keep",
     guard: sentinelFor(ctx).guard,
+    // Playwright over CDP, as by default, and the tabs say they are an agent.
+    connect: async (url) => {
+      const browser = await chromium.connectOverCDP(url, { timeout: 60_000 });
+      await identify(browser);
+      return browser;
+    },
     onHandOff: (handOff) => sendLiveView(ctx, handOff),
     onOpen: async (session) => {
-      await remember(ctx, { sessionId: session.id, ...(session.profileId ? { profileId: session.profileId } : {}) });
+      await remember(ctx, {
+        sessionId: session.id,
+        ...(session.profileId ? { profileId: session.profileId } : {}),
+        ...(session.debugUrl ? { watchUrl: session.debugUrl } : {}),
+      });
       await logActivity({ person: ctx.workspaceId, kind: "browser", what: "opened a browser", outcome: "live", detail: `Kuiper session ${session.id}` });
     },
   });
@@ -84,7 +102,7 @@ export function mountMuseBrowser(agent: IGloveRunnable, ctx: FoundryExecutionCon
     // A browser Muse closed (or one that ended) is gone; the next errand opens one from the profile.
     const current = await Effect.runPromise(ctx.data.getAgent(ctx.agentId));
     const sessionId = current && browserOf(current.context).sessionId;
-    if (sessionId && !adapter.resourceIds().includes(sessionId)) await remember(ctx, { sessionId: undefined });
+    if (sessionId && !adapter.resourceIds().includes(sessionId)) await remember(ctx, { sessionId: undefined, watchUrl: undefined });
   });
   const mounted = mountBrowser(agent, { adapter });
   close = () => mounted.close();

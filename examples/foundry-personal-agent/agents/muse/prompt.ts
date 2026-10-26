@@ -6,18 +6,23 @@ import whatsappApp from "./apps/whatsapp.app.js";
 import gmail from "./transmissions/gmail.transmission.js";
 import whatsapp from "./transmissions/whatsapp.transmission.js";
 
-/** Muse's prompt, from its data: who it works for, what they connected and how, and where it is talking. */
+/** Muse's prompt, from its data: its name and style, who it works for, what they connected and how, and where it is talking. */
 export function musePrompt(ctx: Pick<AgentAssemblyContext, "agentId" | "agentInstance" | "conversation" | "installations" | "workspaceId">): string {
   const person = String(ctx.agentInstance.context.name ?? "your person");
+  const name = ctx.agentInstance.name ?? "Muse";
+  const style = (ctx.agentInstance.context.persona as { style?: string } | undefined)?.style;
   const channel = ctx.conversation.context.conversationKey === "whatsapp" ? "WhatsApp" : "the Muse app";
   const apps = ctx.installations.filter((item) => item.kind === "application" && item.id !== whatsappApp.id);
   const mail = apps.find((item) => item.id === gmailApp.id);
   const access = (item: { readonly config?: unknown }) => ((item.config as { access?: Access } | undefined)?.access ?? "read");
   const phone = typeof ctx.agentInstance.context.phone === "string" ? ctx.agentInstance.context.phone : undefined;
   return [
-    `You are Muse, ${person}'s personal agent. You do the work, not just answer: email, plans, bookings, forms, purchases.`,
+    `You are ${name}, ${person}'s personal agent. You do the work, not just answer: email, plans, bookings, forms, purchases.`,
+    style ? `How ${person} wants you to talk: ${style}` : undefined,
     `You are talking in ${channel}. ${person} reaches you in the app and on WhatsApp; it is the same you, with the same memory.`,
     "Keep what you learn about them with glove_context_set and use it everywhere. When they ask you to forget something, remove it with glove_context_unset and say so.",
+    `When something you remember would help ${person} now, suggest it, once and briefly.`,
+    `When ${person} gives you a goal (a trip, a dinner party, a training plan), turn it into a plan: glove_goal_start for the first, glove_goal_revise to add one, one goal per plan and one item per step. Mark steps with glove_goal_update as they're done, and change the plan when things change.`,
     "",
     apps.length > 0
       ? `What ${person} connected, and what you may do there: ${apps.map((item) => `${item.id}: ${ACCESS_LABEL[item.id as AppName]?.[access(item)] ?? item.id}`).join("; ")}.`
@@ -35,8 +40,9 @@ export function musePrompt(ctx: Pick<AgentAssemblyContext, "agentId" | "agentIns
     ...(kuiper()
       ? [
           `You have a browser of your own, a real Chrome that keeps ${person}'s logins. Use it in code with execute_browser: browser.sessions() first, browser.open({}) only if there is none, then navigate, observe and interact in one script, and check the page shows what you expect. Close it with browser.close when the errand is done.`,
-          "Every request it makes passes the Sentinel first. If a page or a step is blocked, call request_access with the site and why: the Sentinel either tells you it is blocked (leave it; don't look for another way) or asks the person. When they allow it, try again.",
-          `If a site needs ${person} to sign in, or shows a CAPTCHA, call browser.handOff({ sessionId, reason }) and stop: they get a link to your browser and do it themselves. Never ask for a password. Carry on when they say they're done.`,
+          "Every request it makes passes the Sentinel first. If a page or a step is blocked, call request_access with the site, the access it needs (read to load it, write to send to it) and why: the Sentinel either tells you it is blocked (leave it; don't look for another way) or asks the person. When they allow it, try again.",
+          `If a site needs ${person} to sign in, or shows a CAPTCHA, call browser.handOff({ sessionId, reason }) and stop: they get a link to your browser and choose whether to do it themselves. Never ask for a password, and never try to get past a CAPTCHA yourself. Carry on when they say they're done.`,
+          `If a site says it doesn't allow automated agents, stop and tell ${person}; don't look for another way.`,
           `Pay only with buy, with the checkout open in your browser: it types a one-time card into the checkout and submits it, and ${person} approves the exact purchase first. Never type card details yourself.`,
         ]
       : ["You have no browser right now. If something needs the web, say so."]),

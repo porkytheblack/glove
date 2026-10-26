@@ -45,9 +45,10 @@ async function form(request: IncomingMessage): Promise<URLSearchParams> {
 }
 
 /** The sample sites, by host. */
-function sites(orders: Order[]) {
+function sites(orders: Order[], userAgents: Set<string>) {
   return async (request: IncomingMessage, response: ServerResponse) => {
     const url = new URL(request.url ?? "/", `http://${request.headers.host}`);
+    userAgents.add(request.headers["user-agent"] ?? "");
     const send = (status: number, html: string, headers: Record<string, string> = {}) => {
       response.writeHead(status, { "content-type": "text/html; charset=utf-8", ...headers });
       response.end(html);
@@ -115,6 +116,8 @@ export interface OfflineKuiper {
   readonly key: string;
   /** What Fresh Market charged. */
   readonly orders: ReadonlyArray<Order>;
+  /** The user agents the sample sites saw. */
+  readonly userAgents: ReadonlySet<string>;
   /** Be the person in a session's live view: what Kuiper's interactive view lets them do. */
   asPerson(sessionId: string, act: (page: Page) => Promise<void>): Promise<void>;
   close(): Promise<void>;
@@ -123,7 +126,8 @@ export interface OfflineKuiper {
 export async function startOfflineKuiper(): Promise<OfflineKuiper> {
   const root = await mkdtemp(join(tmpdir(), "muse-kuiper-"));
   const orders: Order[] = [];
-  const web = createServer((request, response) => void sites(orders)(request, response));
+  const userAgents = new Set<string>();
+  const web = createServer((request, response) => void sites(orders, userAgents)(request, response));
   const webPort = await listen(web);
   const key = `kgw_offline_${randomBytes(8).toString("hex")}`;
   const sessions = new Map<string, Session>();
@@ -228,6 +232,7 @@ export async function startOfflineKuiper(): Promise<OfflineKuiper> {
     url: base,
     key,
     orders,
+    userAgents,
     async asPerson(sessionId, act) {
       const session = sessions.get(sessionId);
       if (!session || session.status !== "live") throw new Error(`No live session ${sessionId}.`);

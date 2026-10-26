@@ -3,14 +3,22 @@
 A personal agent that does the work for one person, built with Glove Foundry.
 It follows the shape of Meta's Muse:
 
-- the person talks to it in an app or on WhatsApp, like messaging someone;
+- the person talks to it in an app or on WhatsApp, like messaging someone, and
+  gives it a name and a way of talking;
 - it works across the apps they connect, at the access they choose;
 - it has a browser of its own for the web: a real Chrome on Kuiper;
 - a separate Sentinel decides what may leave that browser;
 - the person signs in to sites themselves, in a live view of that browser, and
   it pays with one-time cards it never sees;
-- it keeps going after they close the app;
+- it turns a goal into a plan, and keeps going after they close the app;
+- it remembers what they tell it, suggests things from it, and forgets on
+  request;
 - it keeps a log of everything it did and plans to do.
+
+Meta Superintelligence Labs announced Muse on 8 September 2026; it runs on
+Meta's Muse Spark model. Here Muse runs on Claude Sonnet 5.5 and the Sentinel
+on Claude Haiku 5.5, through Kuiper's model gateway once deployed
+(`MUSE_MODEL` and `SENTINEL_MODEL` change them).
 
 This is an independent example. It is not affiliated with or endorsed by Meta,
 and it is not how Muse is built.
@@ -60,8 +68,8 @@ config:
 - **read**: the app's tool policy hides every tool that changes something, and
   `configure` removes Gmail's send tool, so Muse cannot even try. The send
   binding is off, so Foundry would refuse the delivery anyway.
-- **act**: drafting runs; sending, and creating or moving events, ask her
-  first unless she always allows them.
+- **act**: drafting runs; sending an email asks her every time; creating or
+  moving events asks unless she always allows it.
 
 `setAccess` changes it and `disconnect` takes an app away (`lib/connect.ts`).
 Both are writes, not deploys. `pnpm connect <person> gmail read|act` asks
@@ -82,7 +90,16 @@ script.
   connecting resumes it.
 - **Her logins are a profile.** Sessions start from her Kuiper profile
   (`context.browser.profileId`) and save to it when Muse closes them.
-- **It is recorded,** so she can replay what Muse did in Kuiper's dashboard.
+- **She can watch it.** When Muse opens a browser, host code keeps that
+  session's view-only live view (`debugUrl`) on the instance
+  (`context.browser.watchUrl`) for her app's Watch link. The prompt never reads
+  it. Sessions are also recorded, so your app can show her a replay
+  (`session.recording()`) once one hibernates or ends. Kuiper's dashboard is
+  yours, the operator's, not hers.
+- **It says it is an agent.** Its tabs send the browser's own user agent with
+  `MuseRebuild/1.0 (+…)` added (`AGENT_TOKEN` in `lib/kuiper.ts`), while Muse
+  is connected. Put your agent's name there. It never claims to be another
+  browser.
 
 **The Sentinel** (`agents/muse/sentinel.ts`) is the browser's guard.
 `glove-execution/kuiper` calls it for every request the browser makes while
@@ -104,14 +121,23 @@ leaves:
   writes ask.
 - When it says "ask", Muse calls `request_access`. That tool waits for her
   approval only when the Sentinel asked, and her approval is the only way a
-  site joins her list. A blocked request stays blocked.
+  site is added. Reading a site and sending to it are separate grants
+  (`sentinel.read` and `sentinel.write`), and the approval says which one she
+  gives; it must match what the Sentinel stopped. Letting Muse read a site
+  doesn't let it post there, and the Sentinel's model never lets a send through
+  to a site without a write grant: that asks her. A blocked request stays
+  blocked.
 
-**Signing in is hers.** When a site wants her signed in (or shows a CAPTCHA),
-Muse calls `browser.handOff`:
+**Signing in is hers.** When a site wants her signed in (or shows a CAPTCHA
+she chooses to do), Muse calls `browser.handOff`:
 - Host code sends her Kuiper's live view of that browser on WhatsApp. The link
   never enters Muse's context.
 - She signs in there herself. Muse never sees her password.
 - The cookies stay in the browser, and in her profile once Muse closes it.
+
+**Turned away, it stops.** Amazon barred Meta's Muse, saying it didn't
+identify itself. Here, when a site says it doesn't allow automated agents, Muse
+stops and tells her. It doesn't look for another way.
 
 ## Approvals, paying, long work, memory and the log
 
@@ -123,39 +149,54 @@ Muse calls `browser.handOff`:
     submits it. The Sentinel lets that checkout through for this run only.
   - The card number never reaches Muse.
 
-  Meta uses Link by Stripe; any issuer of single-use virtual cards fits. This
-  example ships only a stand-in issuer for `verify`. Put yours in `issuer()`;
-  until you do, `buy` says it can't pay.
+  Muse checks out with Stripe's Link, whose agent wallet issues single-use
+  cards. Any issuer of single-use virtual cards fits here. This example ships
+  only a stand-in issuer for `verify`. Put yours in `issuer()`; until you do,
+  `buy` says it can't pay.
+- **A goal becomes a plan.** Plans are Foundry goals (`defineGoals`, in
+  `lib/memory.ts`) at instance scope, so a plan made on WhatsApp is the same
+  plan in the app: one goal per plan, one item per step. Muse marks steps done
+  with `glove_goal_update` and revises the plan when things change.
 - **Long work keeps going.** Muse sets its own checks with
   `glove_foundry_schedule` or `glove_foundry_sleep` and messages her on
   WhatsApp when something changes. New mail that changes a plan reaches her
   the same way.
+- **It suggests.** The prompt asks Muse to suggest something it remembers when
+  it would help, and a daily `suggest` schedule on the instance runs a short
+  pass over what it knows and the plans it keeps.
 - **Forget.** `glove_context_set` keeps a fact; `glove_context_unset` forgets
-  it when she asks.
+  it when she asks. Forgetting removes the fact from memory, and the log never
+  held it: for memory tools it records only that memory changed. The messages where it came up stay:
+  hers and Muse's in the conversation, and what Muse sent in the log.
+- **Its name and style are hers.** `agentName`, `avatar` and `style` on the
+  person (`lib/people.ts`) become the instance's name and `context.persona`.
+  The prompt uses the name and the style; your app shows the avatar.
 - **The log** (`lib/activity.ts`). What Muse did is written from Foundry's
   side of the run, so the model cannot leave anything out:
   - a subscriber records every tool call and how it ended;
   - the Sentinel records every decision;
   - the browser's host code records each browser it opens and each hand-off.
 
-  What it plans is Foundry's own data: its schedules and wake-ups, and the
-  approvals waiting on her. `logFor` puts them together for your app's
-  Activity page.
+  What it plans is Foundry's own data: its schedules and wake-ups, the steps
+  of its plans not done yet, and the approvals waiting on her. `logFor` puts
+  them together for your app's Activity page.
 
 | Meta Muse | Here |
 | --- | --- |
 | Talk to it in the app or on WhatsApp, like messaging a person | One instance, conversations `app` and `whatsapp`, one memory; WhatsApp is a Foundry app with a transmission each way |
-| You choose which apps connect and what each can do, such as read your mail or also send it | The installation's `config.access`: `read` hides every write and turns off the send binding; `act` asks first. `setAccess` and `disconnect` are writes |
-| Change access or disconnect a service any time | `setAccess(…)`, `disconnect(…)` |
-| Muse Secure VM, with its own browser | A real Chrome per person on Kuiper (`glove-execution/kuiper`), kept between runs, hibernating when idle, recorded |
-| Nothing reaches the internet unless the Sentinel approves it; Sentinel asks you when it needs input | The browser's guard runs the Sentinel on every request it makes; "ask" goes to the person through `request_access` |
+| You set its name, avatar and communication style | `agentName`, `avatar`, `style` on the person: the instance's name and `context.persona`, read by the prompt |
+| Connects email, calendar, banks through Plaid, and partners like Shopify, Walmart and Instacart | Gmail and Google Calendar as Foundry apps, at the access she chooses: `read` hides every write and turns off the send binding; `act` asks first. Here she can also change access or disconnect at any time (`setAccess`, `disconnect`, both writes) |
+| A dedicated, isolated cloud VM per person (Muse Secure VM), with a browser you can watch | A real Chrome per person on Kuiper (`glove-execution/kuiper`), kept between runs, hibernating when idle, recorded; its view-only live view kept for her app |
+| Nothing reaches the internet unless the Sentinel approves it; the Sentinel asks you when needed | The browser's guard runs the Sentinel on every request the browser makes; "ask" goes to the person through `request_access` |
+| Read and write access are granted separately per app | Per app, `read` or `act`; in the browser, the Sentinel's `read` and `write` lists per site |
 | The Sentinel is isolated from Muse | It never sees Muse's conversation or what it read; its own model, no tools |
-| Uses your logins without seeing your passwords | She signs in herself in Kuiper's live view (`browser.handOff`); her Kuiper profile keeps the logins |
-| Asks before sensitive actions such as sending an email or buying | Gmail's send and `buy` have `requiresPermission` |
-| Pays through Link with a one-time card | `buy` gets a one-time card and host code types it into the checkout; Muse sees the last four digits |
+| It can't see your passwords or payment methods; credentials for connected services are stored in its VM (reusing your logins through 1Password is "coming soon") | She signs in herself in Kuiper's live view (`browser.handOff`), and her Kuiper profile keeps the logins; app tokens stay in your account store (`lib/accounts.ts`), out of Muse's reach; host code types the card |
+| Asks before sending email or buying | Gmail's send and `buy` have `requiresPermission` |
+| Checks out with Stripe's Link, whose agent wallet issues single-use cards | `buy` gets a one-time card and host code types it into the checkout, in a tab Muse never sees; Muse sees the last four digits |
+| Turns a goal into a personal plan | Foundry goals at instance scope, one goal per plan; their open steps are in the log |
 | Keeps working after you close the app, comes back when something changes | `glove_foundry_schedule` / `glove_foundry_sleep`; new mail through the Gmail watch; WhatsApp to tell her |
-| Remembers what matters, forgets when told | `defineMemory`; `glove_context_set` / `glove_context_unset` |
-| A complete log of everything it has done and plans to do | A subscriber and the Sentinel write what it did; schedules and pending approvals are what it plans |
+| Remembers what matters, suggests unprompted, forgets when told | `defineMemory`; a prompt line and a daily `suggest` schedule; `glove_context_set` / `glove_context_unset`, which the log records without their content |
+| A complete log of everything it has done and plans to do | A subscriber and the Sentinel write what it did; schedules, open plan steps and pending approvals are what it plans |
 
 ## Files
 
@@ -163,7 +204,7 @@ Muse calls `browser.handOff`:
 
 ```
 agents/muse/
-  agent.ts            assembly: apps, model, memory, tools, REPL, browser, playbooks, log, accounts
+  agent.ts            assembly: apps, model, memory, plans, tools, REPL, browser, playbooks, schedule, log, accounts
   apps/               gmail (MCP + send + watch), calendar (MCP), whatsapp (in + out)
   transmissions/      gmail, whatsapp
   topology.ts         Muse's WhatsApp number and the shared route in
@@ -176,7 +217,8 @@ agents/muse/
 lib/
   accounts.ts         your account store: accounts, tokens, the directory, accountSessions
   connect.ts          connecting an app at an access level; WhatsApp per person
-  kuiper.ts           the Kuiper client: models and browsers, one key
+  kuiper.ts           the Kuiper client: models and browsers, one key; the agent's name for sites
+  memory.ts           memory and plans, a namespace per person
   payments.ts         one-time cards, typed into the checkout
   activity.ts         the log: done and planned
   whatsapp.ts         Meta's Cloud API
@@ -196,7 +238,7 @@ pnpm install
 pnpm --filter glove-foundry-personal-agent verify   # offline, no keys; a local Chromium
 cp .env.example .env                                 # add KUIPER_GATEWAY_KEY (or ANTHROPIC_API_KEY, or OPENROUTER_API_KEY)
 pnpm --filter glove-foundry-personal-agent dev       # inspector at http://localhost:4149
-pnpm onboard sam "Sam" 15550109999                   # Rosa is seeded; add someone else
+pnpm onboard sam "Sam" 15550109999 Juniper          # Rosa is seeded; add someone else, naming their agent
 pnpm connect sam gmail read                          # needs GOOGLE_CLIENT_ID and friends
 ```
 
@@ -219,12 +261,15 @@ model's pause, so a run's timings in the inspector look like a real one.
    - the Sentinel asks her about the booking, and she allows it;
    - the site wants her signed in, so Muse hands her the browser's live view on WhatsApp;
    - she signs in there, says so, and it books;
-   - her profile keeps the login: a new browser from it is signed in.
+   - her profile keeps the login: a new browser from it is signed in;
+   - her app has the browser's view-only live view, the sites saw its agent
+     token, and a site she only lets it read can't be posted to.
 6. It pays for groceries at the checkout with a one-time card once she approves.
-7. It sets itself to watch a train fare every 6 hours.
+7. It turns her half marathon into a plan, and sets itself to watch a train fare every 6 hours.
 8. New mail that moves the dinner reaches her on WhatsApp.
-9. She asks it to forget Priya, and it does.
-10. Its log shows what it did and what it plans. She disconnects Calendar.
+9. She asks it to forget Priya, and it does. The log says memory changed, not what it kept.
+10. Its log shows what it did and what it plans: the fare watch, the daily
+    suggestion pass and the plan's open steps. She disconnects Calendar.
 
 The run also checks that her password and the card number appear nowhere in
 Muse's data, and the live view link only in the WhatsApp message to her. Sample sends and purchases are listed in `.data/ledger.jsonl`, and
@@ -290,27 +335,41 @@ The two Kuiper references give the unit one gateway key that opens both models
 and browsers. `@kuiper-sh/sdk` reads it, calls Muse's and the Sentinel's models
 through Kuiper's model gateway, and makes each person's browser.
 
-Conversations, memory, accounts, tokens, the Sentinel's lists, the log and each
-person's browser IDs sit on the `/data` disk, so they survive restarts and
-redeploys. The browsers and her profile are Kuiper's: a redeploy reconnects to
+Conversations, memory, plans, accounts, tokens, the Sentinel's lists, the log
+and each person's browser IDs sit on the `/data` disk, so they survive restarts
+and redeploys. The browsers and her profile are Kuiper's: a redeploy reconnects to
 them. New mail needs nothing public: the Gmail watch pulls its subscription
 from inside the unit.
 
 ## Where it differs
 
-- Muse's VM also runs code. Here the browser is the whole computer; for code,
-  add a Kuiper sandbox with `kuiperSandbox` from `glove-execution/kuiper`.
+- Meta gives each person a dedicated VM. Here everyone's Muse shares one
+  Foundry unit and its `/data` disk, with memory and the log kept per person;
+  only the browser and its profile are each person's own.
+- Muse's VM is more than a browser. Here the browser is the whole computer; to
+  run code too, add a Kuiper sandbox with `kuiperSandbox` from
+  `glove-execution/kuiper`.
+- In Muse, nothing reaches the internet unless the Sentinel approves. Here the
+  Sentinel guards the browser only; app reads and sends go through Foundry's
+  apps, held to the access she chose and to approvals.
 - The Sentinel sees what the browser sends while Muse is connected. Redirects
   follow the request it allowed, and while she has the live view the browser is
   hers.
-- The Sentinel here judges one request at a time. Muse's runs as an agent on
-  the same machine and can ask the person directly. Here its question reaches
-  the person through Muse's `request_access`, though only the person's
+- Muse's Sentinel runs as an agent on the same machine and asks you when
+  needed. The Sentinel here judges one request at a time, and its question
+  reaches the person through Muse's `request_access`; only the person's
   approval changes what is allowed.
 - The checkout's card fields are found by their standard autocomplete names. A
   checkout that keeps them in its payment provider's frame needs that frame's
   locator in `lib/payments.ts`.
-- There is no Instagram connector and no AI glasses.
+- This rebuild doesn't have Muse Charm, Realtime Avatar, phone calling, bank
+  access through Plaid or an agent email address. Meta's glasses support is
+  still rolling out.
+  - Phone calls: Muse calls businesses for you (in testing). Foundry's
+    `voiceCall` over a phone provider could, opening by saying it is an AI
+    agent calling for the person.
+  - Its own email address: a Kuiper inbox with a tagged address per person
+    could carry it as a Foundry app.
 
 ## Sources
 

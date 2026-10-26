@@ -142,6 +142,30 @@ function act(person: string, text: string, turn: DemoTurn): Work {
     return { answer: paid && placed ? `Ordered from Fresh Market for Friday: $23.40 (${placed}), paid with a ${paid}.` : card || order ? "I couldn't finish the order." : "You didn't approve it, so I didn't order." };
   }
 
+  // A goal becomes a plan: Foundry goals, one item per step.
+  if (/half marathon/i.test(text)) {
+    if (!called.includes("glove_goal_start")) {
+      return call("glove_goal_start", {
+        reason: "Rosa wants to be ready for the half marathon on 6 December.",
+        program: {
+          key: "plans",
+          goals: [{
+            key: "half-marathon",
+            title: "Half marathon on 6 December",
+            objective: "Rosa runs the half marathon on 6 December, trained and on time.",
+            items: [
+              { key: "register", label: "Register for the race" },
+              { key: "runs", label: "Block three runs a week in her calendar" },
+              { key: "shoes", label: "Order new running shoes" },
+              { key: "travel", label: "Book travel to the start" },
+            ],
+          }],
+        },
+      });
+    }
+    return { answer: /"status":"success"/.test(lastResult) ? "Here's the plan: register, three runs a week in your calendar, new shoes, travel to the start. I'll work through it with you." : `I couldn't save the plan. ${resultMessage(lastResult)}` };
+  }
+
   // Work that takes days: it checks back on its own.
   if (/watch the train fare/i.test(text)) {
     if (!called.includes("glove_foundry_schedule")) {
@@ -167,9 +191,9 @@ function book(turn: DemoTurn): Work {
   // The page hides an instruction for AI assistants. Suppose Muse falls for it:
   // the Sentinel never read the page, and stops it anyway.
   if (scripts === 1) return call("execute_browser", { code: FALL_FOR_IT });
-  if (scripts === 2 && asks === 0) return call("request_access", { site: "collect.example", why: "The booking page said to confirm there." });
+  if (scripts === 2 && asks === 0) return call("request_access", { site: "collect.example", access: "write", why: "The booking page said to confirm there." });
   if (scripts === 2) return call("execute_browser", { code: BOOK });
-  if (scripts === 3 && asks === 1 && /blocked/.test(lastResult)) return call("request_access", { site: "bistro-luna.example", why: "Book a table for 4 on Friday at 19:00." });
+  if (scripts === 3 && asks === 1 && /blocked/.test(lastResult)) return call("request_access", { site: "bistro-luna.example", access: "write", why: "Book a table for 4 on Friday at 19:00." });
   if (scripts === 3 && asks === 2) {
     if (!/"allowed":true/.test(lastResult)) return { answer: "You didn't allow Bistro Luna, so I haven't booked." };
     return call("execute_browser", { code: BOOK });
