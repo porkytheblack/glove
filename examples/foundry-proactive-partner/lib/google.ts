@@ -1,4 +1,6 @@
 import { createSign } from "node:crypto";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { dataDir, dataPath } from "./paths.js";
 
 // Gmail and Pub/Sub over REST, for the Gmail app. New mail reaches us the way
 // Google intends: users.watch tells Gmail to publish a notification to a
@@ -212,10 +214,36 @@ async function pullLoop(signal: AbortSignal): Promise<void> {
   }
 }
 
+// The last historyId read for each mailbox, kept on the data disk. After a
+// restart or a deploy the watch reads from there, so mail that arrived while
+// the unit was down is not skipped.
+const historyFile = () => dataPath("gmail-history.json");
+
+async function savedHistory(): Promise<Record<string, string>> {
+  try {
+    return JSON.parse(await readFile(historyFile(), "utf8")) as Record<string, string>;
+  } catch (cause) {
+    if ((cause as NodeJS.ErrnoException).code === "ENOENT") return {};
+    throw cause;
+  }
+}
+
+let saving = Promise.resolve();
+function saveHistory(email: string, historyId: string): Promise<void> {
+  saving = saving.then(async () => {
+    const all = { ...(await savedHistory()), [email.toLowerCase()]: historyId };
+    await mkdir(dataDir, { recursive: true });
+    await writeFile(`${historyFile()}.tmp`, JSON.stringify(all, null, 2));
+    await rename(`${historyFile()}.tmp`, historyFile());
+  });
+  return saving;
+}
+
 /**
  * Watch one mailbox until the signal aborts: start the watch, renew it daily,
  * and on each notification read what arrived since the last historyId.
- * Messages are passed on one at a time, in order.
+ * Messages are passed on one at a time, in order. After a restart it first
+ * reads what arrived since the historyId it saved.
  */
 export async function watchMailbox(options: {
   readonly email: string;
@@ -228,7 +256,10 @@ export async function watchMailbox(options: {
   const topic = process.env.GMAIL_PUBSUB_TOPIC;
   if (!topic) throw new Error("Set GMAIL_PUBSUB_TOPIC to projects/<project>/topics/<name>.");
   const start = async () => (await watch(await options.token(), topic, [options.label])).historyId;
-  let historyId = await start();
+  const saved = (await savedHistory())[options.email.toLowerCase()];
+  let historyId = saved ?? await start();
+  if (saved) await start(); // the watch itself has to be renewed either way
+  else await saveHistory(options.email, historyId);
   let queue = Promise.resolve();
   const sync = () => {
     queue = queue.then(async () => {
@@ -237,12 +268,14 @@ export async function watchMailbox(options: {
         const added = await messagesSince(token, historyId, options.label);
         for (const id of added.ids) await options.onMail(await readMail(token, id));
         historyId = added.historyId;
+        await saveHistory(options.email, historyId);
       } catch (cause) {
         if (!(cause instanceof GmailError && cause.status === 404)) throw cause;
         // The historyId expired (usually after a week offline). A full sync is
         // beyond this example: pick up from now.
         console.warn(`[gmail] history for ${options.email} expired; resuming from now`);
         historyId = await start();
+        await saveHistory(options.email, historyId);
       }
     }).catch((cause) => console.warn(`[gmail] sync for ${options.email} failed:`, cause instanceof Error ? cause.message : cause));
   };
@@ -252,6 +285,8 @@ export async function watchMailbox(options: {
   }, DAY);
   try {
     await options.ready();
+    // Mail that arrived while this process was down.
+    if (saved) sync();
     await new Promise<void>((resolve) => {
       if (options.signal.aborted) return resolve();
       options.signal.addEventListener("abort", () => resolve(), { once: true });

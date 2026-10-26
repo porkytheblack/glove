@@ -7,6 +7,11 @@ import { record } from "../../lib/ledger.js";
  * approval: Foundry records the exact input and holds the run until they
  * answer. Email goes out through the Gmail app (send.ts). Trading and moving
  * money between accounts are off limits, so there is no tool for them.
+ *
+ * These three are stand-ins: they write the ledger and change nothing. Each
+ * `do` is where your payment, e-signature or storage provider's call goes;
+ * better still, make the provider a Foundry app with an outbound transmission,
+ * as Gmail's send is.
  */
 export const actionTools = (): GloveFoldArgs<any>[] => [
   {

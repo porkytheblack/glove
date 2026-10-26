@@ -222,8 +222,9 @@ kuiper projects create dots && kuiper use dots
 kuiper units create dots
 
 kuiper providers add anthropic --key -            # once per organisation
-kuiper secrets set SLACK_BOT_TOKEN=-
+kuiper secrets set SLACK_BOT_TOKEN=- FOUNDRY_TOKEN=-
 kuiper env set -u dots DOTS_DATA_DIR=/data \
+  'FOUNDRY_TOKEN=${{secrets.FOUNDRY_TOKEN}}' \
   'ANTHROPIC_API_KEY=${{models.API_KEY}}' \
   'ANTHROPIC_BASE_URL=${{models.ANTHROPIC_BASE_URL}}' \
   'SLACK_BOT_TOKEN=${{secrets.SLACK_BOT_TOKEN}}' \
@@ -234,10 +235,25 @@ kuiper dashboard -u dots --enable                 # inspector login
 kuiper logs -u dots -f
 ```
 
+`FOUNDRY_TOKEN` goes in before the first deploy: Foundry refuses to listen on a
+public address without an authorizer, and `lib/authorization.ts` makes one from
+that token (or from the inspector login `kuiper dashboard --enable` sets).
+
 Model calls go through Kuiper's model gateway, so the Anthropic key stays with
 the organisation and every call is counted. Dots, transcripts, memory, notes
-and both computers sit on the `/data` disk. For calls, also set
-`OPENAI_API_KEY` for the speech-to-speech session.
+and both computers sit on the `/data` disk.
+
+Calls need two things the deploy above doesn't give:
+
+- **A public port for the call room.** The room listens on the port in the
+  call request, and the unit Kuiper infers opens only 4141. Run
+  `kuiper manifest init --foundry`, add `{ "name": "call", "port": 4160,
+  "public": true }` to `ports` in the `kuiper.json` it writes, commit it, and
+  start calls on 4160, one at a time.
+- **`OPENAI_API_KEY` as a secret.** The speech-to-speech session talks to
+  OpenAI's realtime API, which Kuiper's model gateway doesn't serve:
+  `kuiper secrets set OPENAI_API_KEY=-`, then
+  `'OPENAI_API_KEY=${{secrets.OPENAI_API_KEY}}'`.
 
 The Slack forwarder runs as a second unit from the same source. It is the only
 public way in for Slack, and it reaches Foundry over the private address. Its
@@ -247,17 +263,15 @@ public URL is the Slack request URL:
 kuiper units create slack-events
 kuiper settings -u slack-events --start-command "pnpm slack-events" --port 4146
 kuiper secrets set SLACK_SIGNING_SECRET=-
-kuiper secrets set FOUNDRY_TOKEN=-
 kuiper env set -u slack-events 'SLACK_SIGNING_SECRET=${{secrets.SLACK_SIGNING_SECRET}}' \
   'FOUNDRY_TOKEN=${{secrets.FOUNDRY_TOKEN}}' 'FOUNDRY_URL=${{dots.INTERNAL_URL}}'
-kuiper env set -u dots 'FOUNDRY_TOKEN=${{secrets.FOUNDRY_TOKEN}}'
 kuiper deploy --source . -u slack-events --wait
 ```
 
-For a computer with a real browser, swap the working environments in
-`agents/dot/workspace.ts` and `agents/builder/workspace.ts` for a Kuiper
-sandbox and browser per dot (`kuiper.sandboxes.create({ image: "kuiper/coding" })`
-from `@kuiper-sh/sdk`).
+For a computer with a real browser, mount a Kuiper sandbox and browser per dot
+with `kuiperSandbox` and `kuiperBrowser` from `glove-execution/kuiper`, in place
+of the working environments in `agents/dot/workspace.ts` and
+`agents/builder/workspace.ts`.
 Connect the real mailbox with the `GOOGLE_*` and `GMAIL_PUBSUB_*` variables in
 `.env.example` and `pnpm connect`; new mail needs nothing public, since the
 watch pulls its subscription from inside the unit.

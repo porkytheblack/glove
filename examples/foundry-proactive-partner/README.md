@@ -155,11 +155,12 @@ kuiper projects create partner && kuiper use partner
 kuiper units create partner
 
 kuiper providers add anthropic --key -            # once per organisation
-kuiper secrets set GOOGLE_CLIENT_SECRET=- GOOGLE_SERVICE_ACCOUNT_JSON=-
+kuiper secrets set GOOGLE_CLIENT_SECRET=- GOOGLE_SERVICE_ACCOUNT_JSON=- PUSH_URL=- FOUNDRY_TOKEN=-
 kuiper env set -u partner PARTNER_DATA_DIR=/data \
+  'FOUNDRY_TOKEN=${{secrets.FOUNDRY_TOKEN}}' \
   'ANTHROPIC_API_KEY=${{models.API_KEY}}' \
   'ANTHROPIC_BASE_URL=${{models.ANTHROPIC_BASE_URL}}' \
-  PUSH_URL=https://ntfy.sh/… \
+  'PUSH_URL=${{secrets.PUSH_URL}}' \
   GOOGLE_CLIENT_ID=… 'GOOGLE_CLIENT_SECRET=${{secrets.GOOGLE_CLIENT_SECRET}}' \
   GMAIL_PUBSUB_TOPIC=… GMAIL_PUBSUB_SUBSCRIPTION=… \
   'GOOGLE_SERVICE_ACCOUNT_JSON=${{secrets.GOOGLE_SERVICE_ACCOUNT_JSON}}'
@@ -172,11 +173,40 @@ kuiper logs -u partner -f
 Schedules, accounts, tokens, routes and bindings are on the `/data` disk, so
 the brief, the check-ins and connected apps survive restarts and redeploys. New
 mail needs nothing public: the Gmail watch pulls its subscription from inside
-the unit. The call room listens on its own port; put it
-behind your own proxy if callers connect from outside.
+the unit.
+
+Calls need two things the deploy above doesn't give:
+
+- **A public port for the call room.** The room listens on the port in the
+  call request, and the unit Kuiper infers opens only 4141. Run
+  `kuiper manifest init --foundry`, add `{ "name": "call", "port": 4160,
+  "public": true }` to `ports` in the `kuiper.json` it writes, commit it, and
+  start calls on 4160, one at a time.
+- **`OPENAI_API_KEY` as a secret.** The speech-to-speech session talks to
+  OpenAI's realtime API, which Kuiper's model gateway doesn't serve:
+  `kuiper secrets set OPENAI_API_KEY=-`, then
+  `'OPENAI_API_KEY=${{secrets.OPENAI_API_KEY}}'`.
+
+`FOUNDRY_TOKEN` goes in before the first deploy: Foundry refuses to listen on a
+public address without an authorizer, and `lib/authorization.ts` makes one from
+that token (or from the inspector login `kuiper dashboard --enable` sets).
+`PUSH_URL` is a secret because anyone with an ntfy topic's URL can post to it.
 
 On Kuiper you can swap in a managed computer:
 
-- **The computer.** Replace `agents/computer/workspace.ts` with a sandbox per
-  person (`kuiper.sandboxes.create({ image: "kuiper/coding" })`) and a browser
-  (`kuiper.browsers.create()`), both from `@kuiper-sh/sdk`.
+- **The computer.** Mount a Kuiper sandbox and browser per person with
+  `kuiperSandbox` and `kuiperBrowser` from `glove-execution/kuiper`, in place of
+  `agents/computer/workspace.ts`.
+
+## Where it differs
+
+- Duet connects thousands of apps. Here there are two; any app with a hosted
+  MCP server is another file like `calendar.app.ts`.
+- `pay_invoice`, `sign_document` and `delete_file` are stand-ins. They wait for
+  approval like the real thing, then write `.data/ledger.jsonl` and change
+  nothing. Put your provider's call in `agents/partner/actions.ts`, or make the
+  provider a Foundry app with an outbound transmission, as Gmail's send is.
+- The computer is a Glove working environment with the web: files, scripts and
+  `env:fetch`, not a desktop browser. Mount a Kuiper sandbox and browser from
+  `glove-execution/kuiper` for that.
+- Notifications go to an ntfy-style endpoint. A real app would send its own push.

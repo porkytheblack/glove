@@ -110,7 +110,7 @@ function salesScript(bot: AgentInstance, { text, called, lastResult }: DemoTurn)
     if (!called.includes("request_sign_in")) {
       return call("request_sign_in", { site: "Salesforce", url: "https://login.salesforce.com", why: "To pull the open deals." });
     }
-    return say(/"signedIn":true/.test(lastResult) ? "Signed in to Salesforce. 12 open deals pulled." : "No sign-in yet, so I left Salesforce alone.");
+    return say(/"approved":true/.test(lastResult) ? "You approved the Salesforce sign-in, but I have no browser here to sign in with, so I left Salesforce alone." : "No sign-in yet, so I left Salesforce alone.");
   }
   // Reads happen in code over the Gmail app; the send is a direct tool so Maya approves it.
   if (!called.includes("execute_js")) {

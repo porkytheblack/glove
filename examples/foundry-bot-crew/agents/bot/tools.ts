@@ -83,17 +83,20 @@ export async function botTools(ctx: AgentAssemblyContext): Promise<GloveFoldArgs
     },
     {
       name: "request_sign_in",
-      description: "Hand the computer to your owner for a step only they can do: single sign-on, a passkey, a CAPTCHA, a code from another device. You never see the password; the session stays on the computer for every bot.",
+      description: "Ask your owner for a step only they can do: single sign-on, a passkey, a CAPTCHA, a code from another device. Never ask for a password. The result says whether there is a browser to sign in with.",
       inputSchema: z.object({
         site: z.string().min(1),
         url: z.string().url(),
         why: z.string().min(1),
       }),
-      // The approval is the hand-back: the owner signs in, then approves.
       requiresPermission: true,
       async do(input: { readonly site: string; readonly url: string }) {
-        // your code: a Kuiper browser with a profile per owner keeps the session.
-        return { status: "success" as const, data: { signedIn: true, site: input.site } };
+        // A stand-in: this example has no browser, so nothing is signed in. Mount
+        // a Kuiper browser per owner (kuiperBrowser from glove-execution/kuiper,
+        // with persistProfile) and hand it over with browser.handOff, as the
+        // personal-agent example does; the profile then keeps the sign-in for
+        // every bot.
+        return { status: "success" as const, data: { approved: true, signedIn: false, site: input.site, note: "There is no browser in this setup, so nothing was signed in. Say so." } };
       },
     },
   ];

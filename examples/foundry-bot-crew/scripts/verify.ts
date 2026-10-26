@@ -144,11 +144,11 @@ try {
   assert.equal(email?.to, "dana@example.com");
   console.log(`5. after approval: ${reply(sent)}`);
 
-  // 6. A login is handed back; the bot never sees the password.
+  // 6. A sign-in waits for her; with no browser here, the bot says so rather than pretend.
   await runtime.send("maya-bot-1", sales.id, "Sign in to Salesforce and pull the open deals.");
   await approve("request_sign_in");
-  const signedIn = await until(() => said(sales.id, /^Signed in to Salesforce/), "the sign-in");
-  console.log(`6. after Maya signed in: ${reply(signedIn)}`);
+  const signedIn = await until(() => said(sales.id, /^You approved the Salesforce sign-in/), "the sign-in");
+  console.log(`6. a sign-in waits for Maya: ${reply(signedIn)}`);
 
   // 7. Shown once: a skill for every bot on her team, and a routine for this one.
   await runtime.send("maya-bot-1", sales.id, "Every Monday at 9, sweep last week's signups and draft an intro for each.");

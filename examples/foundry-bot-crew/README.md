@@ -103,7 +103,7 @@ stores or refreshes a token; `accountSessions` does, inside the boundary.
 | Bots pass work and ownership | `glove_mesh_send_message` by instance id; each handoff names the output under `/workspace`, what is done, evidence, open questions and the next owner |
 | Group chats of 2–6 bots | A conversation per member, whose data lists the members; a message goes to the bots it @-mentions (all of them for `@everyone` or no mention) |
 | One computer for all your bots | `foundryDataEnvironmentPersistence({ scope: "workspace" })` |
-| Sign-in handed back to you | `request_sign_in` hands the computer back for SSO, a passkey or a CAPTCHA |
+| Sign-in handed back to you | `request_sign_in` waits for you. It is a stand-in here, with no browser behind it; on Kuiper, `browser.handOff` on a `kuiperBrowser` does it for real (see the personal-agent example) |
 | Skills shared across bots | `save_skill` (the person reviews it) writes a workspace entry every bot reads |
 | A routine assigns a workflow to one bot, on a schedule or after an event | On a schedule: `glove_foundry_schedule`, owned by that bot. After an event: `add_routine` writes `context.routines`, and the bot's playbook is built from it |
 
@@ -154,7 +154,7 @@ accounts, whose apps use the local servers in `demo/`:
 3. Bug Triage asks for Linear; she signs in and always allows filing; all four bots have it.
 4. She tells Bug Triage about a bug; it files it in Linear and hands the fix to Engineer, a sibling.
 5. Sales Outbound finds this week's signups in her inbox in code and emails Dana once she approves.
-6. A Salesforce sign-in is handed back to her.
+6. A Salesforce sign-in waits for her. With no browser here, the bot says so instead of pretending.
 7. A workflow she describes becomes a skill (after she reviews it) and Sales Outbound's Monday routine; Bug Triage adds a routine on new mail.
 8. In the Offsite crew group chat she @-mentions two bots; both answer, and the third member stays quiet.
 9. New mail from Lena wakes the two bots with a routine on new mail: Bug Triage passes, and Inbox Manager replies in Lena's thread once she approves.
@@ -187,8 +187,9 @@ kuiper projects create crew && kuiper use crew
 kuiper units create crew
 
 kuiper providers add anthropic --key -            # once per organisation
-kuiper secrets set GOOGLE_CLIENT_SECRET=- GOOGLE_SERVICE_ACCOUNT_JSON=- LINEAR_CLIENT_SECRET=-
+kuiper secrets set GOOGLE_CLIENT_SECRET=- GOOGLE_SERVICE_ACCOUNT_JSON=- LINEAR_CLIENT_SECRET=- FOUNDRY_TOKEN=-
 kuiper env set -u crew CREW_DATA_DIR=/data \
+  'FOUNDRY_TOKEN=${{secrets.FOUNDRY_TOKEN}}' \
   'ANTHROPIC_API_KEY=${{models.API_KEY}}' \
   'ANTHROPIC_BASE_URL=${{models.ANTHROPIC_BASE_URL}}' \
   GOOGLE_CLIENT_ID=… 'GOOGLE_CLIENT_SECRET=${{secrets.GOOGLE_CLIENT_SECRET}}' \
@@ -208,10 +209,15 @@ tokens, routes and bindings, transcripts, memory and the computers sit on the
 New mail needs nothing public: the Gmail watch pulls its subscription from
 inside the unit.
 
-For a real computer and browser, swap `agents/bot/computer.ts` for a Kuiper
-sandbox per person (`kuiper.sandboxes.create({ image: "kuiper/coding" })`) and
-a Kuiper browser with a profile per person, so a sign-in carries over; both from
-`@kuiper-sh/sdk`.
+`FOUNDRY_TOKEN` goes in before the first deploy: Foundry refuses to listen on a
+public address without an authorizer, and `lib/authorization.ts` makes one
+from that token (or from the inspector login `kuiper dashboard --enable` sets).
+
+For a real computer and browser, mount a Kuiper sandbox and a Kuiper browser
+per person with `kuiperSandbox` and `kuiperBrowser` from
+`glove-execution/kuiper`, in place of `agents/bot/computer.ts`. A browser with a
+profile per person carries a sign-in over. The personal-agent example shows the
+browser.
 
 ## Where it differs
 
@@ -227,8 +233,13 @@ a Kuiper browser with a profile per person, so a sign-in carries over; both from
   automatically" rules; see the Dots rebuild (`examples/foundry-standing-agents`).
 - The only event a routine can follow here is new mail. Another event is
   another connection and playbook on the app that owns it.
-- The computer is a Glove working environment (files and scripts) until you swap
-  in a Kuiper sandbox and browser per person.
+- The computer is a Glove working environment: files and scripts, no shell, git
+  or test runner, and no browser. Engineer's fixes and Salesforce's sign-in are
+  scripted here. Mount a Kuiper sandbox (`kuiperSandbox` with
+  `kuiper/coding`) and browser (`kuiperBrowser`) per person from
+  `glove-execution/kuiper` for the real thing.
+- On a run that new mail started, the computer has no web, so an email that
+  tells a bot to send what it read elsewhere has nowhere to send it.
 - A direct message to a busy bot starts the next run; in Grok Bot it redirects
   the current turn. Foundry's steering (the client's `steerRun`) does that if your app calls
   it.
