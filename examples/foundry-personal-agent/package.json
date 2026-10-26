@@ -13,16 +13,16 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@kuiper-sh/sdk": "^0.2.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "effect": "^3.22.1",
     "glove-classifier": "workspace:*",
     "glove-core": "workspace:*",
-    "glove-env-fetch": "workspace:*",
-    "glove-env-secret": "workspace:*",
+    "glove-execution": "workspace:*",
     "glove-foundry": "workspace:*",
     "glove-js": "workspace:*",
     "glove-memory": "workspace:*",
-    "glove-working-environment": "workspace:*",
+    "playwright-core": "^1.50.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {

@@ -4,14 +4,15 @@ import { dataDir, dataPath } from "./paths.js";
 
 // Muse's log: everything it did, and everything it plans to do. What it did
 // is written by Foundry's side of the run (a subscriber on every tool call,
-// and the Sentinel on every request leaving the VM), not by the model, so
+// the Sentinel on every request leaving the browser, and the browser's host
+// code when it opens a browser or hands one over), not by the model, so
 // Muse cannot leave anything out. What it plans is Foundry's own data: the
 // schedules and wake-ups it set, and the approvals waiting on the person.
 
 export interface Activity {
   readonly at: string;
   readonly person: string;
-  readonly kind: "tool" | "sentinel";
+  readonly kind: "tool" | "sentinel" | "browser";
   readonly what: string;
   readonly outcome: string;
   readonly detail?: string;

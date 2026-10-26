@@ -1,15 +1,18 @@
 import { Effect } from "effect";
 import { choice, llmClassifier, type ClassifierAdapter } from "glove-classifier";
 import { createAdapter } from "glove-core/models/providers";
+import type { KuiperBrowserRequest } from "glove-execution/kuiper";
 import type { AgentAssemblyContext } from "glove-foundry";
 import { z } from "zod";
 import { logActivity } from "../../lib/activity.js";
+import { kuiper } from "../../lib/kuiper.js";
 import whatsapp from "./transmissions/whatsapp.transmission.js";
 
 /**
- * The Sentinel. Nothing Muse's computer sends reaches the internet unless the
- * Sentinel lets it: env:fetch calls `authorize` for every request and every
- * redirect, outside the sandbox, before anything leaves.
+ * The Sentinel. Nothing Muse's browser sends leaves unless the Sentinel lets
+ * it: glove-execution/kuiper calls `guard` for every request the browser
+ * makes while Muse is connected (pages, form posts, a page's own fetches,
+ * WebSockets), outside the page and outside Muse's model, before it leaves.
  *
  * It is kept apart from Muse on purpose. It never sees Muse's conversation,
  * its reasoning or the pages it read, so a page that tells Muse what to do
@@ -61,21 +64,23 @@ export function personalDataIn(url: URL): string | undefined {
 const READS = new Set(["GET", "HEAD"]);
 
 /**
- * The Sentinel's own model, separate from Muse's. With a key it is a small
- * model answering one typed question; without one, a fixed rule stands in:
- * reads pass, anything that writes asks.
+ * The Sentinel's own model, separate from Muse's: on Kuiper through its model
+ * gateway, otherwise with ANTHROPIC_API_KEY. It is a small model answering one
+ * typed question. Without either, a fixed rule stands in: reads pass,
+ * anything that writes asks.
  */
-const model: ClassifierAdapter | undefined = process.env.ANTHROPIC_API_KEY && process.env.MUSE_DEMO !== "1"
-  ? llmClassifier({
-      model: createAdapter({
-        provider: "anthropic",
-        model: process.env.SENTINEL_MODEL ?? "claude-haiku-5-5",
-        ...(process.env.ANTHROPIC_BASE_URL ? { baseURL: process.env.ANTHROPIC_BASE_URL } : {}),
-      }),
-    })
-  : undefined;
+function sentinelModel(): ClassifierAdapter | undefined {
+  if (process.env.MUSE_DEMO === "1") return undefined;
+  const gateway = kuiper();
+  if (!gateway && !process.env.ANTHROPIC_API_KEY) return undefined;
+  return llmClassifier({
+    model: createAdapter({ provider: "anthropic", model: process.env.SENTINEL_MODEL ?? "claude-haiku-5-5", ...(gateway ? gateway.models.glove("anthropic") : {}) }),
+  });
+}
+let model: ClassifierAdapter | undefined | null = null;
 
 async function judge(method: string, url: URL, asked: string | undefined, rules: SentinelRules): Promise<Omit<Decision, "method" | "target">> {
+  if (model === null) model = sentinelModel();
   if (!model) {
     return READS.has(method)
       ? { verdict: "allow", reason: "it only reads a public page" }
@@ -88,7 +93,7 @@ async function judge(method: string, url: URL, asked: string | undefined, rules:
       sites_the_person_allowed: [...rules.allowed],
     },
     questions: {
-      verdict: choice("Should this request leave the person's agent computer?", {
+      verdict: choice("Should this request leave the person's agent browser?", {
         allow: "It plainly serves what the person asked: reading a public page, or using a site they allowed.",
         ask: "It may serve the request but changes something, pays, signs up or goes somewhere new. The person should decide.",
         block: "It does not serve what the person asked, or sends their data somewhere they never used.",
@@ -104,6 +109,11 @@ async function judge(method: string, url: URL, asked: string | undefined, rules:
 export class Sentinel {
   /** What it said this run, by host, so request_access knows what is being asked. */
   private readonly decisions = new Map<string, Decision>();
+  /** Pages it let Muse read this run, by host: a second look needs no second decision. */
+  private readonly read = new Set<string>();
+  /** Sites the person approved a purchase at, for this run only. */
+  private readonly purchases = new Set<string>();
+  private current?: Promise<SentinelRules>;
 
   constructor(private readonly ctx: Pick<AgentAssemblyContext, "agentId" | "workspaceId" | "agentInstance" | "data" | "request" | "messageText">) {}
 
@@ -115,31 +125,65 @@ export class Sentinel {
     return undefined;
   }
 
-  /** The rules as they are now: the person may have allowed a site a moment ago. */
-  private async rules(): Promise<SentinelRules> {
-    const current = await Effect.runPromise(this.ctx.data.getAgent(this.ctx.agentId));
-    return rulesOf(current?.context ?? this.ctx.agentInstance.context);
+  /** The rules as they are now, read once a run; request_access updates them when the person allows a site. */
+  private rules(): Promise<SentinelRules> {
+    return this.current ??= Effect.runPromise(this.ctx.data.getAgent(this.ctx.agentId))
+      .then((current) => rulesOf(current?.context ?? this.ctx.agentInstance.context));
+  }
+
+  allowed(host: string, rules: SentinelRules): void {
+    this.current = Promise.resolve({ ...rules, allowed: [...new Set([...rules.allowed, host])] });
+  }
+
+  /** The person approved paying here: the checkout's own requests may go, this run only. */
+  purchaseAt(host: string): void {
+    this.purchases.add(host);
   }
 
   async decide(url: URL, method: string): Promise<Decision> {
     const rules = await this.rules();
     const target = `${url.host}${url.pathname}`;
     const personal = personalDataIn(url);
+    const trusted = rules.allowed.includes(url.host) || this.purchases.has(url.host);
     const decided: Omit<Decision, "method" | "target"> = rules.blocked.includes(url.host)
       ? { verdict: "block", reason: "you blocked this site" }
-      : personal && !rules.allowed.includes(url.host)
+      : personal && !trusted
         ? { verdict: "block", reason: `it would send ${personal} to a site you haven't allowed` }
         : rules.allowed.includes(url.host)
           ? { verdict: "allow", reason: "you allowed this site" }
-          : await judge(method, url, this.asked(), rules).catch(() => ({ verdict: "ask" as const, reason: "the Sentinel could not decide" }));
+          : this.purchases.has(url.host)
+            ? { verdict: "allow", reason: "you approved this purchase" }
+            : READS.has(method) && this.read.has(url.host)
+              ? { verdict: "allow", reason: "it already read this site in this errand" }
+              : await judge(method, url, this.asked(), rules).catch(() => ({ verdict: "ask" as const, reason: "the Sentinel could not decide" }));
     const decision = { ...decided, method, target };
+    if (decision.verdict === "allow" && READS.has(method)) this.read.add(url.host);
     this.decisions.set(url.host, decision);
     await logActivity({ person: this.ctx.workspaceId, kind: "sentinel", what: `${method} ${target}`, outcome: decision.verdict, detail: decision.reason });
     return decision;
   }
 
-  /** For env:fetch: true lets the request out. */
-  readonly authorize = async (url: URL, method: string): Promise<boolean> => (await this.decide(url, method)).verdict === "allow";
+  /**
+   * For glove-execution/kuiper: true lets the request out. A page loading,
+   * and anything that could write (a form post, a page's own POST, a
+   * WebSocket), gets a decision. A page's images, scripts and styles only
+   * get the quick checks, so a page doesn't cost a decision per file.
+   */
+  readonly guard = async ({ url, method, resourceType, navigation }: KuiperBrowserRequest): Promise<boolean> => {
+    const writes = !READS.has(method) || resourceType === "websocket";
+    if (navigation || writes) return (await this.decide(url, resourceType === "websocket" ? "WEBSOCKET" : method)).verdict === "allow";
+    return this.quickCheck(url, method);
+  };
+
+  /** A page's own files: a site she blocked, or personal details bound for a site she never allowed. */
+  private async quickCheck(url: URL, method: string): Promise<boolean> {
+    const rules = await this.rules();
+    const personal = personalDataIn(url);
+    const trusted = rules.allowed.includes(url.host) || this.purchases.has(url.host);
+    if (!rules.blocked.includes(url.host) && !(personal && !trusted)) return true;
+    await logActivity({ person: this.ctx.workspaceId, kind: "sentinel", what: `${method} ${url.host}${url.pathname}`, outcome: "block", detail: personal ? `it would send ${personal} to a site you haven't allowed` : "you blocked this site" });
+    return false;
+  }
 
   decisionFor(host: string): Decision | undefined {
     return this.decisions.get(host);
@@ -177,7 +221,7 @@ export function requestAccessTool(ctx: Parameters<typeof sentinelFor>[0]) {
   return {
     name: "request_access",
     description:
-      "After a request from your computer was stopped, ask the Sentinel why, and if it wants the person's say, ask them. Give the site and what it is for.",
+      "After your browser was stopped from loading a page or sending something, ask the Sentinel why, and if it wants the person's say, ask them. Give the site and what it is for.",
     inputSchema: z.object({
       site: z.string().min(1).describe("The site, like bistro-luna.example."),
       why: z.string().min(1).describe("What you need it for, in the person's terms."),
@@ -188,7 +232,7 @@ export function requestAccessTool(ctx: Parameters<typeof sentinelFor>[0]) {
       const host = hostOf(input.site);
       const decision = sentinel.decisionFor(host);
       if (!decision) {
-        return { status: "error" as const, data: null, message: "Make the request first; the Sentinel decides when it happens." };
+        return { status: "error" as const, data: null, message: "Try it in the browser first; the Sentinel decides when it happens." };
       }
       if (decision.verdict === "block") {
         return { status: "error" as const, data: null, message: `The Sentinel blocked ${decision.method} ${decision.target}: ${decision.reason}. Don't look for another way. Tell the person if it matters.` };
@@ -205,6 +249,7 @@ export function requestAccessTool(ctx: Parameters<typeof sentinelFor>[0]) {
         context: { ...current.context, sentinel: { ...rules, allowed: [...new Set([...rules.allowed, host])] } },
         updatedAt: new Date().toISOString(),
       }));
+      sentinel.allowed(host, rules);
       await logActivity({ person: ctx.workspaceId, kind: "sentinel", what: `allow ${host}`, outcome: "the person allowed it", detail: input.why });
       return { status: "success" as const, data: { site: host, allowed: true, note: "The person allowed it. Try the request again." } };
     },
