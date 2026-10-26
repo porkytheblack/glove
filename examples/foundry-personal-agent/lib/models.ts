@@ -1,27 +1,26 @@
 import type { ModelAdapter } from "glove-core";
-import { createAdapter } from "glove-core/models/providers";
 import { installedApplicationTransmissionToolName, type AgentAssemblyContext } from "glove-foundry";
 import gmailApp from "../agents/muse/apps/gmail.app.js";
 import whatsappApp from "../agents/muse/apps/whatsapp.app.js";
 import gmail from "../agents/muse/transmissions/gmail.transmission.js";
 import whatsapp from "../agents/muse/transmissions/whatsapp.transmission.js";
 import { gmailRoutes, whatsappFor } from "./connect.js";
+import { claudeModel, hasModelKey } from "./claude.js";
 import { DemoModel, inboundEvent, resultMessage, type DemoStep, type DemoTurn } from "./demo-model.js";
-import { kuiper } from "./kuiper.js";
 
 // Muse's model: on Kuiper through its model gateway (@kuiper-sh/sdk, the same
-// key as the browser), elsewhere with ANTHROPIC_API_KEY. With neither it runs
+// key as the browser), elsewhere with ANTHROPIC_API_KEY or OPENROUTER_API_KEY
+// (lib/claude.ts). With none it runs
 // a short script, so `pnpm verify` and `pnpm dev` work offline. The Sentinel
 // has its own model (agents/muse/sentinel.ts) and never shares this one's context.
 
 function scripted(): boolean {
-  return process.env.MUSE_DEMO === "1" || (!process.env.KUIPER_GATEWAY_KEY && !process.env.ANTHROPIC_API_KEY);
+  return process.env.MUSE_DEMO === "1" || !hasModelKey();
 }
 
 export function museModel(_agent: unknown, ctx: AgentAssemblyContext): ModelAdapter {
   if (scripted()) return new DemoModel(ctx.agentId, (turn) => museScript(ctx, turn));
-  const gateway = kuiper();
-  return createAdapter({ provider: "anthropic", model: process.env.MUSE_MODEL ?? "claude-sonnet-5-5", stream: true, ...(gateway ? gateway.models.glove("anthropic") : {}) });
+  return claudeModel(process.env.MUSE_MODEL ?? "claude-sonnet-5-5", { stream: true });
 }
 
 // ── The script ──────────────────────────────────────────────────────────────

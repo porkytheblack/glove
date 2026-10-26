@@ -48,6 +48,12 @@ export class DemoModel implements ModelAdapter {
     const message: Message = "say" in step
       ? { sender: "agent", text: step.say }
       : { sender: "agent", text: "", tool_calls: [{ tool_name: step.call, input_args: step.input, id: `${step.call}-${Date.now()}` }] };
+    // A script answers at once. MUSE_DEMO_PACE_MS gives it a model's pause, so
+    // the inspector's timings read like a real run. It reports a token each
+    // way: real counts would reach the compaction limit, and a script can't
+    // carry on from its own summary.
+    const pace = Number(process.env.MUSE_DEMO_PACE_MS);
+    if (pace > 0) await new Promise((resolvePause) => setTimeout(resolvePause, pace * (0.6 + Math.random() * 0.8)));
     return { messages: [message], tokens_in: 1, tokens_out: 1 };
   }
 }

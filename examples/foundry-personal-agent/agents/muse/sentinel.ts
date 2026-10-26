@@ -1,11 +1,10 @@
 import { Effect } from "effect";
 import { choice, llmClassifier, type ClassifierAdapter } from "glove-classifier";
-import { createAdapter } from "glove-core/models/providers";
 import type { KuiperBrowserRequest } from "glove-execution/kuiper";
 import type { AgentAssemblyContext } from "glove-foundry";
 import { z } from "zod";
 import { logActivity } from "../../lib/activity.js";
-import { kuiper } from "../../lib/kuiper.js";
+import { claudeModel, hasModelKey } from "../../lib/claude.js";
 import whatsapp from "./transmissions/whatsapp.transmission.js";
 
 /**
@@ -65,17 +64,14 @@ const READS = new Set(["GET", "HEAD"]);
 
 /**
  * The Sentinel's own model, separate from Muse's: on Kuiper through its model
- * gateway, otherwise with ANTHROPIC_API_KEY. It is a small model answering one
+ * gateway, otherwise with ANTHROPIC_API_KEY or OPENROUTER_API_KEY. It is a small model answering one
  * typed question. Without either, a fixed rule stands in: reads pass,
  * anything that writes asks.
  */
 function sentinelModel(): ClassifierAdapter | undefined {
   if (process.env.MUSE_DEMO === "1") return undefined;
-  const gateway = kuiper();
-  if (!gateway && !process.env.ANTHROPIC_API_KEY) return undefined;
-  return llmClassifier({
-    model: createAdapter({ provider: "anthropic", model: process.env.SENTINEL_MODEL ?? "claude-haiku-5-5", ...(gateway ? gateway.models.glove("anthropic") : {}) }),
-  });
+  if (!hasModelKey()) return undefined;
+  return llmClassifier({ model: claudeModel(process.env.SENTINEL_MODEL ?? "claude-haiku-5-5") });
 }
 let model: ClassifierAdapter | undefined | null = null;
 

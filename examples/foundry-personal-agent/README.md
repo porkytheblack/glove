@@ -194,7 +194,7 @@ scripts/
 ```bash
 pnpm install
 pnpm --filter glove-foundry-personal-agent verify   # offline, no keys; a local Chromium
-cp .env.example .env                                 # add KUIPER_GATEWAY_KEY (or ANTHROPIC_API_KEY)
+cp .env.example .env                                 # add KUIPER_GATEWAY_KEY (or ANTHROPIC_API_KEY, or OPENROUTER_API_KEY)
 pnpm --filter glove-foundry-personal-agent dev       # inspector at http://localhost:4149
 pnpm onboard sam "Sam" 15550109999                   # Rosa is seeded; add someone else
 pnpm connect sam gmail read                          # needs GOOGLE_CLIENT_ID and friends
@@ -206,6 +206,8 @@ session is a Chromium on your machine, browsing sample sites, and the SDK and
 `glove-execution/kuiper` run unchanged against it. It needs Playwright's
 Chromium (`npx playwright-core install chromium`), or set `MUSE_CHROMIUM` to a
 Chromium binary.
+The scripted model answers at once; set `MUSE_DEMO_PACE_MS=700` to give it a
+model's pause, so a run's timings in the inspector look like a real one.
 
 1. Her Muse is seeded with Gmail and Calendar read only, and WhatsApp on her number.
 2. It reads her calendar and inbox in one program.
