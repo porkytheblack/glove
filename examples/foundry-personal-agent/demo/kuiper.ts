@@ -18,8 +18,8 @@ import { chromium, type BrowserContext, type Page } from "playwright-core";
  * On Kuiper none of this runs: BROWSERS_URL is Kuiper's gateway.
  */
 
-/** Rosa's password at Bistro Luna. She types it in the live view; Muse never sees it. */
-export const ROSA_BISTRO_PASSWORD = "luna-rosa-2041";
+/** Rosa's password at the sample Bistro Luna, made up per run. She types it in the live view; Muse never sees it. */
+export const ROSA_BISTRO_PASSWORD = randomBytes(9).toString("base64url");
 
 export interface Order { readonly id: string; readonly cardLast4: string; readonly amount: string }
 
