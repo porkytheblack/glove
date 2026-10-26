@@ -165,7 +165,7 @@ The core defines four pluggable adapter interfaces:
 - **`ModelAdapter`** — LLM provider (`prompt`, `setSystemPrompt`)
 - **`StoreAdapter`** — Persistence layer (`getMessages`, `appendMessages`, `getTokenCount`, `resetCounters`, etc.). Full message history is preserved across compaction — `resetCounters()` resets token and turn counts without deleting messages.
 - **`DisplayManagerAdapter`** — UI slot management (`pushAndWait`, `pushAndForget`, `subscribe`)
-- **`SubscriberAdapter`** — Typed event observer. The `record` method is generic over a `SubscriberEvent` discriminated union (`text_delta`, `tool_use`, `tool_use_result`, `model_response`, `model_response_complete`, `compaction_start`, `compaction_end`).
+- **`SubscriberAdapter`** — Typed event observer. The `record` method is generic over a `SubscriberEvent` discriminated union (`text_delta`, `tool_use`, `tool_use_result`, `model_response`, `model_response_complete`, `compaction_start`, `compaction_end`, and more). A subscriber that sets `modelRequests: true` also gets `model_request` (the system prompt, messages and tools a model call is sent) and `model_request_end` (its outcome, response and tokens), for tracing what a model saw at each step.
 
 ## Documentation
 

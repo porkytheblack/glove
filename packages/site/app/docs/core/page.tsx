@@ -1126,6 +1126,13 @@ try {
 
       <CodeBlock
         code={`type SubscriberEvent =
+  // Only to subscribers with modelRequests: true
+  | { type: "model_request"; request_id: string; model: string;
+      purpose: "turn" | "compaction"; system_prompt: string;
+      messages: ReadonlyArray<Message>; tools: ReadonlyArray<ModelRequestTool> }
+  | { type: "model_request_end"; request_id: string; model: string; duration_ms: number;
+      status: "success" | "error" | "aborted"; error?: string;
+      messages?: ReadonlyArray<Message>; tokens_in?: number; tokens_out?: number }
   | { type: "text_delta"; text: string }
   | { type: "tool_use"; id: string; name: string; input: unknown }
   | { type: "model_response"; text: string; tool_calls?: ToolCall[];
@@ -1150,6 +1157,16 @@ try {
       <PropTable
         headers={["Event", "Emitted by", "Description"]}
         rows={[
+          [
+            "model_request",
+            "PromptMachine",
+            "A model call is about to be sent: the system prompt, messages (runtime context at the tail) and tools exactly as the adapter gets them. Only delivered to subscribers that set modelRequests: true, since it carries the whole conversation on every call.",
+          ],
+          [
+            "model_request_end",
+            "PromptMachine",
+            "The call with that request_id ended: duration, success, error or aborted, the response messages and tokens. Delivered like model_request.",
+          ],
           [
             "text_delta",
             "Model adapter (streaming)",
