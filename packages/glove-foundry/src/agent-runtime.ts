@@ -82,6 +82,7 @@ import {
   materializeComposedPlaybook,
   type ComposedAgentPlaybook,
 } from "./playbook.js";
+import { FOUNDRY_MODEL_REQUESTS_ENV, requestTracer } from "./request-trace.js";
 import {
   mountFoundryWorkbench,
   type FoundryReplDefinition,
@@ -196,12 +197,31 @@ function writeAgentEvent(type: string, data: unknown): Promise<void> {
 }
 
 function executionSubscriber(): SubscriberAdapter {
+  // Each model request is recorded compactly; see request-trace.ts.
+  const trace = requestTracer();
   return {
+    modelRequests: process.env[FOUNDRY_MODEL_REQUESTS_ENV] !== "off",
     async record<T extends SubscriberEvent["type"]>(
       eventType: T,
       data: SubscriberEventDataMap[T],
     ): Promise<void> {
-      await writeAgentEvent(eventType, data);
+      if (eventType === "model_request" || eventType === "model_request_end") {
+        // Recording a request must never fail the model call it describes.
+        let recorded: unknown;
+        try {
+          recorded = eventType === "model_request"
+            ? trace.request(data as SubscriberEventDataMap["model_request"])
+            : trace.end(data as SubscriberEventDataMap["model_request_end"]);
+        } catch (cause) {
+          recorded = {
+            request_id: (data as { request_id?: unknown }).request_id,
+            unrecorded: cause instanceof Error ? cause.message : String(cause),
+          };
+        }
+        await writeAgentEvent(eventType, recorded);
+      } else {
+        await writeAgentEvent(eventType, data);
+      }
     },
   };
 }

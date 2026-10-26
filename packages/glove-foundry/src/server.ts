@@ -1213,7 +1213,9 @@ export class FoundryServer {
         json(
           response,
           200,
+          // `after` lets a live view fetch only what it hasn't seen.
           this.runtime.observability.list({
+            ...eventFilter(url),
             runId: decodeURIComponent(eventsMatch[1]!),
             limit: 5_000,
           }),

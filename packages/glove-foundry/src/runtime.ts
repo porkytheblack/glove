@@ -21,6 +21,7 @@ import {
 } from "./application.js";
 import type { FoundryConfig } from "./config.js";
 import { DEFAULT_FOUNDRY_CONFIG } from "./config.js";
+import { FOUNDRY_MODEL_REQUESTS_ENV } from "./request-trace.js";
 import {
   FOUNDRY_APPLICATION_ENV,
   FOUNDRY_EXECUTION_MARKER,
@@ -530,6 +531,7 @@ export class FoundryRuntime {
         [FOUNDRY_CORE_COMMAND_DIRECTORY_ENV]: this.coreCommandDirectory,
         [FOUNDRY_MAILBOX_DIRECTORY_ENV]: this.mailboxDirectory,
         ...(this.applicationFilePath ? { [FOUNDRY_APPLICATION_ENV]: this.applicationFilePath } : {}),
+        ...(options.config?.observability?.modelRequests === false ? { [FOUNDRY_MODEL_REQUESTS_ENV]: "off" } : {}),
       },
     });
     this.scheduleAdapter = this.signalRunner.schedules;
