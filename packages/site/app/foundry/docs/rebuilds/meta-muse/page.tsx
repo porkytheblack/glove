@@ -6,7 +6,7 @@ import { MuseStory } from "@/components/rebuild-stories";
 export const metadata = {
   title: "Rebuild Meta Muse",
   description:
-    "Build a personal agent like Meta's Muse with Glove Foundry and deploy it on Kuiper: one agent per person in the app and on WhatsApp, connected apps at the access the person chooses, a computer of its own whose every request passes a separate Sentinel, logins it uses but never sees, one-time cards, approvals, long work, forgetting, and a log of what it did and plans.",
+    "Build a personal agent like Meta's Muse with Glove Foundry and deploy it on Kuiper: one agent per person in the app and on WhatsApp, connected apps at the access the person chooses, a real browser of its own on Kuiper whose every request passes a separate Sentinel, sign-ins the person does in a live view, one-time cards typed in by host code, approvals, long work, forgetting, and a log of what it did and plans.",
 };
 
 const EXAMPLE = "https://github.com/porkytheblack/glove/tree/main/examples/foundry-personal-agent";
@@ -20,8 +20,8 @@ export default function MetaMuseRebuildPage() {
         Meta&apos;s Muse is a personal agent that does the work rather than answering: it sends the
         email, books the table, fills the form and pays, on a computer of its own, and keeps going
         after you close the app. You talk to it in its app or on WhatsApp. A separate Sentinel
-        decides what may leave its computer. This page builds the same shape in Foundry and
-        deploys it on Kuiper.
+        decides what may leave its computer. This page builds the same shape in Foundry, with a
+        real browser for each person on Kuiper, and deploys it there.
       </p>
       <div className="docs-note">
         <span className="docs-note-icon">›</span>
@@ -29,8 +29,8 @@ export default function MetaMuseRebuildPage() {
           An independent example built from Meta&apos;s announcement and a hands-on review (sources
           at the end). It is not affiliated with or endorsed by Meta, and it is not how Muse is
           built. The code is in <a href={EXAMPLE}>examples/foundry-personal-agent</a>, and{" "}
-          <code>pnpm verify</code> runs a day of it offline, against local servers and sample
-          sites.
+          <code>pnpm verify</code> runs a day of it offline, against local servers, a local
+          stand-in for Kuiper&apos;s browser API and sample sites.
         </p>
       </div>
 
@@ -56,21 +56,21 @@ export default function MetaMuseRebuildPage() {
           <tr><td>One Muse, in the app and on WhatsApp</td><td>One instance per person; conversations <code>app</code> and <code>whatsapp</code>; one memory</td><td><code>lib/people.ts</code></td></tr>
           <tr><td>WhatsApp</td><td>A Foundry app with a transmission each way; a playbook per person filtered to their number</td><td><code>agents/muse/apps/whatsapp.app.ts</code></td></tr>
           <tr><td>Choose what each app may do</td><td>The installation&apos;s <code>config.access</code>: the app&apos;s tool policy hides writes, the send binding is off</td><td><code>lib/connect.ts</code>, <code>lib/mcp-servers.ts</code></td></tr>
-          <tr><td>Its own computer</td><td>A working environment per instance, saved by Foundry</td><td><code>agents/muse/vm.ts</code></td></tr>
-          <tr><td>The Sentinel</td><td><code>env:fetch</code>&apos;s <code>authorize</code> hook, with rules in code and its own model from <code>glove-classifier</code></td><td><code>agents/muse/sentinel.ts</code></td></tr>
+          <tr><td>Its own computer, with a browser you can watch</td><td>A real Chrome per person on Kuiper, mounted with <code>glove-execution/kuiper</code>, kept between runs, recorded</td><td><code>agents/muse/browser.ts</code></td></tr>
+          <tr><td>The Sentinel</td><td>The browser&apos;s guard, on every request it makes, with rules in code and its own model from <code>glove-classifier</code></td><td><code>agents/muse/sentinel.ts</code></td></tr>
           <tr><td>The Sentinel asks you</td><td><code>request_access</code>, which waits for approval only when the Sentinel said ask</td><td><code>agents/muse/sentinel.ts</code></td></tr>
-          <tr><td>Logins it can&apos;t read</td><td>A vault as the environment&apos;s secret store; <code>credential: &quot;name&quot;</code> in <code>env:fetch</code></td><td><code>lib/vault.ts</code></td></tr>
+          <tr><td>It never sees your passwords</td><td><code>browser.handOff</code> sends her Kuiper&apos;s live view; she signs in, and her browser profile keeps the login</td><td><code>agents/muse/browser.ts</code></td></tr>
           <tr><td>Asks before sending or buying</td><td>Gmail&apos;s send and <code>buy</code> have <code>requiresPermission</code></td><td><code>agents/muse/tools.ts</code></td></tr>
-          <tr><td>One-time cards</td><td><code>buy</code> gets a single-use card inside the tool</td><td><code>lib/payments.ts</code></td></tr>
+          <tr><td>One-time cards</td><td><code>buy</code> gets a single-use card, and host code types it into the checkout</td><td><code>lib/payments.ts</code></td></tr>
           <tr><td>Keeps working, comes back when something changes</td><td><code>glove_foundry_schedule</code> and <code>glove_foundry_sleep</code>; new mail through the Gmail watch</td><td><code>agents/muse/playbook.ts</code></td></tr>
           <tr><td>Remembers, and forgets when told</td><td><code>defineMemory</code>; <code>glove_context_set</code> and <code>glove_context_unset</code></td><td><code>agents/muse/muse.memory.ts</code></td></tr>
-          <tr><td>A log of what it did and plans</td><td>A subscriber and the Sentinel write what it did; schedules and pending approvals are its plans</td><td><code>lib/activity.ts</code></td></tr>
+          <tr><td>A log of what it did and plans</td><td>A subscriber, the Sentinel and the browser&apos;s host code write what it did; schedules and pending approvals are its plans</td><td><code>lib/activity.ts</code></td></tr>
         </tbody>
       </table>
 
       <Blueprint
-        uses={["Definitions", "Instances", "Conversations", "Installable capabilities", "Applications and connections", "MCP servers", "Transmissions", "Playbooks", "Code as the tool surface", "Working environment", "Classifiers", "Permission gates", "Approvals", "Memory", "Subscribers", "Schedule management", "Request authorization", "Model gateway", "Persistent disk", "Kuiper sandboxes", "Kuiper browsers"]}
-        write={["Your account store, OAuth callback and the person's vault", "The Sentinel's rules", "The payment provider and the WhatsApp webhook", "The scripted model and sample sites for offline runs"]}
+        uses={["Definitions", "Instances", "Conversations", "Installable capabilities", "Applications and connections", "MCP servers", "Transmissions", "Playbooks", "Code as the tool surface", "Browsers", "Classifiers", "Permission gates", "Approvals", "Memory", "Subscribers", "Schedule management", "Request authorization", "Model gateway", "Persistent disk", "Kuiper browsers"]}
+        write={["Your account store and OAuth callback", "The Sentinel's rules", "The card issuer and the WhatsApp webhook", "The scripted model, and a stand-in for Kuiper's browser API with sample sites, for offline runs"]}
       />
 
       <h2 id="step-1">1. One Muse per person, in two places</h2>
@@ -156,55 +156,84 @@ export function channel(museId: string, key: "app" | "whatsapp"): CreateConversa
 }`}
       />
 
-      <h2 id="step-3">3. Its own computer</h2>
+      <h2 id="step-3">3. Its own browser on Kuiper</h2>
       <p>
-        Muse&apos;s computer is a working environment saved per instance: files and scripts that
-        last, and the web through <code>env:fetch</code>. Its options are built per run, from the
-        person, so the Sentinel and their logins come with it:
+        Muse&apos;s browser is a real Chrome from <Link href="/foundry/docs/kuiper#services">Kuiper</Link>,
+        mounted in <code>configure</code> with <code>kuiperBrowser</code> from{" "}
+        <code>glove-execution/kuiper</code> and <code>kuiper.browsers</code> from{" "}
+        <code>@kuiper-sh/sdk</code>. Muse drives it with <code>execute_browser</code>, one script
+        for a whole errand. A Kuiper session belongs to the project, not the process, so the
+        instance keeps two IDs as data, her profile and the session in use, and the next run
+        reconnects to the same browser:
       </p>
       <CodeBlock
-        filename="agents/muse/vm.ts"
+        filename="agents/muse/browser.ts (excerpt)"
         language="typescript"
-        code={`export const vm = defineWorkingEnvironment({
-  options: async ({ assembly }) => {
-    const vault = vaultFor(assembly.workspaceId);
-    const logins = await loginsOf(assembly.workspaceId);
-    return {
-      stdlib: [
-        secret({ store: vault }),                       // names and references, never values
-        fetchFiles({
-          authorize: sentinelFor(assembly).authorize,   // every request and redirect
-          secretStore: vault,
-          credentials: Object.fromEntries(Object.entries(logins).map(([name, login]) => [name, {
-            origins: [login.origin],                    // sent to that site only
-            headers: { Authorization: { ref: secretRef(name), prefix: "Bearer " } },
-          }])),
-        }),
-      ],
-    };
-  },
-  persistence: foundryDataEnvironmentPersistence({ scope: "agent" }),
-});`}
+        code={`export function mountMuseBrowser(agent: IGloveRunnable, ctx: FoundryExecutionContext) {
+  const gateway = kuiper();                                   // @kuiper-sh/sdk; no key, no browser
+  if (!gateway) return;
+  const saved = browserOf(ctx.agentInstance.context);         // { profileId, sessionId }
+  const adapter = kuiperBrowser({
+    browsers: gateway.browsers,
+    sessionIds: saved.sessionId ? [saved.sessionId] : [],     // the browser it kept
+    session: {
+      profileId: saved.profileId, persistProfile: true,        // her logins, saved when it closes
+      inactivityTimeout: 10 * 60_000,
+      kuiper: { onInactive: "hibernate", record: true },       // sleeps when idle; she can replay it
+    },
+    cleanup: "keep",
+    guard: sentinelFor(ctx).guard,                            // every request it makes
+    onHandOff: (handOff) => sendLiveView(ctx, handOff),       // to her on WhatsApp, never to Muse
+    onOpen: (session) => remember(ctx, { sessionId: session.id, profileId: session.profileId }),
+  });
+  let close = () => adapter.close();
+  ctx.onCleanup(() => close());
+  const mounted = mountBrowser(agent, { adapter });
+  close = () => mounted.close();
+}`}
+      />
+      <p>
+        A script Muse writes for the booking. The browser&apos;s requests go through the Sentinel
+        as it runs:
+      </p>
+      <CodeBlock
+        filename="execute_browser"
+        language="javascript"
+        code={`const b = browser.sessions()[0] ?? browser.open({});
+browser.navigate({ sessionId: b.id, url: "https://bistro-luna.example/reserve" });
+browser.interact({ sessionId: b.id, command: { op: "fill", target: { by: "label", value: "Party size" }, value: "4" } });
+browser.interact({ sessionId: b.id, command: { op: "fill", target: { by: "label", value: "Time" }, value: "Friday 19:00" } });
+const sent = browser.interact({ sessionId: b.id, command: { op: "click", target: { by: "role", role: "button", name: "Book" } } });
+const page = browser.observe({ sessionId: b.id, mode: "text" });
+({ url: sent.url, blocked: sent.blocked, page: page.content })`}
       />
 
       <h2 id="step-4">4. The Sentinel</h2>
       <p>
-        <code>env:fetch</code> calls <code>authorize</code> for every request and every redirect,
-        outside the sandbox, before anything leaves. The Sentinel behind it is kept apart from
-        Muse on purpose. It never sees Muse&apos;s conversation, its reasoning or the pages it
-        read, so a page that tells Muse what to do cannot talk the Sentinel round. It sees the
-        request, what the person asked for in this run, and the sites they allowed:
+        <code>glove-execution/kuiper</code> calls the guard for every request the browser makes
+        while Muse is connected, outside the page and outside Muse&apos;s model, before it leaves.
+        A page loading, and anything that could write, gets a decision; a page&apos;s images and
+        scripts only get the quick checks. The Sentinel behind it is kept apart from Muse on
+        purpose. It never sees Muse&apos;s conversation, its reasoning or the pages it read, so a
+        page that tells Muse what to do cannot talk the Sentinel round. It sees the request, what
+        the person asked for in this run, and the sites they allowed:
       </p>
       <CodeBlock
         filename="agents/muse/sentinel.ts (excerpt)"
         language="typescript"
-        code={`async decide(url: URL, method: string): Promise<Decision> {
-  const rules = await this.rules();                                 // read fresh: she may have just allowed a site
+        code={`readonly guard = async ({ url, method, resourceType, navigation }: KuiperBrowserRequest) => {
+  const writes = method !== "GET" && method !== "HEAD" || resourceType === "websocket";
+  if (navigation || writes) return (await this.decide(url, method)).verdict === "allow";
+  return this.quickCheck(url, method);                                // blocked sites, personal data in the URL
+};
+
+async decide(url: URL, method: string): Promise<Decision> {
+  const rules = await this.rules();
   const personal = personalDataIn(url);
   const decided = rules.blocked.includes(url.host) ? { verdict: "block", reason: "you blocked this site" }
     : personal && !rules.allowed.includes(url.host) ? { verdict: "block", reason: \`it would send \${personal} to a site you haven't allowed\` }
     : rules.allowed.includes(url.host) ? { verdict: "allow", reason: "you allowed this site" }
-    : await judge(method, url, this.asked(), rules);                // its own model: allow, ask or block
+    : await judge(method, url, this.asked(), rules);                  // its own model: allow, ask or block
   await logActivity({ person: this.ctx.workspaceId, kind: "sentinel", what: \`\${method} \${url.host}\${url.pathname}\`, outcome: decided.verdict });
   return decided;
 }`}
@@ -212,15 +241,15 @@ export function channel(museId: string, key: "app" | "whatsapp"): CreateConversa
       <p>
         <code>judge</code> is a separate small model answering one typed question through{" "}
         <code>llmClassifier</code> from <Link href="/docs/classifier">glove-classifier</Link>. A
-        doubtful &ldquo;allow&rdquo; becomes &ldquo;ask&rdquo;. Without a key, reads pass and writes
-        ask.
+        doubtful &ldquo;allow&rdquo; becomes &ldquo;ask&rdquo;. Without a model, reads pass and
+        writes ask.
       </p>
       <p>
-        <code>env:fetch</code> tells the script only that a request was blocked, never why. So
-        when one is stopped, Muse calls <code>request_access</code>. It reads what the Sentinel
-        decided in this run: a blocked request stays blocked and nobody is asked; an
-        &ldquo;ask&rdquo; waits for Rosa&apos;s approval, and her yes is the only thing that adds a
-        site to her list.
+        A blocked page load fails with <code>blocked</code>, and a blocked form post shows in the
+        click&apos;s result. The script learns that something was blocked, never why. So Muse calls{" "}
+        <code>request_access</code>. It reads what the Sentinel decided in this run: a blocked
+        request stays blocked and nobody is asked; an &ldquo;ask&rdquo; waits for Rosa&apos;s
+        approval, and her yes is the only thing that adds a site to her list.
       </p>
       <CodeBlock
         filename="agents/muse/sentinel.ts (excerpt)"
@@ -228,45 +257,44 @@ export function channel(museId: string, key: "app" | "whatsapp"): CreateConversa
         code={`requiresPermission: (input) => sentinel.decisionFor(hostOf(input.site))?.verdict === "ask",`}
       />
 
-      <h2 id="step-5">5. Logins it never sees</h2>
+      <h2 id="step-5">5. She signs in herself</h2>
       <p>
-        Rosa adds a login in your app: a name, the site and the token. A script uses it by name,
-        and <code>env:fetch</code> adds the header on that site&apos;s origin only. Scripts can list
-        logins and get references, but <code>get()</code> stays off, so the value never enters the
-        sandbox or Muse&apos;s context. <code>request_login</code> asks her to add one; Muse never
-        asks for a password in chat.
+        When a site wants Rosa signed in, Muse calls <code>browser.handOff</code> and stops.
+        Host code sends her Kuiper&apos;s live view of that browser on WhatsApp, a link that takes
+        clicks and keys, so the link never enters Muse&apos;s context. She signs in there; Muse
+        never sees her password. The cookies stay in the browser, which waits (and hibernates
+        if she takes a while). When she says she&apos;s done, the next run reconnects to the same
+        session and books. When Muse closes it, her profile keeps the login for next time.
       </p>
       <CodeBlock
-        filename="a script Muse writes"
-        language="javascript"
-        code={`import { request } from 'env:fetch';
-export default async function main() {
-  return request('https://bistro-luna.example/api/reservations', {
-    method: 'POST',
-    json: { party: 4, time: 'Friday 19:00' },
-    credential: 'bistro-luna',          // her login, added outside the sandbox
-    output: '/tmp/booking.json',
-  });
+        filename="agents/muse/browser.ts (excerpt)"
+        language="typescript"
+        code={`async function sendLiveView(ctx, handOff: KuiperHandOff) {
+  const text = \`Muse needs you for one step: \${handOff.reason}. This link opens Muse's browser for you (it is yours only): \${handOff.url}\`;
+  await sendText(process.env.WHATSAPP_TOKEN, { phoneNumberId, to: ctx.agentInstance.context.phone, text });
 }`}
       />
 
       <h2 id="step-6">6. Sending and paying wait for her</h2>
       <p>
-        Gmail&apos;s send asks for each email. <code>buy</code> asks for each purchase, then pays
-        with a one-time card made for that merchant and amount. Meta uses Link by Stripe; any
-        provider of single-use virtual cards fits. The card number stays inside the tool:
+        Gmail&apos;s send asks for each email. <code>buy</code> asks for each purchase, with the
+        checkout open in Muse&apos;s browser. Then it gets a one-time card for that merchant and
+        amount, and host code types it into the checkout in a new tab and submits it. The tab
+        closes, so no page Muse can look at, now or by going back, holds the number. The
+        Sentinel lets that checkout through for this run only. Meta uses Link by Stripe; any
+        issuer of single-use virtual cards fits:
       </p>
       <CodeBlock
         filename="agents/muse/tools.ts (excerpt)"
         language="typescript"
         code={`{
   name: "buy",
-  description: "Pay for something the person asked for. You never see a card …",
-  inputSchema: z.object({ merchant: z.string(), items: z.array(z.string()).min(1), amountCents: z.number().int().positive() }),
   requiresPermission: true,
-  async do(purchase) {
-    const receipt = await pay(ctx.workspaceId, purchase);     // one-time card, used once, here
-    return { status: "success", data: { paid: true, card: \`one-time card ending \${receipt.cardLast4}\` } };
+  async do({ sessionId, ...purchase }) {
+    const card = await issuer().issue(ctx.workspaceId, purchase);   // one charge, one merchant, one amount
+    sentinelFor(ctx).purchaseAt(purchase.site);                     // she approved paying here
+    const answered = await payAtCheckout(kuiper().browsers, sessionId, purchase, card);
+    return { status: "success", data: { submitted: true, card: \`one-time card ending \${card.number.slice(-4)}\`, page: answered.page } };
   },
 }`}
       />
@@ -282,8 +310,8 @@ export default async function main() {
       <p>
         If the model wrote its own log, it could leave an entry out. Here the model writes none
         of it. A <Link href="/foundry/docs/capabilities#subscribers">subscriber</Link> records
-        every tool call from Foundry&apos;s side of the run, and the Sentinel records every
-        decision. What Muse plans is Foundry&apos;s own data: its schedules and wake-ups, and the
+        every tool call from Foundry&apos;s side of the run, the Sentinel records every decision,
+        and the browser&apos;s host code records each browser it opens and each hand-off. What Muse plans is Foundry&apos;s own data: its schedules and wake-ups, and the
         approvals waiting on her.
       </p>
       <CodeBlock
@@ -311,19 +339,21 @@ export default async function main() {
 3. read only: "I can read your mail but not send it. Give me send access for Gmail in the app and I'll send it."
    With send access, after approval: Sent Leo a note: still on for Friday at 7.
 4. told on WhatsApp ("Noted: Priya is vegetarian. I'll plan around it."), asked in the app: Priya is vegetarian.
-5. the Sentinel: GET bistro-luna.example/menu → allow; GET collect.example/c → block;
-   POST bistro-luna.example/api/reservations → ask; allow bistro-luna.example → the person allowed it;
-   POST bistro-luna.example/api/reservations → allow. Booked Bistro Luna for 4 on Friday at 7 … (BL-2041).
-6. Ordered from Fresh Market for Friday: $23.40, paid with a one-time card ending 8141.
+5. the Sentinel: GET bistro-luna.example/ → allow; GET collect.example/c → block; GET bistro-luna.example/reserve → allow;
+   POST bistro-luna.example/reserve → ask; allow bistro-luna.example → the person allowed it; … POST bistro-luna.example/reserve → allow.
+   She signed in in the live view. Booked Bistro Luna for 4 on Friday at 7 … (BL-2041). Her profile keeps the login.
+6. Ordered from Fresh Market for Friday: $23.40 (FM-5521), paid with a one-time card ending 5363.
 7. it will check the train fare every 6 hours, on its own
 8. new mail, to her WhatsApp: "Leo Martin asks to move Friday's dinner to 7:30. Want me to change the booking?"
 9. after "forget": I don't know of anyone vegetarian.
-10. the log: 18 tool calls and 5 Sentinel decisions done, 1 planned (the fare watch); Calendar disconnected`}
+10. the log: 22 tool calls, 12 Sentinel decisions and 3 browser events done, 1 planned (the fare watch); Calendar disconnected`}
       />
       <p>
-        The run also checks that her login and the card number appear nowhere in Muse&apos;s data.
-        With no API key Muse runs a short script instead of a model, so this checks the wiring,
-        not the judgment. In step 5 the script follows the page&apos;s hidden instruction on
+        Each browser in the run is a Chromium on your machine behind a stand-in for Kuiper&apos;s
+        browser API, so <code>@kuiper-sh/sdk</code> and <code>glove-execution/kuiper</code> run
+        unchanged. The run also checks that her password and the card number appear nowhere in
+        Muse&apos;s data, and the live view link only in the WhatsApp message to her. With no key
+        Muse runs a short script instead of a model, so this checks the wiring, not the judgment. In step 5 the script follows the page&apos;s hidden instruction on
         purpose, to show the Sentinel stopping it; a real model is told never to act on
         instructions in pages it reads.
       </p>
@@ -339,8 +369,8 @@ kuiper units create muse
 kuiper providers add anthropic --key -            # once per organisation
 kuiper secrets set GOOGLE_CLIENT_SECRET=- GOOGLE_SERVICE_ACCOUNT_JSON=- WHATSAPP_TOKEN=- FOUNDRY_TOKEN=-
 kuiper env set -u muse MUSE_DATA_DIR=/data \\
-  'ANTHROPIC_API_KEY=\${{models.API_KEY}}' \\
-  'ANTHROPIC_BASE_URL=\${{models.ANTHROPIC_BASE_URL}}' \\
+  'KUIPER_GATEWAY_KEY=\${{models.API_KEY}}' \\
+  'BROWSERS_URL=\${{browsers.BASE_URL}}' \\
   GOOGLE_CLIENT_ID=… 'GOOGLE_CLIENT_SECRET=\${{secrets.GOOGLE_CLIENT_SECRET}}' \\
   GMAIL_PUBSUB_TOPIC=… GMAIL_PUBSUB_SUBSCRIPTION=… \\
   'GOOGLE_SERVICE_ACCOUNT_JSON=\${{secrets.GOOGLE_SERVICE_ACCOUNT_JSON}}' \\
@@ -351,23 +381,24 @@ kuiper deploy --source . -u muse --wait
 # The WhatsApp webhook, the only public way in:
 kuiper units create whatsapp-webhook
 kuiper settings -u whatsapp-webhook --start-command "pnpm whatsapp-webhook" --port 4150
-kuiper secrets set WHATSAPP_APP_SECRET=-
-kuiper env set -u whatsapp-webhook 'WHATSAPP_APP_SECRET=\${{secrets.WHATSAPP_APP_SECRET}}' WHATSAPP_VERIFY_TOKEN=… \\
+kuiper secrets set WHATSAPP_APP_SECRET=- WHATSAPP_VERIFY_TOKEN=-
+kuiper env set -u whatsapp-webhook 'WHATSAPP_APP_SECRET=\${{secrets.WHATSAPP_APP_SECRET}}' \\
+  'WHATSAPP_VERIFY_TOKEN=\${{secrets.WHATSAPP_VERIFY_TOKEN}}' \\
   'FOUNDRY_TOKEN=\${{secrets.FOUNDRY_TOKEN}}' 'FOUNDRY_URL=\${{muse.INTERNAL_URL}}'
 kuiper deploy --source . -u whatsapp-webhook --wait`}
       />
       <ul>
-        <li><strong>State</strong> (Muses, conversations, memory, accounts and tokens, the vault, the Sentinel&apos;s lists, the log and each computer) sits on the <code>/data</code> disk and survives redeploys.</li>
-        <li><strong>Models</strong>, Muse&apos;s and the Sentinel&apos;s, go through Kuiper&apos;s model gateway.</li>
+        <li><strong>One key, two services.</strong> The two references give the unit one gateway key for models and browsers. <code>@kuiper-sh/sdk</code> reads it for Muse&apos;s and the Sentinel&apos;s models and for each person&apos;s browser.</li>
+        <li><strong>State</strong> (Muses, conversations, memory, accounts and tokens, the Sentinel&apos;s lists, the log and each person&apos;s browser IDs) sits on the <code>/data</code> disk and survives redeploys. The browsers and profiles are Kuiper&apos;s: a redeploy reconnects to them.</li>
         <li><strong>New mail needs nothing public.</strong> The Gmail watch pulls from inside the unit. WhatsApp needs the webhook unit, which reaches Foundry over the private address.</li>
-        <li><strong>A real computer.</strong> Swap <code>agents/muse/vm.ts</code> for a <Link href="/foundry/docs/kuiper#services">Kuiper sandbox and browser</Link> per person, and keep the Sentinel in front: route the browser through a proxy that asks it, as <code>env:fetch</code> does here.</li>
       </ul>
 
       <h2 id="differences">Where it differs</h2>
       <ul>
-        <li>Muse browses in a real browser you can watch. Here the web is <code>env:fetch</code> from scripts until you swap in a Kuiper browser, and the Sentinel sees requests, not page actions.</li>
+        <li>Muse&apos;s VM also runs code. Here the browser is the whole computer; for code, add a Kuiper sandbox with <code>kuiperSandbox</code> from <code>glove-execution/kuiper</code>.</li>
+        <li>The Sentinel sees what the browser sends while Muse is connected. Redirects follow the request it allowed, and while Rosa has the live view the browser is hers.</li>
         <li>Meta&apos;s Sentinel is an agent on the same machine that can ask you directly. Here it judges one request at a time, and its question reaches you through Muse&apos;s <code>request_access</code>. Only your approval changes what is allowed.</li>
-        <li>Purchases go through <code>buy</code> with a provider&apos;s one-time card, not through a checkout page in the browser.</li>
+        <li>The checkout&apos;s card fields are found by their standard autocomplete names; a checkout that keeps them in its payment provider&apos;s frame needs that frame here.</li>
         <li>There is no Instagram connector and no AI glasses.</li>
       </ul>
 

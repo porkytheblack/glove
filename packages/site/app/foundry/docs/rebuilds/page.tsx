@@ -83,9 +83,9 @@ export default function RebuildsPage() {
           <tr><td><strong>Conversations</strong></td><td>One chat per bot; a side of each group chat; one per mesh thread</td><td>Exactly one</td><td>One per channel, sharing memory</td><td>App and WhatsApp, sharing memory</td></tr>
           <tr><td><strong>What wakes it</strong></td><td>A message, an @-mention, a sibling&apos;s handoff, its own routine (a schedule or new mail)</td><td>You, new mail, the morning brief, check-ins</td><td>You, new mail, a Slack message, the research schedule</td><td>You, new mail, checks it set itself</td></tr>
           <tr><td><strong>Connected apps</strong></td><td>Gmail and Linear, per person</td><td>Gmail and Google Calendar</td><td>Gmail (the support mailbox)</td><td>Gmail and Calendar, read or act, as the person chooses</td></tr>
-          <tr><td><strong>Who does long work</strong></td><td>The sibling whose job fits, over the mesh</td><td>Its computer, over the mesh</td><td>The builder, over the mesh</td><td>Muse, on its own computer</td></tr>
+          <tr><td><strong>Who does long work</strong></td><td>The sibling whose job fits, over the mesh</td><td>Its computer, over the mesh</td><td>The builder, over the mesh</td><td>Muse, in its own browser on Kuiper</td></tr>
           <tr><td><strong>What waits for you</strong></td><td>Sends, new skills, new apps and sign-ins</td><td>Send, pay, sign, delete</td><td>Whatever your Custom Rules say to ask about</td><td>Send, buy, and any site the Sentinel asks about</td></tr>
-          <tr><td><strong>The safety idea</strong></td><td>Your bots only see your workspace and your accounts</td><td>A guard on everything outbound</td><td>Read-only research, and a review before acting</td><td>A Sentinel it can&apos;t talk round, on everything leaving its computer</td></tr>
+          <tr><td><strong>The safety idea</strong></td><td>Your bots only see your workspace and your accounts</td><td>A guard on everything outbound</td><td>Read-only research, and a review before acting</td><td>A Sentinel it can&apos;t talk round, on everything its browser sends</td></tr>
         </tbody>
       </table>
 

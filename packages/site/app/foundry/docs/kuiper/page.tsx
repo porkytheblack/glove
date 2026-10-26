@@ -236,28 +236,60 @@ const checkMail = defineSchedule({
 
       <h3 id="execution">Browsers and sandboxes</h3>
       <p>
-        <code>glove-execution</code>&apos;s adapters drive browsers and sandboxes that a
-        Station hosts. There is no adapter for Kuiper&apos;s gateway services yet, so
-        pick one of these:
+        <code>glove-execution/kuiper</code> mounts Kuiper&apos;s browsers and sandboxes through{" "}
+        <code>@kuiper-sh/sdk</code>, in <code>configure</code>. A Kuiper session or sandbox
+        belongs to the project, not the process, so it needs no Station daemon: each run mounts
+        it, and the next run reconnects by ID.
       </p>
+      <CodeBlock
+        filename="agents/assistant/agent.ts (excerpt)"
+        language="typescript"
+        code={`import { Kuiper } from "@kuiper-sh/sdk";
+import { mountBrowser, mountSandbox } from "glove-execution";
+import { kuiperBrowser, kuiperSandbox } from "glove-execution/kuiper";
+
+const kuiper = new Kuiper({ gatewayUrl: process.env.BROWSERS_URL }); // the key is KUIPER_GATEWAY_KEY
+
+// in defineAgent:
+async configure(agent, ctx) {
+  const saved = ctx.agentInstance.context.browser ?? {};
+  const browser = kuiperBrowser({
+    browsers: kuiper.browsers,
+    sessionIds: saved.sessionId ? [saved.sessionId] : [],          // what an earlier run kept
+    session: { profileId: saved.profileId, persistProfile: true, inactivityTimeout: 600_000, kuiper: { onInactive: "hibernate" } },
+    cleanup: "keep",
+    guard: ({ url, method }) => method === "GET" || allowed.includes(url.host),
+    onHandOff: ({ url, reason }) => sendToThePerson(reason, url),    // the live view, never to the model
+    onOpen: (session) => saveIds(ctx.agentId, session.id, session.profileId),
+  });
+  const sandbox = kuiperSandbox({ sandboxes: kuiper.sandboxes, sandbox: { image: "kuiper/coding" } });
+  const mounted = [mountBrowser(agent, { adapter: browser }), mountSandbox(agent, { adapter: sandbox })];
+  ctx.onCleanup(() => Promise.all(mounted.map((handle) => handle.close())));
+}`}
+      />
       <ul>
         <li>
-          <strong>Station on the unit.</strong> Host Station&apos;s container sandboxes
-          and browsers with <Link href="/foundry/docs/browser-and-sandbox">stationDaemon</Link>{" "}
-          and mount them with <code>mountSandbox</code> / <code>mountBrowser</code>. When
-          your app depends on <code>station-sandbox</code> or{" "}
-          <code>station-browser-use</code>, Kuiper adds the Docker CLI and gives the unit a
-          Docker socket it serves and polices; every container runs under gVisor within
-          the unit&apos;s limits. Kuiper&apos;s ready-made images, such as{" "}
-          <code>kuiper/coding</code>, start by name.
+          <strong>Bind the key.</strong>{" "}
+          <code>&apos;KUIPER_GATEWAY_KEY={"${{models.API_KEY}}"}&apos;</code> and{" "}
+          <code>&apos;BROWSERS_URL={"${{browsers.BASE_URL}}"}&apos;</code> give the unit one
+          key that opens models and browsers; reference <code>sandboxes</code> too if you mount one.
         </li>
         <li>
-          <strong>Kuiper&apos;s services from your own tools.</strong>{" "}
-          <code>kuiper.sandboxes.create({"{ image: \"kuiper/coding\" }"})</code> and{" "}
-          <code>kuiper.browsers.create()</code> from <code>@kuiper-sh/sdk</code> run on
-          separate machines, are billed by the second and are held to your budgets.
-          Wrap them in Glove tools, or implement a <code>SandboxBackend</code> for{" "}
-          <code>createSandboxAdapter</code>.
+          <strong>The model never picks an ID.</strong> Sessions and sandboxes are the
+          project&apos;s, so grant only the ones you saved for this agent, and keep them on the
+          instance.
+        </li>
+        <li>
+          <strong>The guard</strong> sees every request the browser makes while the run is
+          connected; <strong><code>handOff</code></strong> gives a person the live view for a sign-in
+          or a CAPTCHA. <Link href="/foundry/docs/rebuilds/meta-muse">Meta Muse</Link> uses both.
+        </li>
+        <li>
+          <strong>Station on the unit</strong> still works: host Station&apos;s container sandboxes
+          and browsers with <Link href="/foundry/docs/browser-and-sandbox">stationDaemon</Link>.
+          When your app depends on <code>station-sandbox</code> or{" "}
+          <code>station-browser-use</code>, Kuiper gives the unit a Docker socket it serves and
+          polices, every container under gVisor within the unit&apos;s limits.
         </li>
       </ul>
 

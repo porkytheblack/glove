@@ -66,7 +66,7 @@ export default function ClaudeDuetRebuildPage() {
       </table>
 
       <Blueprint
-        uses={["Definitions", "Instances", "Conversations", "Schedules", "Installable capabilities", "Applications and connections", "MCP servers", "Transmissions", "Playbooks", "Code as the tool surface", "Memory", "Content skills", "Permission gates", "Approvals", "Classifiers", "Foundry mesh", "Working environment", "Voice calls", "Request authorization", "Model gateway", "Persistent disk", "Kuiper sandboxes"]}
+        uses={["Definitions", "Instances", "Conversations", "Schedules", "Installable capabilities", "Applications and connections", "MCP servers", "Transmissions", "Playbooks", "Code as the tool surface", "Memory", "Content skills", "Permission gates", "Approvals", "Classifiers", "Foundry mesh", "Working environment", "Voice calls", "Request authorization", "Model gateway", "Persistent disk"]}
         write={["Your account store and OAuth callback", "Where a person's partner, computer and preferences are created", "Where notifications go", "The guard's rules"]}
       />
 
@@ -366,10 +366,12 @@ kuiper projects create partner && kuiper use partner
 kuiper units create partner
 
 kuiper providers add anthropic --key -            # once per organisation
+kuiper secrets set GOOGLE_CLIENT_SECRET=- GOOGLE_SERVICE_ACCOUNT_JSON=- PUSH_URL=- FOUNDRY_TOKEN=-
 kuiper env set -u partner PARTNER_DATA_DIR=/data \\
+  'FOUNDRY_TOKEN=\${{secrets.FOUNDRY_TOKEN}}' \\
   'ANTHROPIC_API_KEY=\${{models.API_KEY}}' \\
   'ANTHROPIC_BASE_URL=\${{models.ANTHROPIC_BASE_URL}}' \\
-  PUSH_URL=https://ntfy.sh/… \\
+  'PUSH_URL=\${{secrets.PUSH_URL}}' \\
   GOOGLE_CLIENT_ID=… 'GOOGLE_CLIENT_SECRET=\${{secrets.GOOGLE_CLIENT_SECRET}}' \\
   GMAIL_PUBSUB_TOPIC=… GMAIL_PUBSUB_SUBSCRIPTION=… \\
   'GOOGLE_SERVICE_ACCOUNT_JSON=\${{secrets.GOOGLE_SERVICE_ACCOUNT_JSON}}'
@@ -380,7 +382,9 @@ kuiper dashboard -u partner --enable              # inspector login`}
       <ul>
         <li><strong>Schedules, accounts and tokens</strong> are stored on the <code>/data</code> disk with everything else, so the brief, the check-ins and connected apps survive restarts and redeploys.</li>
         <li><strong>New mail needs nothing public.</strong> The Gmail watch pulls its Pub/Sub subscription from inside the unit.</li>
-        <li><strong>The computer.</strong> Swap <code>agents/computer/workspace.ts</code> for a Kuiper sandbox and browser per person, so a sign-in carries over. See <Link href="/foundry/docs/kuiper#services">Foundry on Kuiper</Link>.</li>
+        <li><strong>The API and inspector</strong> are locked by <code>FOUNDRY_TOKEN</code>. Set it before the first deploy: Foundry won&apos;t listen on a public address without an authorizer. <code>PUSH_URL</code> is a secret because anyone with the topic&apos;s URL can post to it.</li>
+        <li><strong>The computer.</strong> Mount a Kuiper sandbox and browser per person with <code>glove-execution/kuiper</code> in place of <code>agents/computer/workspace.ts</code>, so a sign-in carries over. See <Link href="/foundry/docs/kuiper#execution">Foundry on Kuiper</Link>.</li>
+        <li><strong>Calls</strong> need a public port for the call room, declared in a committed <code>kuiper.json</code>, and <code>OPENAI_API_KEY</code> as a secret, since the model gateway has no realtime route. The README has the steps.</li>
         <li><strong>Usage.</strong> Background runs cost tokens like any other. Kuiper&apos;s usage page shows them per unit, and a budget can cap them.</li>
       </ul>
 
@@ -388,6 +392,7 @@ kuiper dashboard -u partner --enable              # inspector login`}
       <ul>
         <li>Duet has over 6,000 connectors. Here there are two apps; any app with a hosted MCP server is another file like <code>calendar.app.ts</code>.</li>
         <li>The computer is a Glove working environment with the web, not a full desktop browser, until you swap in a Kuiper browser.</li>
+        <li><code>pay_invoice</code>, <code>sign_document</code> and <code>delete_file</code> are stand-ins: they wait for approval like the real thing, then write the ledger and change nothing. Your provider&apos;s call goes in <code>agents/partner/actions.ts</code>.</li>
         <li>Notifications go to an ntfy-style endpoint. A real app would send its own push.</li>
       </ul>
 

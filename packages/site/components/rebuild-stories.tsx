@@ -486,14 +486,14 @@ export function StandingAgentStory() {
   );
 }
 
-// ─── Meta Muse: one agent, two places, a computer behind a Sentinel ──────────
+// ─── Meta Muse: one agent, two places, a browser behind a Sentinel ───────────
 
 export function MuseStory() {
   return (
     <FlowStory
       id="rmm"
       viewBox="0 0 936 344"
-      label="Rosa reaches one Muse in the app and on WhatsApp; it reads her apps in code at the access she chose; it runs scripts on its own computer, where every request passes the Sentinel, which allows reading a page, blocks a hidden instruction to send her email address elsewhere and asks her before booking; it uses her saved login by name without seeing it; sending and paying wait for her; and every tool call is written to its log"
+      label="Rosa reaches one Muse in the app and on WhatsApp; it reads her apps in code at the access she chose; it drives its own browser on Kuiper, where every request passes the Sentinel, which allows reading a page, blocks a hidden instruction to send her email address elsewhere and asks her before booking; when the site wants her signed in, she gets the browser's live view and signs in herself; sending and paying wait for her; and every tool call is written to its log"
       boxes={[
         { id: "app", x: 16, y: 16, w: 170, h: 56, title: "Rosa", sub: "the Muse app" },
         { id: "whatsapp", x: 16, y: 136, w: 170, h: 56, title: "WhatsApp", sub: "her number only" },
@@ -501,8 +501,8 @@ export function MuseStory() {
         { id: "muse", x: 268, y: 120, w: 180, h: 88, title: "Muse", sub: "one per person · one memory", tone: "harness" },
         { id: "approval", x: 268, y: 272, w: 180, h: 56, title: "Approval", sub: "Rosa says yes", tone: "system" },
         { id: "apps", x: 530, y: 16, w: 170, h: 56, title: "Her apps", sub: "read, or read and act" },
-        { id: "computer", x: 530, y: 136, w: 170, h: 56, title: "Its computer", sub: "files · scripts · env:fetch", tone: "harness" },
-        { id: "vault", x: 530, y: 272, w: 170, h: 56, title: "Her vault", sub: "logins, by name", dashed: true },
+        { id: "computer", x: 530, y: 136, w: 170, h: 56, title: "Its browser", sub: "real Chrome on Kuiper", tone: "harness" },
+        { id: "vault", x: 530, y: 272, w: 170, h: 56, title: "Live view", sub: "Rosa signs in herself", dashed: true },
         { id: "web", x: 762, y: 16, w: 158, h: 56, title: "The web", sub: "sites" },
         { id: "sentinel", x: 762, y: 136, w: 158, h: 56, title: "Sentinel", sub: "allow · ask · block", tone: "system" },
       ]}
@@ -511,10 +511,10 @@ export function MuseStory() {
         { id: "wa-in", d: "M186,152 L264,152", label: "messages", lx: 225, ly: 144 },
         { id: "wa-out", d: "M264,184 L190,184", label: "answers", lx: 227, ly: 200 },
         { id: "read", d: "M420,116 L420,44 L526,44", label: "reads in code", lx: 473, ly: 36 },
-        { id: "run", d: "M448,164 L526,164", label: "scripts", lx: 487, ly: 156 },
+        { id: "run", d: "M448,164 L526,164", label: "drives", lx: 487, ly: 156 },
         { id: "request", d: "M700,164 L758,164", label: "request", lx: 731, ly: 156 },
         { id: "out", d: "M841,136 L841,76", label: "allowed", lx: 849, ly: 110, anchor: "start" },
-        { id: "login", d: "M615,272 L615,196", label: "login by name", lx: 623, ly: 240, anchor: "start" },
+        { id: "login", d: "M615,196 L615,268", label: "handOff", lx: 623, ly: 240, anchor: "start" },
         { id: "gate", d: "M358,208 L358,268", label: "send · buy · ask", lx: 366, ly: 244, anchor: "start" },
         { id: "logged", d: "M300,208 L300,240 L101,240 L101,268", label: "every tool call", lx: 200, ly: 234, dashed: true },
       ]}
@@ -547,24 +547,24 @@ export function MuseStory() {
         },
         {
           lit: ["muse", "computer", "run"],
-          packet: { edge: "run", label: "web.js" },
-          title: "Its own computer",
+          packet: { edge: "run", label: "execute_browser" },
+          title: "Its own browser",
           text: (
             <>
-              To book dinner it writes a script on its computer, a working environment saved per
-              instance, and runs it. The script reaches the web through <code>env:fetch</code>.
+              To book dinner it drives its own browser, a real Chrome on Kuiper that lasts between
+              runs, in one script: open the page, read it, fill the form, click, check the result.
             </>
           ),
         },
         {
           lit: ["computer", "sentinel", "web", "request", "out"],
-          packet: { edge: "request", label: "GET /menu" },
+          packet: { edge: "request", label: "GET bistro-luna" },
           title: "Every request passes the Sentinel",
           text: (
             <>
-              <code>env:fetch</code> calls the Sentinel&apos;s <code>authorize</code> for every request
-              and redirect, outside the sandbox. Reading the restaurant&apos;s page plainly serves
-              what Rosa asked, so it goes out.
+              The browser&apos;s guard calls the Sentinel for every request the browser makes,
+              outside the page and outside Muse&apos;s model. Reading the restaurant&apos;s page
+              plainly serves what Rosa asked, so it loads.
             </>
           ),
         },
@@ -586,21 +586,21 @@ export function MuseStory() {
           title: "The Sentinel asks Rosa",
           text: (
             <>
-              Booking writes to a site she hasn&apos;t allowed, so the Sentinel says ask. Muse calls{" "}
+              Booking posts a form to a site she hasn&apos;t allowed, so the Sentinel says ask. Muse calls{" "}
               <code>request_access</code>, which waits for Rosa only because the Sentinel asked. Her
               yes adds the site to her list; nothing else can.
             </>
           ),
         },
         {
-          lit: ["vault", "computer", "web", "login", "request", "out"],
-          packet: { edge: "login", label: "bistro-luna" },
-          title: "Her login, never seen",
+          lit: ["computer", "vault", "login"],
+          packet: { edge: "login", label: "handOff" },
+          title: "She signs in herself",
           text: (
             <>
-              The script names her saved login, <code>credential: &quot;bistro-luna&quot;</code>, and{" "}
-              <code>env:fetch</code> adds it on that site only. The value never enters the sandbox
-              or Muse&apos;s context.
+              The site wants her signed in. Muse calls <code>browser.handOff</code>, and host code
+              sends Rosa Kuiper&apos;s live view of the browser on WhatsApp. She signs in there; Muse
+              never sees the link or her password, and her profile keeps the login for next time.
             </>
           ),
         },
@@ -610,9 +610,9 @@ export function MuseStory() {
           title: "Sending and paying wait for her",
           text: (
             <>
-              Gmail&apos;s send asks for each email; <code>buy</code> asks for each purchase and pays
-              with a one-time card made for that merchant and amount. Muse sees the last four
-              digits.
+              Gmail&apos;s send asks for each email; <code>buy</code> asks for each purchase. Then host
+              code types a one-time card into the checkout, in a tab Muse never sees. Muse sees the
+              last four digits.
             </>
           ),
         },
@@ -622,8 +622,8 @@ export function MuseStory() {
           title: "A log it can't leave anything out of",
           text: (
             <>
-              A subscriber writes every tool call from Foundry&apos;s side of the run, and the
-              Sentinel writes every decision. What Muse plans comes from Foundry too: its schedules,
+              A subscriber writes every tool call from Foundry&apos;s side of the run, the Sentinel
+              writes every decision, and the browser&apos;s host code writes each hand-off. What Muse plans comes from Foundry too: its schedules,
               like the fare it checks every six hours, and the approvals waiting on Rosa.
             </>
           ),
@@ -665,7 +665,7 @@ export function RebuildShapes() {
           viewBox="0 0 936 300"
           role="img"
           className="dg-svg"
-          aria-label="Four shapes. Grok Bot: sibling bots, all instances of one definition, each started by a message, a mention, a handoff over the mesh or its own routine. Claude Duet: one partner per person with its own clock and a computer it messages. OpenAI Dots: one dot per person that they name, reached from several channels, researching on a schedule, with an auto-review in front of every action. Meta Muse: one agent per person, in the app and on WhatsApp, with a computer of its own whose every request passes a separate Sentinel."
+          aria-label="Four shapes. Grok Bot: sibling bots, all instances of one definition, each started by a message, a mention, a handoff over the mesh or its own routine. Claude Duet: one partner per person with its own clock and a computer it messages. OpenAI Dots: one dot per person that they name, reached from several channels, researching on a schedule, with an auto-review in front of every action. Meta Muse: one agent per person, in the app and on WhatsApp, with a browser of its own whose every request passes a separate Sentinel."
         >
           <defs>
             <marker id="rshape-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
@@ -711,7 +711,7 @@ export function RebuildShapes() {
           <Arrow d="M782,84 L798,110" />
           <Arrow d="M850,84 L834,110" />
           <Mini x={736} y={112} w={160} h={50} title="Muse" sub="your apps, your access" tone="harness" />
-          <Mini x={712} y={202} w={96} h={50} title="Computer" sub="its own VM" tone="harness" />
+          <Mini x={712} y={202} w={96} h={50} title="Browser" sub="on Kuiper" tone="harness" />
           <Mini x={824} y={202} w={96} h={50} title="Sentinel" sub="what leaves" dashed />
           <Arrow d="M776,166 L766,198" />
           <Arrow d="M808,227 L821,227" />
@@ -722,7 +722,7 @@ export function RebuildShapes() {
         The same parts, arranged four ways. Grok Bot spreads work across sibling bots a person
         makes as data. Claude Duet keeps one partner with its own clock. A dot holds its
         person&apos;s responsibilities and puts a review in front of every action. Muse does the
-        work on a computer of its own, behind a Sentinel that decides what leaves it.
+        work in a browser of its own, behind a Sentinel that decides what leaves it.
       </figcaption>
     </figure>
   );

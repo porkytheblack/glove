@@ -135,13 +135,16 @@ export default function AgentsRebuiltPost() {
       <p>
         Most of it was already there. WhatsApp is a Foundry app with a transmission each way.
         The access you choose is the installation&apos;s config: with read only, the app hides
-        every write and the send binding is off. The interesting part is the Sentinel. Glove&apos;s
-        fetch adapter already calls an <code>authorize</code> hook for every request and
-        redirect, outside the sandbox, so the Sentinel sits there with its own small model. It
-        never sees Muse&apos;s conversation or the pages it read, which is the point: a page that
-        tells Muse to send your email address somewhere cannot talk the Sentinel round. Logins
-        work the same way: a script names one, the adapter adds it on that site only, and the
-        value never enters the sandbox. The log of what Muse did is written by a subscriber from
+        every write and the send binding is off. Its computer is a real Chrome on Kuiper,
+        mounted with <code>glove-execution/kuiper</code>, which lasts between runs because a
+        Kuiper session belongs to the project, not the process. The interesting part is the
+        Sentinel. The browser adapter calls a <code>guard</code> for every request the browser
+        makes, outside the page, so the Sentinel sits there with its own small model. It never
+        sees Muse&apos;s conversation or the pages it read, which is the point: a page that tells
+        Muse to send your email address somewhere cannot talk the Sentinel round. Sign-ins are
+        yours: Muse hands you Kuiper&apos;s live view of its browser, you sign in, and your profile
+        keeps it. The card for a purchase is typed in by host code, so Muse never sees it. The
+        log of what Muse did is written by a subscriber from
         Foundry&apos;s side of the run, so the model cannot leave anything out.{" "}
         <Link href="/foundry/docs/rebuilds/meta-muse">Read the build</Link>.
       </p>

@@ -350,8 +350,11 @@ Patched on branch fix/empty-export: export returns an empty file for an empty re
         <code>requiresPermission</code>, so Foundry records the exact email, holds the run, and
         resumes it when Maya answers in the inspector, through the API or in your app.
         &ldquo;Always allow&rdquo; for an app&apos;s tool is a write to the installation&apos;s{" "}
-        <code>alwaysAllow</code>. A sign-in uses the same mechanism: <code>request_sign_in</code>{" "}
-        asks for approval, and approving it is Maya doing that one step on the shared computer.
+        <code>alwaysAllow</code>. A sign-in waits the same way: <code>request_sign_in</code>{" "}
+        asks Maya. This example has no browser, so the bot says it couldn&apos;t sign in; mount a
+        Kuiper browser and hand it over with <code>browser.handOff</code>, as{" "}
+        <Link href="/foundry/docs/rebuilds/meta-muse#step-5">Meta Muse</Link> does, for the real
+        thing.
         A message from Maya while a bot works can redirect it with{" "}
         <Link href="/foundry/docs/approvals#steering">steering</Link>.
       </p>
@@ -400,7 +403,7 @@ await foundry.resolveApproval(pending.id, "approve");`}
 3. Bug Triage asked for Linear; once Maya signed in, all 4 of her bots have it
 4. Bug Triage, after asking Engineer: Fixed: Patched on branch fix/empty-export: …
 5. after approval: Sent the intro to dana@example.com.
-6. after Maya signed in: Signed in to Salesforce. 12 open deals pulled.
+6. a sign-in waits for Maya: You approved the Salesforce sign-in, but I have no browser here to sign in with, so I left Salesforce alone.
 7. skill monday-signups saved for the team; Sales Outbound runs it every Monday at 09:00; Bug Triage has a routine on new mail
 8. Offsite crew: Sales Outbound and Bug Triage answered; Inbox Manager wasn't mentioned and stayed quiet
 9. new mail woke Inbox Manager and Bug Triage. Bug Triage: not a bug. Inbox Manager: Replied to Lena Park about pricing.`}
@@ -422,8 +425,9 @@ kuiper projects create crew && kuiper use crew
 kuiper units create crew
 
 kuiper providers add anthropic --key -            # once per organisation
-kuiper secrets set GOOGLE_CLIENT_SECRET=- GOOGLE_SERVICE_ACCOUNT_JSON=- LINEAR_CLIENT_SECRET=-
+kuiper secrets set GOOGLE_CLIENT_SECRET=- GOOGLE_SERVICE_ACCOUNT_JSON=- LINEAR_CLIENT_SECRET=- FOUNDRY_TOKEN=-
 kuiper env set -u crew CREW_DATA_DIR=/data \\
+  'FOUNDRY_TOKEN=\${{secrets.FOUNDRY_TOKEN}}' \\
   'ANTHROPIC_API_KEY=\${{models.API_KEY}}' \\
   'ANTHROPIC_BASE_URL=\${{models.ANTHROPIC_BASE_URL}}' \\
   GOOGLE_CLIENT_ID=… 'GOOGLE_CLIENT_SECRET=\${{secrets.GOOGLE_CLIENT_SECRET}}' \\
@@ -438,8 +442,8 @@ kuiper dashboard -u crew --enable                 # inspector login`}
         <li><strong>Models</strong> go through Kuiper&apos;s model gateway. The provider key stays with the organisation, and each call is counted with tokens and cost.</li>
         <li><strong>State</strong> (bots, threads, accounts and tokens, routes and bindings, transcripts, memory, skills, the computers, schedules) sits on the <code>/data</code> disk and survives redeploys. A new bot or a new connection is a write there, not a redeploy.</li>
         <li><strong>New mail needs nothing public.</strong> The Gmail watch pulls its subscription from inside the unit.</li>
-        <li><strong>The API and inspector</strong> are locked by the <code>requestAuthorization</code> adapter in <code>foundry.application.ts</code>.</li>
-        <li><strong>A real computer.</strong> Swap <code>agents/bot/computer.ts</code> for a <Link href="/foundry/docs/kuiper#services">Kuiper sandbox and browser</Link> per person, so sign-ins carry over between bots.</li>
+        <li><strong>The API and inspector</strong> are locked by the <code>requestAuthorization</code> adapter in <code>foundry.application.ts</code>, made from <code>FOUNDRY_TOKEN</code>. Set it before the first deploy: Foundry won&apos;t listen on a public address without it.</li>
+        <li><strong>A real computer.</strong> Mount a <Link href="/foundry/docs/kuiper#execution">Kuiper sandbox and browser</Link> per person with <code>glove-execution/kuiper</code> in place of <code>agents/bot/computer.ts</code>, so sign-ins carry over between bots.</li>
       </ul>
 
       <h2 id="differences">Where it differs</h2>

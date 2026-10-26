@@ -394,8 +394,9 @@ kuiper projects create dots && kuiper use dots
 kuiper units create dots
 
 kuiper providers add anthropic --key -            # once per organisation
-kuiper secrets set SLACK_BOT_TOKEN=- GOOGLE_CLIENT_SECRET=- GOOGLE_SERVICE_ACCOUNT_JSON=-
+kuiper secrets set SLACK_BOT_TOKEN=- GOOGLE_CLIENT_SECRET=- GOOGLE_SERVICE_ACCOUNT_JSON=- FOUNDRY_TOKEN=-
 kuiper env set -u dots DOTS_DATA_DIR=/data \\
+  'FOUNDRY_TOKEN=\${{secrets.FOUNDRY_TOKEN}}' \\
   'ANTHROPIC_API_KEY=\${{models.API_KEY}}' \\
   'ANTHROPIC_BASE_URL=\${{models.ANTHROPIC_BASE_URL}}' \\
   'SLACK_BOT_TOKEN=\${{secrets.SLACK_BOT_TOKEN}}' \\
@@ -409,7 +410,9 @@ kuiper dashboard -u dots --enable                 # inspector login`}
       <ul>
         <li><strong>The Slack forwarder</strong> runs as a second unit with <code>--start-command &quot;pnpm slack-events&quot;</code>. Its public URL is Slack&apos;s request URL, and it reaches Foundry at <code>{"${{dots.INTERNAL_URL}}"}</code>. The README has the commands.</li>
         <li><strong>State</strong> (dots, transcripts, memory, notes, accounts and tokens, the computers, schedules) is on the <code>/data</code> disk. New mail needs nothing public: the Gmail watch pulls its subscription from inside the unit.</li>
-        <li><strong>A real computer.</strong> Swap the dot&apos;s and the builder&apos;s working environments for a <Link href="/foundry/docs/kuiper#services">Kuiper sandbox and browser</Link>.</li>
+        <li><strong>The API and inspector</strong> are locked by <code>FOUNDRY_TOKEN</code>, which the Slack forwarder also uses. Set it before the first deploy: Foundry won&apos;t listen on a public address without an authorizer.</li>
+        <li><strong>Calls</strong> need a public port for the call room, declared in a committed <code>kuiper.json</code>, and <code>OPENAI_API_KEY</code> as a secret, since the model gateway has no realtime route. The README has the steps.</li>
+        <li><strong>A real computer.</strong> Mount a <Link href="/foundry/docs/kuiper#execution">Kuiper sandbox and browser</Link> with <code>glove-execution/kuiper</code> in place of the dot&apos;s and the builder&apos;s working environments.</li>
       </ul>
 
       <h2 id="differences">Where it differs</h2>

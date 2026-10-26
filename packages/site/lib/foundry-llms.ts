@@ -772,26 +772,36 @@ the app closes; remembers and forgets; a log of what it did and plans.
   mcp.tools policy hides writes under "read"; configure removes Gmail's
   transmission send tool; the send binding is enabled only for "act".
   setAccess and disconnect (lib/connect.ts) are writes.
-- The VM: defineWorkingEnvironment({ options: ({ assembly }) => … }) with
-  glove-env-secret secret({ store: vault }) (references, never values) and
-  glove-env-fetch fetchFiles({ authorize: sentinel.authorize, secretStore:
-  vault, credentials: { [name]: { origins: [login.origin], headers: {
-  Authorization: { ref: secretRef(name), prefix: "Bearer " } } } } }). Scripts
-  use credential: "<name>"; the value never enters the sandbox.
-- The Sentinel (agents/muse/sentinel.ts): authorize runs on every request and
-  redirect. Rules in code first (blocked host; personal data in a URL to a host
-  not allowed; allowed host), then its own model via glove-classifier
-  llmClassifier with one choice question (allow | ask | block); a doubtful allow
-  becomes ask. It sees only the request, the person's own words for this run
-  and their allowed sites, never Muse's conversation or pages. env:fetch hides
-  the reason, so request_access reads the run's decision: block stays blocked
-  with no approval; ask has requiresPermission and the person's yes adds the
-  host to context.sentinel.allowed.
-- buy (requiresPermission) pays with a one-time card inside the tool
-  (lib/payments.ts); Muse sees the last four digits.
+- The browser (agents/muse/browser.ts): in configure, mountBrowser(agent, {
+  adapter: kuiperBrowser({ browsers: kuiper.browsers, sessionIds, session: {
+  profileId, persistProfile: true, inactivityTimeout, kuiper: { onInactive:
+  "hibernate", record: true } }, cleanup: "keep", guard: sentinel.guard,
+  onHandOff, onOpen }) }) from glove-execution/kuiper and @kuiper-sh/sdk. The
+  instance keeps context.browser { profileId, sessionId }; Kuiper sessions
+  belong to the project, so the next run reconnects by ID. execute_browser:
+  browser.sessions/open/navigate/observe/interact/screenshot/handOff/close.
+- The Sentinel (agents/muse/sentinel.ts) is the browser's guard: every request
+  the browser makes while Muse is connected. Page loads and anything that
+  writes get a decision; a page's own files get quick checks. Rules in code
+  first (blocked host; personal data in a URL to a host not allowed; allowed
+  host), then its own model via glove-classifier llmClassifier with one choice
+  question (allow | ask | block); a doubtful allow becomes ask. It sees only
+  the request, the person's own words for this run and their allowed sites,
+  never Muse's conversation or pages. A blocked load fails with "blocked"
+  without the reason, so request_access reads the run's decision: block stays
+  blocked with no approval; ask has requiresPermission and the person's yes
+  adds the host to context.sentinel.allowed.
+- Sign-in: browser.handOff gives Kuiper's interactive live view to onHandOff,
+  which sends it to the person on WhatsApp from host code; Muse never sees the
+  link or the password. persistProfile keeps the login in their profile.
+- buy (requiresPermission) gets a one-time card and host code types it into
+  the checkout open in Muse's browser, in a tab it closes (lib/payments.ts);
+  the Sentinel allows that checkout for the run; Muse sees the last four
+  digits. The example ships a stand-in issuer only.
 - The log (lib/activity.ts): a defineSubscriber in components records every
-  tool_use_result; the Sentinel records every decision; plans are Foundry's
-  activations and pending approvals (logFor).
+  tool_use_result; the Sentinel records every decision; the browser's host
+  code records opens and hand-offs; plans are Foundry's activations and
+  pending approvals (logFor).
 `;
 
 // Keep both full-reference routes on the same complete source.
