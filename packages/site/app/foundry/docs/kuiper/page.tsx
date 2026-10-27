@@ -141,7 +141,7 @@ export default defineApplication({
 import { createAdapter } from "glove-core/models/providers";
 import { defineAgent } from "glove-foundry";
 
-const kuiper = new Kuiper(); // reads KUIPER_GATEWAY_KEY
+const kuiper = new Kuiper({ apiKey: process.env.GATEWAY_KEY }); // a unit can't set KUIPER_ names
 
 export default defineAgent({
   description: "Answers for Acme",
@@ -170,7 +170,7 @@ kuiper units create concierge
 
 kuiper providers add anthropic --key -            # once per organisation
 kuiper env set -u concierge AGENT_DATA_DIR=/data \\
-  'KUIPER_GATEWAY_KEY=\${{models.API_KEY}}'
+  'GATEWAY_KEY=\${{models.API_KEY}}'
 
 kuiper deploy --source . -u concierge --wait       # or: kuiper link -u concierge --repo … --branch main
 kuiper dashboard -u concierge --enable             # inspector login
@@ -205,9 +205,9 @@ kuiper logs -u concierge -f`}
 import { inboxTools } from "@kuiper-sh/inbox/glove";
 import { defineSchedule } from "glove-foundry";
 
-// The key is KUIPER_GATEWAY_KEY, as for models. The unit's key only opens the
+// The key is GATEWAY_KEY, as for models. The unit's key only opens the
 // services its variables reference, so the unit must also reference the inbox.
-const inbox = new Inbox({ gatewayUrl: process.env.INBOX_URL });
+const inbox = new Inbox({ apiKey: process.env.GATEWAY_KEY, gatewayUrl: process.env.INBOX_URL });
 
 const checkMail = defineSchedule({
   name: "check-mail",
@@ -248,7 +248,7 @@ const checkMail = defineSchedule({
 import { mountBrowser, mountSandbox } from "glove-execution";
 import { kuiperBrowser, kuiperSandbox } from "glove-execution/kuiper";
 
-const kuiper = new Kuiper({ gatewayUrl: process.env.BROWSERS_URL }); // the key is KUIPER_GATEWAY_KEY
+const kuiper = new Kuiper({ apiKey: process.env.GATEWAY_KEY, gatewayUrl: process.env.BROWSERS_URL });
 
 // in defineAgent:
 async configure(agent, ctx) {
@@ -270,7 +270,7 @@ async configure(agent, ctx) {
       <ul>
         <li>
           <strong>Bind the key.</strong>{" "}
-          <code>&apos;KUIPER_GATEWAY_KEY={"${{models.API_KEY}}"}&apos;</code> and{" "}
+          <code>&apos;GATEWAY_KEY={"${{models.API_KEY}}"}&apos;</code> and{" "}
           <code>&apos;BROWSERS_URL={"${{browsers.BASE_URL}}"}&apos;</code> give the unit one
           key that opens models and browsers; reference <code>sandboxes</code> too if you mount one.
         </li>

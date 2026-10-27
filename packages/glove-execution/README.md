@@ -73,8 +73,9 @@ import { Kuiper } from "@kuiper-sh/sdk";
 import { mountBrowser, mountSandbox } from "glove-execution";
 import { kuiperBrowser, kuiperSandbox } from "glove-execution/kuiper";
 
-// The key is KUIPER_GATEWAY_KEY ('${{browsers.API_KEY}}' on a unit); the URL a variable you name ('${{browsers.BASE_URL}}').
-const kuiper = new Kuiper({ gatewayUrl: process.env.BROWSERS_URL });
+// On a unit: GATEWAY_KEY='${{browsers.API_KEY}}' and BROWSERS_URL='${{browsers.BASE_URL}}'.
+// Kuiper keeps KUIPER_ names for itself, so the key goes in as apiKey.
+const kuiper = new Kuiper({ apiKey: process.env.GATEWAY_KEY, gatewayUrl: process.env.BROWSERS_URL });
 
 export default defineAgent({
   // …

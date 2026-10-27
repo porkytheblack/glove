@@ -116,7 +116,7 @@ export default defineApplication({
         language="typescript"
         code={`import { Kuiper } from "@kuiper-sh/sdk";
 
-const kuiper = new Kuiper();   // reads KUIPER_GATEWAY_KEY
+const kuiper = new Kuiper({ apiKey: process.env.GATEWAY_KEY });   // KUIPER_ names are Kuiper's own
 
 model: () => createAdapter({
   provider: "anthropic",
@@ -144,7 +144,7 @@ openssl rand -hex 24 | kuiper secrets set FOUNDRY_TOKEN=-
 kuiper env set -u release \\
   AGENT_DATA_DIR=/data \\
   'FOUNDRY_TOKEN=\${{secrets.FOUNDRY_TOKEN}}' \\
-  'KUIPER_GATEWAY_KEY=\${{models.API_KEY}}'
+  'GATEWAY_KEY=\${{models.API_KEY}}'
 
 kuiper deploy --source . -u release --wait
 kuiper logs -u release -f`}

@@ -104,7 +104,7 @@ Kuiper's model gateway serves **each provider's own API** at one address — Ope
 import { Kuiper } from "@kuiper-sh/sdk";
 import { createAdapter } from "glove-core/models/providers";
 
-const kuiper = new Kuiper(); // reads KUIPER_GATEWAY_KEY when apiKey is omitted; bind it to ${{models.API_KEY}}
+const kuiper = new Kuiper({ apiKey: process.env.GATEWAY_KEY }); // on a unit: GATEWAY_KEY='${{models.API_KEY}}'
 const model = createAdapter({ provider: "anthropic", model: "claude-sonnet-5-5", ...kuiper.models.glove("anthropic") });
 ```
 
@@ -147,7 +147,7 @@ Two units from one repository: the Foundry unit (root at the app) and the Next.j
 
 ## Writing about Kuiper
 
-When you write docs, READMEs or prompts about Kuiper: call the model gateway what it is (each provider's own API, behind one address with your keys); show unit outputs (`${{models.API_KEY}}`) rather than proposing variable names, unless a library defines the name (`FOUNDRY_TOKEN`, `KUIPER_GATEWAY_KEY`); keep sentences short and steps concrete.
+When you write docs, READMEs or prompts about Kuiper: call the model gateway what it is (each provider's own API, behind one address with your keys); show unit outputs (`${{models.API_KEY}}`) rather than proposing variable names, unless a library defines the name (`FOUNDRY_TOKEN`); a unit can't set a name that starts with `KUIPER_` (Kuiper keeps those for itself), so bind the gateway key under your own name, such as `GATEWAY_KEY`, and pass it as `apiKey`; keep sentences short and steps concrete.
 
 ## Reference files
 

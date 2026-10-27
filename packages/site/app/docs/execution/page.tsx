@@ -47,7 +47,7 @@ observation;`} />
     <CodeBlock language="typescript" filename="Agent setup" code={`import { Kuiper } from "@kuiper-sh/sdk";
 import { kuiperBrowser, kuiperSandbox } from "glove-execution/kuiper";
 
-const kuiper = new Kuiper(); // a gateway key: KUIPER_GATEWAY_KEY
+const kuiper = new Kuiper({ apiKey: process.env.GATEWAY_KEY }); // a gateway key (kgw_…)
 const browser = mountBrowser(agent, { adapter: kuiperBrowser({
   browsers: kuiper.browsers,
   session: { persistProfile: true },                  // Kuiper's own session options; never the model's
