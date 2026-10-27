@@ -5,6 +5,7 @@ import { kuiperBrowser, type KuiperHandOff } from "glove-execution/kuiper";
 import type { AgentAssemblyContext, FoundryExecutionContext } from "glove-foundry";
 import { chromium } from "playwright-core";
 import { logActivity } from "../../lib/activity.js";
+import { clearHandOff, keepHandOff } from "../../lib/handoffs.js";
 import { identify, kuiper } from "../../lib/kuiper.js";
 import { record } from "../../lib/ledger.js";
 import { sendText } from "../../lib/whatsapp.js";
@@ -21,9 +22,10 @@ import { sentinelFor } from "./sentinel.js";
  * - It says it is an agent: its tabs add AGENT_TOKEN to the browser's own
  *   user agent (lib/kuiper.ts).
  * - Signing in is the person's: browser.handOff sends them Kuiper's live view
- *   of this browser on WhatsApp, from here, so the link never reaches Muse.
- *   They sign in; the cookies stay in the browser, and in their profile once
- *   Muse closes it.
+ *   of this browser on WhatsApp, from here, so the link never reaches Muse,
+ *   and keeps it host-side (lib/handoffs.ts) for their app's "Take over"
+ *   until the session closes. They sign in; the cookies stay in the browser,
+ *   and in their profile once Muse closes it.
  * - Watching is theirs too: the session's view-only live view is kept here
  *   for their app's Watch link. The prompt never reads it.
  */
@@ -49,10 +51,14 @@ async function remember(ctx: Pick<AgentAssemblyContext, "agentId" | "data">, cha
   }));
 }
 
-/** The live view goes to the person on WhatsApp, straight from here. */
-async function sendLiveView(ctx: Pick<AgentAssemblyContext, "agentInstance" | "workspaceId">, handOff: KuiperHandOff): Promise<void> {
+/**
+ * The live view goes to the person on WhatsApp, straight from here, and is
+ * kept host-side for their app's Watch screen. Neither path passes Muse.
+ */
+async function sendLiveView(ctx: Pick<AgentAssemblyContext, "agentId" | "agentInstance" | "workspaceId">, handOff: KuiperHandOff): Promise<void> {
   const to = ctx.agentInstance.context.phone;
   if (typeof to !== "string") throw new Error("There is no private way to reach the person: add their WhatsApp number.");
+  await keepHandOff({ person: ctx.workspaceId, agentId: ctx.agentId, sessionId: handOff.sessionId, reason: handOff.reason, url: handOff.url, page: handOff.page });
   const name = ctx.agentInstance.name ?? "Muse";
   const text = `${name} needs you for one step: ${handOff.reason}. This link opens ${name}'s browser for you (it is yours only): ${handOff.url}`;
   const token = process.env.WHATSAPP_TOKEN;
@@ -102,7 +108,11 @@ export function mountMuseBrowser(agent: IGloveRunnable, ctx: FoundryExecutionCon
     // A browser Muse closed (or one that ended) is gone; the next errand opens one from the profile.
     const current = await Effect.runPromise(ctx.data.getAgent(ctx.agentId));
     const sessionId = current && browserOf(current.context).sessionId;
-    if (sessionId && !adapter.resourceIds().includes(sessionId)) await remember(ctx, { sessionId: undefined, watchUrl: undefined });
+    if (sessionId && !adapter.resourceIds().includes(sessionId)) {
+      await remember(ctx, { sessionId: undefined, watchUrl: undefined });
+      // Its live view went with it: nothing left to take over.
+      await clearHandOff(ctx.workspaceId, sessionId);
+    }
   });
   const mounted = mountBrowser(agent, { adapter });
   close = () => mounted.close();

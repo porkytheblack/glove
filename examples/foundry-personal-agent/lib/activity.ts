@@ -56,6 +56,22 @@ export async function openSteps(person: string) {
       .map((item) => ({ plan: goal.definition.title, step: item.definition.label })));
 }
 
+/** A person's plans, each step with where it stands, for their app's Plans screen. */
+export async function plansOf(person: string) {
+  const plans = await plansStore(person, museId(person)).get(plansScope(person, museId(person)));
+  if (!plans) return [];
+  return projectGoalStatus(plans).goals.filter((goal) => goal.status !== "retired").map((goal) => ({
+    key: goal.definition.key,
+    title: goal.definition.title,
+    status: goal.status,
+    steps: goal.items.filter((item) => !item.definition.retired).map((item) => ({
+      key: item.definition.key,
+      label: item.definition.label,
+      state: item.state?.disposition ?? "pending",
+    })),
+  }));
+}
+
 /** Done and planned, for one person's Activity page. */
 export async function logFor(foundry: FoundryPlans, person: string) {
   const [done, activations, approvals, steps] = await Promise.all([

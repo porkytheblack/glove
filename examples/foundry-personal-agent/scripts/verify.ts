@@ -46,6 +46,7 @@ const { chromium } = await import("playwright-core");
 const { entries } = await import("../lib/ledger.js");
 const { activityOf, logFor } = await import("../lib/activity.js");
 const { AGENT_TOKEN } = await import("../lib/kuiper.js");
+const { handOffOf } = await import("../lib/handoffs.js");
 const { Sentinel } = await import("../agents/muse/sentinel.js");
 const { default: gmailApp } = await import("../agents/muse/apps/gmail.app.js");
 const { default: gmail } = await import("../agents/muse/transmissions/gmail.transmission.js");
@@ -161,6 +162,9 @@ try {
   const { sessionId, watchUrl } = await browserOf();
   assert.ok(sessionId && String(link.text).includes("token="), "a live view of the browser Muse kept");
   assert.ok(watchUrl && !watchUrl.includes("token="), "a view-only live view, kept for her app's Watch link");
+  // Host code also keeps the link for her app's "Take over to sign in", outside Muse's data.
+  const pending = await handOffOf("rosa");
+  assert.ok(pending && pending.sessionId === sessionId && String(link.text).includes(pending.url), "the hand-off is kept host-side for her app");
   // She signs in in the live view. Muse isn't connected; its run has ended.
   await kuiperHere.asPerson(sessionId!, async (page) => {
     await page.getByLabel("Email").fill("rosa@example.com");
@@ -193,6 +197,7 @@ try {
   const { sessionId: afterBooking, profileId, watchUrl: afterWatch } = await browserOf();
   assert.equal(afterBooking, undefined, "the closed browser is forgotten");
   assert.equal(afterWatch, undefined, "and so is its live view");
+  assert.equal(await handOffOf("rosa"), undefined, "and the hand-off, with the session it opened");
   const kuiper = new Kuiper({ apiKey: kuiperHere.key, gatewayUrl: kuiperHere.url });
   const account = await kuiper.browsers.use({ profileId }, async (session) => {
     const browser = await chromium.connectOverCDP(session.websocketUrl);

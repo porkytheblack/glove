@@ -4,12 +4,17 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "glove foundry dev",
-    "start": "glove foundry start",
+    "dev": "node scripts/dev.mjs",
+    "dev:foundry": "glove foundry dev",
+    "dev:web": "next dev",
+    "build": "next build",
+    "start": "node scripts/start.mjs",
     "onboard": "node --env-file-if-exists=.env --import tsx scripts/onboard.ts",
     "connect": "node --env-file-if-exists=.env --import tsx scripts/connect.ts",
+    "invite": "node --env-file-if-exists=.env --import tsx scripts/invite.ts",
     "whatsapp-webhook": "node --env-file-if-exists=.env --import tsx scripts/whatsapp-webhook.ts",
     "verify": "node --env-file-if-exists=.env --import tsx scripts/verify.ts",
+    "web-smoke": "node --import tsx scripts/web-smoke.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

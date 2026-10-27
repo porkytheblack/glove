@@ -11,6 +11,23 @@ function adaptersFor(workspaceId: string, agentId: string) {
   return createSqliteMemoryAdapters({ file: dataPath("memory.sqlite"), namespace: `${workspaceId}/${agentId}`, schema: new MemorySchema() });
 }
 
+/**
+ * What a person's Muse remembers, outside a run: for their app's "What it
+ * remembers". The same entries glove_context_set keeps.
+ */
+export const memoryOf = (workspaceId: string, agentId: string) => adaptersFor(workspaceId, agentId).context;
+
+/**
+ * Forget one entry from the person's app: the same removal glove_context_unset
+ * makes. False if this Muse has no such entry (another person's id, or gone).
+ */
+export async function forget(workspaceId: string, agentId: string, entryId: string): Promise<boolean> {
+  const memory = memoryOf(workspaceId, agentId);
+  if (!(await memory.get(entryId))) return false;
+  await memory.unset(entryId, { source: "app", actor: `person:${workspaceId}`, timestamp: new Date().toISOString(), note: "Forget, from the app" });
+  return true;
+}
+
 export function personalMemory(description: string) {
   return defineMemory({
     description,

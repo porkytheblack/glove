@@ -92,7 +92,7 @@ script.
   (`context.browser.profileId`) and save to it when Muse closes them.
 - **She can watch it.** When Muse opens a browser, host code keeps that
   session's view-only live view (`debugUrl`) on the instance
-  (`context.browser.watchUrl`) for her app's Watch link. The prompt never reads
+  (`context.browser.watchUrl`) for her app's Watch screen. The prompt never reads
   it. Sessions are also recorded, so your app can show her a replay
   (`session.recording()`) once one hibernates or ends. Kuiper's dashboard is
   yours, the operator's, not hers.
@@ -130,8 +130,9 @@ leaves:
 
 **Signing in is hers.** When a site wants her signed in (or shows a CAPTCHA
 she chooses to do), Muse calls `browser.handOff`:
-- Host code sends her Kuiper's live view of that browser on WhatsApp. The link
-  never enters Muse's context.
+- Host code sends her Kuiper's live view of that browser on WhatsApp, and keeps
+  it host-side (`lib/handoffs.ts`) for the web app's "Take over to sign in"
+  until the session closes. The link never enters Muse's context.
 - She signs in there herself. Muse never sees her password.
 - The cookies stay in the browser, and in her profile once Muse closes it.
 
@@ -220,12 +221,18 @@ lib/
   kuiper.ts           the Kuiper client: models and browsers, one key; the agent's name for sites
   memory.ts           memory and plans, a namespace per person
   payments.ts         one-time cards, typed into the checkout
-  activity.ts         the log: done and planned
+  activity.ts         the log: done and planned; plans for the app
+  handoffs.ts         a browser handed to the person, kept host-side for the app until its session closes
   whatsapp.ts         Meta's Cloud API
   oauth.ts  google.ts  mcp-servers.ts  people.ts  models.ts
+  host.ts             what the web app's server loads from lib, after discovery
+app/                  the web app (Next.js): Chat, Watch, Plans, You, Connections, sign-in
 demo/                 local Gmail and Calendar MCP servers; a stand-in for Kuiper's browser API, and sample sites
 scripts/
   verify.ts           a day, offline
+  web-smoke.ts        the web app in Chromium, offline
+  start.mjs  dev.mjs  Foundry and the web app together
+  invite.ts           a sign-in link for one person
   onboard.ts          sign a person up on a running Foundry
   connect.ts          connect their Gmail or Calendar at an access level
   whatsapp-webhook.ts Meta's webhook: handshake, signature, forward
@@ -237,7 +244,7 @@ scripts/
 pnpm install
 pnpm --filter glove-foundry-personal-agent verify   # offline, no keys; a local Chromium
 cp .env.example .env                                 # add KUIPER_GATEWAY_KEY (or ANTHROPIC_API_KEY, or OPENROUTER_API_KEY)
-pnpm --filter glove-foundry-personal-agent dev       # inspector at http://localhost:4149
+pnpm --filter glove-foundry-personal-agent dev       # the app at http://localhost:3000, inspector at :4149
 pnpm onboard sam "Sam" 15550109999 Juniper          # Rosa is seeded; add someone else, naming their agent
 pnpm connect sam gmail read                          # needs GOOGLE_CLIENT_ID and friends
 ```
@@ -275,6 +282,71 @@ The run also checks that her password and the card number appear nowhere in
 Muse's data, and the live view link only in the WhatsApp message to her. Sample sends and purchases are listed in `.data/ledger.jsonl`, and
 the log is in `.data/activity.jsonl`.
 
+## The web app
+
+Rosa's side of it, in `app/`: a phone-first Next.js app that runs next to
+Foundry in the same unit and shares its `/data`. On a desktop it is the same
+phone-width column, centred. It is built on the shared kit in
+`examples/foundry-web-kit`.
+
+- **Chat.** Her `app` conversation with Muse. Replies stream in as they are
+  written, with the tools it used above each one. What waits for her shows
+  inline: the Sentinel's `request_access` as its own card (the site, whether
+  Muse would read it or send to it, and why: "Allow sending here" or "Not
+  now"), and Gmail's send and `buy` as approval cards with the email or the
+  purchase. Approvals asked on WhatsApp show here too. When a site wants her
+  signed in, a note links to Watch. WhatsApp is the other conversation;
+  the app shows that it exists, not its messages.
+- **Watch.** Muse's browser, from the view-only live view on the instance
+  (`context.browser.watchUrl`), embedded only when it is https, with the page
+  it is on. When a hand-off waits, "Take over to sign in" goes to
+  `/api/watch/take-over`, which redirects the signed-in person, and only
+  them, to Kuiper's interactive live view kept by `lib/handoffs.ts`. No page
+  or API response holds that link, and it is cleared when the session closes.
+  WhatsApp still gets it too.
+- **Plans.** Her plans and their steps (Foundry goals at instance scope), and
+  the log: what is planned (its checks and schedules, next steps, what waits
+  for her) and what it did today, as plain lines. Session ids and tool input
+  stay on the server.
+- **You.** Its name, colour and way of talking, written to the instance
+  (`name` and `context.persona`) with the rest of its data kept. What it
+  remembers, each with Forget: the same removal `glove_context_unset` makes,
+  in her memory only. Sign out.
+- **Connections.** Read or Act per app (`setAccess`), or Disconnect; the
+  account each holds; her WhatsApp number; the sites the Sentinel knows from
+  `context.sentinel` (Read, Read · Send, Blocked).
+
+The browser only talks to the app's server. That server holds
+`FOUNDRY_TOKEN`, calls Foundry on loopback and loads `lib/host.ts` for the
+rest (memory, plans, the log, the hand-off). Every API route checks the
+session, then that the person's workspace owns the run, approval or memory
+entry it names, and answers 404 otherwise. Live updates are server-sent events
+at `/api/runs/<id>/live`, which pass on only text, tool names, approvals and
+the run's start and end.
+
+```bash
+pnpm --filter glove-foundry-personal-agent dev          # Foundry dev + next dev on :3000
+pnpm --filter glove-foundry-personal-agent build        # next build
+pnpm --filter glove-foundry-personal-agent start        # Foundry on 127.0.0.1:4141 + next start on $PORT
+pnpm --filter glove-foundry-personal-agent web-smoke    # offline, in Chromium
+```
+
+**Signing in.** `pnpm invite rosa` prints `<WEB_URL>/signin?t=…`, a link for
+Rosa that works for 7 days. Its token is HMAC-SHA256 with
+`WEB_SESSION_SECRET` over her id and the expiry. Opening it sets an HttpOnly
+`session` cookie for 30 days (Secure over https); her workspace is her id.
+With no `WEB_SESSION_SECRET` in development, the sign-in page lists the
+people with a Muse (Rosa, and anyone `pnpm onboard` added); in production the
+secret is required.
+
+`web-smoke` builds if needed and starts the unit with the scripted model
+(`MUSE_DEMO=1`) and the Kuiper stand-in, then signs Rosa in through an invite
+link. Her hello streams in; she asks for the Bistro Luna booking and allows
+the Sentinel's send; she takes over from Watch, signs in, and Muse books; she
+forgets something from You, renames Muse, gives Gmail send access, and finds
+her plan and log in Plans. Sam's run, an approval id and Sam's memory entry
+answer 404 to her. Set `WEB_SMOKE_SHOTS=<dir>` to save each screen.
+
 ## Connect real accounts and WhatsApp
 
 - **Gmail and Calendar.** Create a Google OAuth client with the Gmail, Gmail
@@ -302,8 +374,9 @@ kuiper projects create muse && kuiper use muse
 kuiper units create muse
 
 kuiper providers add anthropic --key -            # once per organisation
-kuiper secrets set GOOGLE_CLIENT_SECRET=- GOOGLE_SERVICE_ACCOUNT_JSON=- WHATSAPP_TOKEN=- FOUNDRY_TOKEN=-
+kuiper secrets set GOOGLE_CLIENT_SECRET=- GOOGLE_SERVICE_ACCOUNT_JSON=- WHATSAPP_TOKEN=- FOUNDRY_TOKEN=- WEB_SESSION_SECRET=-
 kuiper env set -u muse MUSE_DATA_DIR=/data \
+  'WEB_SESSION_SECRET=${{secrets.WEB_SESSION_SECRET}}' WEB_URL=https://… \
   'KUIPER_GATEWAY_KEY=${{models.API_KEY}}' \
   'BROWSERS_URL=${{browsers.BASE_URL}}' \
   GOOGLE_CLIENT_ID=… 'GOOGLE_CLIENT_SECRET=${{secrets.GOOGLE_CLIENT_SECRET}}' \
@@ -313,12 +386,20 @@ kuiper env set -u muse MUSE_DATA_DIR=/data \
   'FOUNDRY_TOKEN=${{secrets.FOUNDRY_TOKEN}}'
 
 kuiper deploy --source . -u muse --wait
-kuiper dashboard -u muse --enable                 # inspector login
 kuiper logs -u muse -f
 ```
 
-The WhatsApp webhook runs as a second unit from the same source. It is the only
-public way in, and it reaches Foundry over the private address. Its public URL
+`kuiper.json` starts `scripts/start.mjs` under `tini` and makes port 3000
+public: the web app. Foundry runs beside it on 127.0.0.1:4141 with no public
+address, and the web app sends it `FOUNDRY_TOKEN`. Make invite links anywhere
+the secret is known: `WEB_SESSION_SECRET=… WEB_URL=https://… pnpm invite rosa`.
+To run Foundry alone instead (its API and inspector, no web app), start it
+with `glove foundry start` and `kuiper dashboard -u muse --enable`.
+
+The WhatsApp webhook runs as a second unit from the same source. It reaches
+Foundry over the private address, so it needs Foundry listening there: with the
+web app in the unit, Foundry is on loopback, so run the webhook in the same
+unit or give Foundry a private listener first. Its public URL
 is the webhook URL you register with Meta:
 
 ```bash

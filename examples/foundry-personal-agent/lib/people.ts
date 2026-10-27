@@ -16,7 +16,7 @@ export interface Person {
   readonly phone?: string;
   /** What they call their agent. Muse unless they choose. */
   readonly agentName?: string;
-  /** Its picture, as a URL your app shows. */
+  /** Its look, which your app shows: a colour name (the web app offers green, blue, amber and plum) or a picture's URL. */
   readonly avatar?: string;
   /** How they want it to talk to them, in their words. */
   readonly style?: string;
