@@ -20,5 +20,8 @@ export function claudeModel(name: string, options: { readonly stream?: boolean }
     return createAdapter({ provider: "openrouter", model, ...options });
   }
   const gateway = kuiper();
+  // On Kuiper, a name with a slash is the gateway's name for another provider
+  // key (oprouter/anthropic/claude-sonnet-5.5), served over Chat Completions.
+  if (gateway && name.includes("/")) return createAdapter({ provider: "openrouter", model: name, cache: true, ...options, ...gateway.models.glove("openrouter") });
   return createAdapter({ provider: "anthropic", model: name, ...options, ...(gateway ? gateway.models.glove("anthropic") : {}) });
 }
