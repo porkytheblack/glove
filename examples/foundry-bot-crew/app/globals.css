@@ -118,6 +118,7 @@ textarea.input { padding: 10px 12px; resize: vertical; }
 .card.dashed { border: 1px dashed var(--kit-line-strong); }
 .card h2 { margin: 0; font-size: 18px; font-weight: 600; }
 .card p { margin: 0; font-size: 15px; line-height: 1.5; color: var(--kit-muted); }
+.demo-col { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
 .tags { margin: 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap; gap: 6px; font-size: 13px; }
 .tags li { padding: 6px 10px; border-radius: 999px; border: 1px solid var(--kit-line-strong); }
 .row-card { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 18px; border-radius: 14px; background: var(--kit-surface); border: 1px solid var(--kit-line); }

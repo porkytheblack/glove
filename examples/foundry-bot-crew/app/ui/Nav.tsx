@@ -10,11 +10,13 @@ const LINKS = [
   { href: "/templates", label: "Templates" },
 ] as const;
 
-export function Nav() {
+/** `demo`: the demo connectors are on, so "Try it" shows too. */
+export function Nav({ demo = false }: { readonly demo?: boolean }) {
   const path = usePathname();
+  const links = demo ? [...LINKS, { href: "/demo", label: "Try it" }] : LINKS;
   return (
     <nav aria-label="Main" className="nav">
-      {LINKS.map((link) => (
+      {links.map((link) => (
         <Link key={link.href} href={link.href} aria-current={path === link.href || path.startsWith(`${link.href}/`) ? "page" : undefined}>
           {link.label}
         </Link>

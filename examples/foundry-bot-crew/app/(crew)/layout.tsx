@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { currentPerson } from "glove-foundry-web-kit/server";
+import { currentPerson, demoConnectors } from "glove-foundry-web-kit/server";
 import { personOf } from "../server/crew";
 import { Nav } from "../ui/Nav";
 
@@ -15,7 +15,7 @@ export default async function CrewLayout({ children }: { children: React.ReactNo
       <header className="top">
         <div className="top-left">
           <Link href="/bots" className="brand">Crew</Link>
-          <Nav />
+          <Nav demo={demoConnectors()} />
         </div>
         <details className="me">
           <summary aria-label={`Signed in as ${person.name}`}>{person.name.charAt(0).toUpperCase()}</summary>

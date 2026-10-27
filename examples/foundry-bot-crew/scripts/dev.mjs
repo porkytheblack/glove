@@ -1,9 +1,10 @@
 import { spawn } from "node:child_process";
+import { demoEnv } from "./demo-connectors.mjs";
 
 // Local development: Foundry's dev runtime and inspector (port 4143, from
 // foundry.config.ts) and `next dev` on $PORT (3000), together.
 
-const env = { ...process.env, FOUNDRY_URL: process.env.FOUNDRY_URL ?? "http://127.0.0.1:4143", PORT: process.env.PORT ?? "3000" };
+const env = demoEnv({ ...process.env, FOUNDRY_URL: process.env.FOUNDRY_URL ?? "http://127.0.0.1:4143", PORT: process.env.PORT ?? "3000" });
 
 // Each in its own process group, so stopping one stops what it started too.
 const run = (script) => spawn("pnpm", ["run", script], { stdio: "inherit", env, detached: true });

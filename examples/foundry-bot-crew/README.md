@@ -256,6 +256,25 @@ the sign-in page offers Maya directly; in production the secret is required.
 Manager and its reply streams in; she asks it to reply to Dan, allows the
 email once, and it goes out; another person's bot, run and page answer 404.
 
+## Try it: the demo connector
+
+Set `DEMO_CONNECTORS=1` and the web app serves a mock Gmail, with a **Try it**
+link at `/demo`. Mail you deliver there:
+
+1. goes to the app's own `/webhooks/mail` at `WEB_URL`, signed with
+   `MOCK_MAIL_SECRET`. `scripts/demo-connectors.mjs` derives it from
+   `WEB_SESSION_SECRET`. The route exists only in this mode; real Gmail comes
+   in through the Gmail watch.
+2. lands in the person's sample mailbox (`demo/mailbox.ts`, read by
+   `demo/gmail-mcp.ts`) and fires the account's inbound route.
+3. wakes each bot with a routine on new mail, in its own chat. The page links
+   to them. A reply waits there for approval.
+
+The person needs Gmail connected first; the sample account is enough. Every
+hop goes in `<CREW_DATA_DIR>/demo-connectors.jsonl`, and the page shows it as
+a delivery log. A person can send at most 20 an hour, since each mail can wake
+several bots.
+
 ## Connect real accounts
 
 - **Gmail.** Create a Google OAuth client with the Gmail API and the Gmail MCP

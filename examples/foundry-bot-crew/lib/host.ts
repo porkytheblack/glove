@@ -15,4 +15,6 @@ export * as oauth from "./oauth.js";
 export * as people from "./people.js";
 export * as templates from "./templates.js";
 export { memoryOf } from "./memory.js";
+export { dataDir } from "./paths.js";
+export { arrive } from "../demo/mailbox.js";
 export { skillKey, type SavedSkill } from "../agents/bot/skills.js";
