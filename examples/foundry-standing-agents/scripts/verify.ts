@@ -42,6 +42,7 @@ const { ACTION_NAMES, performedActions } = await import("../lib/actions.js");
 const { reviewed } = await import("../lib/auto-review.js");
 const { notesFile } = await import("../lib/sources.js");
 const { entries } = await import("../lib/ledger.js");
+const { openHandOffs } = await import("../lib/handoffs.js");
 const { arrive } = await import("../demo/mailbox.js");
 const { readOnly, research } = await import("../agents/dot/research.js");
 const { default: gmailApp } = await import("../agents/dot/apps/gmail.app.js");
@@ -205,8 +206,12 @@ try {
   assert.equal((await runtime.listApprovals({ runId: password.id })).length, 0);
   assert.equal((await ran("change_password")).length, 0, "no password changed");
   assert.ok((await outbox()).some((post) => post.channel === "U0SAM" && /password/.test(post.text)));
+  // Both are kept where Sam can list them (the web app's Activity screen).
+  const handedOff = await openHandOffs([dot.id]);
+  assert.deepEqual(handedOff.map((item) => [item.action, item.builtIn]), [["change_password", true], ["merge_pr", false]]);
   console.log(`4. "block": merge_pr handed to Sam in Slack: "${mergeNote.text}"`);
   console.log(`   change_password with a rule of "allow" is still Sam's (built-in safety): "${password.reply}"`);
+  console.log(`   both are listed as hand-offs: ${handedOff.map((item) => item.todo).join(" ")}`);
 
   // 5. "Allow": no approval. Writing to someone who never wrote in still asks.
   const draft = await ask(app.id, "Open a draft PR for the CSV export fix.");

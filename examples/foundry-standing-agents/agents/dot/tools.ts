@@ -1,8 +1,9 @@
 import type { GloveFoldArgs, IGloveRunnable } from "glove-core";
 import { installedApplicationTransmissionToolName, type AgentAssemblyContext } from "glove-foundry";
 import { ACTION_NAMES, actionsFor } from "../../lib/actions.js";
-import { reviewed, type Review } from "../../lib/auto-review.js";
+import { ALWAYS_YOURS, reviewed, type Review } from "../../lib/auto-review.js";
 import { currentDot, type ParsedDot } from "../../lib/dot.js";
+import { recordHandOff } from "../../lib/handoffs.js";
 import { knownContacts, researchTools } from "../../lib/sources.js";
 import { aroundTool } from "../../lib/tool-policy.js";
 import gmailApp, { GMAIL_READS } from "./apps/gmail.app.js";
@@ -16,15 +17,23 @@ const sendTool = () => installedApplicationTransmissionToolName(gmailApp, gmail)
 /** The tools auto-review wraps. The monitor watches how they end (lib/monitor.ts). */
 export const reviewedTools = (): ReadonlySet<string> => new Set([...ACTION_NAMES, sendTool()]);
 
-function reviewOf(dot: ParsedDot, contacts: ReadonlyArray<string>, request: Context["request"]): Review {
+function reviewOf(dot: ParsedDot, contacts: ReadonlyArray<string>, ctx: Context): Review {
   return {
     owner: dot.owner,
     rules: dot.rules,
-    askedByPerson: startedByPerson(request),
+    askedByPerson: startedByPerson(ctx.request),
     contacts: [...contacts],
     tellPerson: dot.routing.decisions === "slack" && dot.slackUserId
       ? `Tell ${dot.owner} in Slack: post_to_slack to channel ${dot.slackUserId}, then say so here.`
       : `Tell ${dot.owner} in your reply.`,
+    // So the person can list what was handed to them (the web app's Activity screen).
+    handedOff: (action, todo) => recordHandOff({
+      agentId: ctx.agentId,
+      workspaceId: ctx.agentInstance.workspaceId,
+      action,
+      todo,
+      builtIn: ALWAYS_YOURS.has(action),
+    }),
   };
 }
 
@@ -38,7 +47,7 @@ export async function dotTools(ctx: Context): Promise<GloveFoldArgs<any>[]> {
   const read = researchTools(ctx.agentId);
   const dot = await currentDot(ctx);
   if (readOnly(ctx.request, dot)) return read;
-  const review = reviewOf(dot, [], ctx.request);
+  const review = reviewOf(dot, [], ctx);
   return [...read, ...actionsFor(ctx.agentId).map((action) => reviewed(action, review))];
 }
 
@@ -70,7 +79,7 @@ interface Send { readonly routeId: string; readonly payload: { readonly to: stri
  */
 export async function reviewSends(agent: IGloveRunnable, ctx: Context, dot: ParsedDot): Promise<void> {
   if (readOnly(ctx.request, dot)) return aroundTool(agent, sendTool(), () => undefined);
-  const review = reviewOf(dot, await knownContacts(agent), ctx.request);
+  const review = reviewOf(dot, await knownContacts(agent), ctx);
   aroundTool(agent, sendTool(), (send) => reviewed<Send>({
     name: send.name,
     description: "Send an email from the mailbox you work from: a reply (pass threadId and inReplyTo) or a new message.",

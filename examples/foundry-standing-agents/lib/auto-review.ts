@@ -37,6 +37,8 @@ export interface Review {
   readonly contacts: ReadonlyArray<string>;
   /** Where to tell the person about a hand-off, from the dot's routing. */
   readonly tellPerson: string;
+  /** Keeps a record of each hand-off the person can list (lib/handoffs.ts). */
+  readonly handedOff?: (action: string, todo: string) => Promise<unknown>;
 }
 
 /** The rule an action runs under. Built-in safety comes first; no Custom Rule lifts it. */
@@ -70,7 +72,12 @@ export function reviewed<I>(action: Action<I>, review: Review): GloveFoldArgs<I>
   if (level === "block") {
     return {
       ...described,
-      do: async (input) => notRun(rule, `It stays with ${review.owner}. ${handOff(input)} ${review.tellPerson}`),
+      do: async (input) => {
+        const todo = handOff(input);
+        // A failed record never turns a hand-off into something else.
+        await review.handedOff?.(rule, todo).catch((cause: unknown) => console.error("Couldn't record the hand-off:", cause));
+        return notRun(rule, `It stays with ${review.owner}. ${todo} ${review.tellPerson}`);
+      },
     };
   }
   const asks = level === "ask" || (level === "when_asked" && !review.askedByPerson);

@@ -5,7 +5,7 @@ import fromOwner from "../predicates/from-owner.predicate.js";
 
 /**
  * The fields we use from a Slack Events API `event_callback`. The forwarder
- * (scripts/slack-events.ts) checks Slack's signature and sends DMs and
+ * (lib/slack-events.ts) checks Slack's signature and sends DMs and
  * mentions here; the bot's own posts never arrive.
  */
 export const SlackEventCallback = Schema.Struct({

@@ -17,7 +17,7 @@ This is an independent example. It is not affiliated with or endorsed by OpenAI.
 
 ```
    you: the app · Slack (DM or @mention) · a call
-        │                     Slack Events API → scripts/slack-events.ts → transmission
+        │                     Slack Events API → the web app's /webhooks/slack → transmission
    ┌────▼──────────────────────────────────────────────────┐
    │ Pip · Sam's dot · one instance                         │  data: name, responsibilities,
    │   "app"   "slack"   a call   — one memory, notes       │  Custom Rules, routing
@@ -88,9 +88,9 @@ bot user stays the app's own account.
 | Coordinates: splits work across background agents, hands coding to Codex and long jobs to ChatGPT Work, checks the results | `glove_foundry_spawn` starts runs of the dot, which act under the same rules. Coding goes to the person's `Builder` over the mesh (`glove_mesh_send_message`); its reply comes back to the conversation that asked, and the dot checks it before it reports |
 | ChatGPT, Slack and Teams, with context in every channel | Conversations on one instance, keyed `app` and `slack`. Slack messages join with `conversationKey: "slack"`. Teams isn't built here; it would be a second transmission and forwarder like Slack's |
 | Hop on a call | `voiceCall` over the same assembled dot (`agents/dot/call.ts`) |
-| Slack: DMs and channel mentions | The forwarder passes only DMs and mentions, so, as with dots, adding the bot to a channel doesn't make it watch the channel. Answering only its owner is this example's choice: the `from-owner` predicate on `slackUserId`, in the playbook |
+| Slack: DMs and channel mentions | The webhook passes only DMs and mentions, so, as with dots, adding the bot to a channel doesn't make it watch the channel. Answering only its owner is this example's choice: the `from-owner` predicate on `slackUserId`, in the playbook |
 | Notification rules on schedules | `routing`, this example's choice, set per dot rather than per schedule: progress to the app, decisions to Slack, so a hand-off reaches the person as a Slack DM |
-| Activity View: progress, files and pending requests; redirect or pause | The inspector's runs, mesh threads (`runtime.listThreads()`) and pending approvals; steering redirects a run. `paused: true` on the dot (`configureAgent`) pauses it |
+| Activity View: progress, files and pending requests; redirect or pause | The web app's Activity screen: the dot's and builder's runs in progress, with Redirect (Foundry's steering), approvals and hand-offs, follow-ups and the files on both computers. Pause sets `paused: true` on the dot (`configureAgent`). The inspector shows the runs and mesh threads too |
 | Safety monitoring can pause a dot; stopping doesn't undo what it already did | `monitored()` in `lib/monitor.ts`, around every run except calls: after three hand-offs or denials in a row it sets `paused: true`, and every run of a paused dot only reads until you set it back. As with dots, pausing doesn't undo actions already taken |
 | Saved passwords used without the model seeing them | Account sessions: the Slack token and the mailbox's tokens are read only by `accountSessions`, never by the dot |
 | Specialist dots (enterprise preview), provisioned by IT with their own identity, credentials and system access | `specialistFor(org, { name, responsibilities, rules, account })`: the same definition, an instance in the organisation's workspace with its own name, its own Slack account and its own connected mailbox |
@@ -130,15 +130,23 @@ lib/
   slack-api.ts     chat.postMessage as the bot
   models.ts  demo-model.ts  demo-scripts.ts       real models with a key, scripted without
   memory.ts        account memory under the dot's own
+  handoffs.ts      what auto-review handed to the person, kept so they can list it
+  computer.ts      the files on a dot's or builder's computer, read from the data disk
+  host.ts          what the web app's server calls in lib/, with discovery's ids bound
   file-store.ts  paths.ts  authorization.ts
+app/                     the web app (Next.js): sign-in, the dot and its conversation, Activity, Rules, Apps
 foundry.application.ts   Sam's dot, builder and app conversation, seeded with defineAgentInstance
 demo/              a local Gmail MCP server over the sample support inbox
 fixtures/          the #feedback channel and the support inbox the demo reads
 scripts/
   verify.ts        the whole example, offline
+  web-smoke.ts     the web app in a real browser, offline
+  start.mjs  dev.mjs   Foundry and the web app together
+  invite.ts        a sign-in link for one person
   onboard.ts       give a person their dot on a running Foundry
   connect.ts       connect their mailbox through Google's sign-in
-  slack-events.ts  Slack's challenge and signature, then forward to Foundry
+  slack-events.ts  the same Slack webhook on its own port, for local runs
+kuiper.json        one unit: the web app on 3000 (Slack's events at /webhooks/slack), calls on 4160
 ```
 
 ## Run it
@@ -147,7 +155,7 @@ scripts/
 pnpm install
 pnpm --filter glove-foundry-standing-agents verify   # offline, no keys
 cp .env.example .env                                 # add ANTHROPIC_API_KEY
-pnpm --filter glove-foundry-standing-agents dev      # inspector at http://localhost:4145
+pnpm --filter glove-foundry-standing-agents dev      # the web app at :3000, inspector at :4145
 pnpm onboard ada "Ada" Juniper U0123456789
 pnpm connect ada gmail                               # needs GOOGLE_CLIENT_ID and friends
 ```
@@ -162,7 +170,7 @@ support inbox as a sample account:
    No acting tool, no mesh, no computer and no tool that starts a run is mounted.
 3. "Ask": a reply to a customer waits for approval, then goes from the support mailbox in her thread.
 4. "Block": "Merge the fix PR" is not run; a Slack DM tells Sam what to do. `change_password` is
-   his too, even after its rule is set to `allow`.
+   his too, even after its rule is set to `allow`. Both are kept as hand-offs Sam can list.
 5. "Allow": "Open a draft PR" runs with no approval. Email to an address that never wrote in
    still asks.
 6. Sam DMs Pip in Slack. The message joins Pip's Slack conversation, and the answer uses what
@@ -179,7 +187,73 @@ support inbox as a sample account:
 
 Without `SLACK_BOT_TOKEN`, posts to Slack are written to `.data/slack-outbox.jsonl`.
 Actions that really ran are listed in `.data/actions.jsonl`, and sample emails in `.data/ledger.jsonl`.
-The monitor keeps its count in `.data/monitor.json`.
+Hand-offs are kept in `.data/handoffs.jsonl`. The monitor keeps its count in `.data/monitor.json`.
+
+## The web app
+
+Sam's side of it, in `app/`: a Next.js app that runs next to Foundry and
+shares its `/data`. It is built on the shared kit in `examples/foundry-web-kit`.
+The nav is his dot's name, Activity, Rules and Apps.
+
+- **Pip.** The dot's name, handle (`handleOf`) and status: researching (read
+  only), working, paused, or ready. Its responsibilities, and "Hand Pip a
+  responsibility", a write to its data (`configureAgent`, keeping the rest).
+  Where it is: here, Slack DMs and mentions, a call, and where progress and
+  decisions go. The app conversation streams each reply as it is written, with
+  the tools it used above it and approvals inline (Approve or Deny, with what
+  will go out and why it asks). Research and follow-up runs show as a line in
+  the thread. The latest suggestion research brought with `suggest`, read from
+  the transcript, sits on top until Sam answers: "Go ahead" sends it back to
+  Pip as his message.
+- **Activity.** In progress: the dot's and builder's runs, each marked read only
+  or under your rules, with Redirect (Foundry's steering: the run stops and
+  starts again from Sam's message). Waiting on you: approvals ("Ask first") and
+  hand-offs ("Yours to do"), which auto-review records in
+  `.data/handoffs.jsonl` (`lib/handoffs.ts`) and Sam marks done. Follow-ups:
+  the dot's schedules with their time zone, marked "acts under your rules" or
+  "read only". Files: what is on Pip's and the builder's computers, read from
+  the data disk; text opens as plain text, anything else downloads. Pause and
+  Resume set `paused`. A monitor pauses Pip after three hand-offs or denials in
+  a row, and pausing doesn't undo anything.
+- **Rules.** Custom Rules per action with the four settings, written to
+  `rules` on the dot. Built-in safety (`ALWAYS_YOURS`, `ALWAYS_ASKS`) is shown
+  locked: always yours to do, or always asks first.
+- **Apps.** The support mailbox in Gmail and Slack: their accounts, what comes
+  in (new mail, watching the mailbox; Sam's DMs and mentions) and goes out
+  (email, under the send rule; posts as the bot), and the playbooks that take
+  what comes in.
+
+The browser only talks to the app's server. That server holds `FOUNDRY_TOKEN`
+and calls Foundry on loopback; every API route checks the session, then checks
+that Sam's workspace owns the dot, run, approval, hand-off or file it names,
+and answers 404 otherwise. Only the person's own primary dot and builder show;
+a specialist dot lives in its organisation's workspace. What reaches the page
+is cut down to what it shows: no tokens, prompts or raw tool results. Live
+updates are server-sent events at `/api/runs/<id>/live`, which pass on only
+text, tool names, approvals and the run's start and end.
+
+```bash
+pnpm --filter glove-foundry-standing-agents dev          # Foundry dev + next dev on :3000
+pnpm --filter glove-foundry-standing-agents build        # next build
+pnpm --filter glove-foundry-standing-agents start        # Foundry on 127.0.0.1:4141 + next start on $PORT
+pnpm --filter glove-foundry-standing-agents web-smoke    # offline, in Chromium
+```
+
+**Signing in.** `pnpm invite sam` prints `<WEB_URL>/signin?t=…`, a link for
+Sam that works for 7 days. Its token is HMAC-SHA256 with `WEB_SESSION_SECRET`
+over his id and the expiry. Opening it sets an HttpOnly `session` cookie for
+30 days (Secure over https); his workspace is his id. Sign out from the avatar
+menu. With no `WEB_SESSION_SECRET` in development, the sign-in page offers Sam
+directly; in production the secret is required.
+
+`web-smoke` builds if needed, starts the unit with scripted models
+(`DOTS_DEMO=1`) and signs Sam in through an invite link. His message's reply
+streams in; a research run brings a suggestion and "Go ahead" opens the draft
+PR; an email to Dana waits for his approval and goes out; Activity lists a
+hand-off, an email that asks first (which he redirects), a follow-up in his
+time zone and a file; he sets a rule and pauses and resumes Pip; Ada's dot,
+runs, approval, hand-off and files answer 404. With `WEB_SMOKE_SHOTS=<dir>` it
+also saves a screenshot of each screen.
 
 ## Where it differs
 
@@ -200,16 +274,17 @@ The monitor keeps its count in `.data/monitor.json`.
    `app_mentions:read` scopes, turn on the Messages tab in App Home, and install
    it in your workspace. Set `SLACK_BOT_TOKEN`, `SLACK_TEAM_ID`, `SLACK_APP_ID`
    and `SLACK_BOT_USER_ID`.
-2. Run `pnpm slack-events` where Slack can reach it, with `SLACK_SIGNING_SECRET`,
-   `FOUNDRY_URL` and `FOUNDRY_TOKEN`.
-3. Under Event Subscriptions, set its URL as the request URL and subscribe the
+2. Set `SLACK_SIGNING_SECRET`. The web app serves Slack's events at
+   `<WEB_URL>/webhooks/slack`; locally, `pnpm slack-events` serves the same on
+   port 4146 for a tunnel, with `FOUNDRY_URL` and `FOUNDRY_TOKEN`.
+3. Under Event Subscriptions, set that URL as the request URL and subscribe the
    bot to `message.im` and `app_mention`.
 4. Create each person's dot with their Slack user id (`scripts/onboard.ts`).
 
 Teams isn't built here; it would be a second transmission and forwarder like
 Slack's, with a `teams` conversation on the same instance.
 
-The forwarder answers Slack's `url_verification` challenge. It checks
+The webhook (`lib/slack-events.ts`) answers Slack's `url_verification` challenge. It checks
 `x-slack-signature` on every request (`v0=` HMAC-SHA256 of
 `v0:{timestamp}:{body}` with the signing secret) and rejects timestamps more
 than five minutes old. It skips the bot's own posts, edits and plain channel
@@ -220,13 +295,13 @@ Slack's `event_id` is the event id, so a retried delivery runs once. The
 playbook on each dot matches only its owner's user id, so one Slack app serves
 everyone.
 
-To try the forwarder without Slack, sign a request yourself:
+To try the webhook without Slack, sign a request yourself:
 
 ```bash
 body='{"type":"url_verification","challenge":"hello"}'
 ts=$(date +%s)
 sig="v0=$(printf 'v0:%s:%s' "$ts" "$body" | openssl dgst -sha256 -hmac "$SLACK_SIGNING_SECRET" | sed 's/^.* //')"
-curl -s localhost:4146 -H "x-slack-request-timestamp: $ts" -H "x-slack-signature: $sig" -d "$body"   # hello
+curl -s localhost:3000/webhooks/slack -H "x-slack-request-timestamp: $ts" -H "x-slack-signature: $sig" -d "$body"   # hello
 ```
 
 ## Deploy on Kuiper
@@ -240,51 +315,41 @@ kuiper projects create dots && kuiper use dots
 kuiper units create dots
 
 kuiper providers add anthropic --key -            # once per organisation
-kuiper secrets set SLACK_BOT_TOKEN=- FOUNDRY_TOKEN=-
+kuiper secrets set SLACK_BOT_TOKEN=- SLACK_SIGNING_SECRET=- FOUNDRY_TOKEN=- WEB_SESSION_SECRET=-
 kuiper env set -u dots DOTS_DATA_DIR=/data \
   'FOUNDRY_TOKEN=${{secrets.FOUNDRY_TOKEN}}' \
+  'WEB_SESSION_SECRET=${{secrets.WEB_SESSION_SECRET}}' WEB_URL=https://… \
   'ANTHROPIC_API_KEY=${{models.API_KEY}}' \
   'ANTHROPIC_BASE_URL=${{models.ANTHROPIC_BASE_URL}}' \
   'SLACK_BOT_TOKEN=${{secrets.SLACK_BOT_TOKEN}}' \
+  'SLACK_SIGNING_SECRET=${{secrets.SLACK_SIGNING_SECRET}}' \
   SLACK_TEAM_ID=… SLACK_APP_ID=… SLACK_BOT_USER_ID=…
 
 kuiper deploy --source . -u dots --wait
-kuiper dashboard -u dots --enable                 # inspector login
 kuiper logs -u dots -f
 ```
 
-`FOUNDRY_TOKEN` goes in before the first deploy: Foundry refuses to listen on a
-public address without an authorizer, and `lib/authorization.ts` makes one from
-that token (or from the inspector login `kuiper dashboard --enable` sets).
+`kuiper.json` starts `scripts/start.mjs` under `tini` and makes two ports
+public: the web app on 3000 and calls on 4160. `pnpm start` runs Foundry on
+loopback, so the browser never reaches it, and the web app on the public port.
+Slack's events come in through the web app too: `<WEB_URL>/webhooks/slack` is
+the Slack request URL, and it forwards to Foundry on loopback.
+Set `FOUNDRY_TOKEN` anyway: `lib/authorization.ts` makes Foundry check it, and
+the web app sends it. Make invite links anywhere the secret
+is known: `WEB_SESSION_SECRET=… WEB_URL=https://… pnpm invite sam`. To run
+Foundry alone on a public address instead (its API and inspector, no web app),
+start it with `glove foundry start`; it then needs that token or the inspector
+login `kuiper dashboard --enable` sets.
 
 Model calls go through Kuiper's model gateway, so the Anthropic key stays with
-the organisation and every call is counted. Dots, transcripts, memory, notes
-and both computers sit on the `/data` disk.
+the organisation and every call is counted. Dots, transcripts, memory, notes,
+hand-offs and both computers sit on the `/data` disk.
 
-Calls need two things the deploy above doesn't give:
-
-- **A public port for the call room.** The room listens on the port in the
-  call request, and the unit Kuiper infers opens only 4141. Run
-  `kuiper manifest init --foundry`, add `{ "name": "call", "port": 4160,
-  "public": true }` to `ports` in the `kuiper.json` it writes, commit it, and
-  start calls on 4160, one at a time.
-- **`OPENAI_API_KEY` as a secret.** The speech-to-speech session talks to
-  OpenAI's realtime API, which Kuiper's model gateway doesn't serve:
-  `kuiper secrets set OPENAI_API_KEY=-`, then
-  `'OPENAI_API_KEY=${{secrets.OPENAI_API_KEY}}'`.
-
-The Slack forwarder runs as a second unit from the same source. It is the only
-public way in for Slack, and it reaches Foundry over the private address. Its
-public URL is the Slack request URL:
-
-```bash
-kuiper units create slack-events
-kuiper settings -u slack-events --start-command "pnpm slack-events" --port 4146
-kuiper secrets set SLACK_SIGNING_SECRET=-
-kuiper env set -u slack-events 'SLACK_SIGNING_SECRET=${{secrets.SLACK_SIGNING_SECRET}}' \
-  'FOUNDRY_TOKEN=${{secrets.FOUNDRY_TOKEN}}' 'FOUNDRY_URL=${{dots.INTERNAL_URL}}'
-kuiper deploy --source . -u slack-events --wait
-```
+Calls also need **`OPENAI_API_KEY` as a secret**. The speech-to-speech session
+talks to OpenAI's realtime API, which Kuiper's model gateway doesn't serve:
+`kuiper secrets set OPENAI_API_KEY=-`, then
+`'OPENAI_API_KEY=${{secrets.OPENAI_API_KEY}}'`. The call room listens on the
+port in the call request: start calls on 4160, one at a time.
 
 For a computer with a real browser, mount a Kuiper sandbox and browser per dot
 with `kuiperSandbox` and `kuiperBrowser` from `glove-execution/kuiper`, in place

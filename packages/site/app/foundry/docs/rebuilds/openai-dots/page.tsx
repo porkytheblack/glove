@@ -443,8 +443,8 @@ export function reviewed<I>(action: Action<I>, review: Review): GloveFoldArgs<I>
         Routing, this example&apos;s choice, decides where updates go. With decisions routed to
         Slack, a hand-off reaches the person as a Slack DM, while routine progress stays in the
         app. Slack&apos;s Events API needs its <code>url_verification</code> challenge answered and
-        every request&apos;s signature checked, which <code>scripts/slack-events.ts</code> does
-        before forwarding. The forwarder passes only DMs and mentions, so, as with dots, adding the
+        every request&apos;s signature checked, which the web app&apos;s <code>/webhooks/slack</code>
+        route does before forwarding (<code>lib/slack-events.ts</code>). It passes only DMs and mentions, so, as with dots, adding the
         bot to a channel doesn&apos;t make it watch the channel. Reading a channel is a read-only
         tool, <code>read_channel</code>, through Slack read access.
       </p>
@@ -517,23 +517,27 @@ kuiper projects create dots && kuiper use dots
 kuiper units create dots
 
 kuiper providers add anthropic --key -            # once per organisation
-kuiper secrets set SLACK_BOT_TOKEN=- GOOGLE_CLIENT_SECRET=- GOOGLE_SERVICE_ACCOUNT_JSON=- FOUNDRY_TOKEN=-
+kuiper secrets set SLACK_BOT_TOKEN=- SLACK_SIGNING_SECRET=- FOUNDRY_TOKEN=- WEB_SESSION_SECRET=-
+kuiper secrets set GOOGLE_CLIENT_SECRET=- GOOGLE_SERVICE_ACCOUNT_JSON=-
 kuiper env set -u dots DOTS_DATA_DIR=/data \\
   'FOUNDRY_TOKEN=\${{secrets.FOUNDRY_TOKEN}}' \\
+  'WEB_SESSION_SECRET=\${{secrets.WEB_SESSION_SECRET}}' WEB_URL=https://… \\
   'ANTHROPIC_API_KEY=\${{models.API_KEY}}' \\
   'ANTHROPIC_BASE_URL=\${{models.ANTHROPIC_BASE_URL}}' \\
   'SLACK_BOT_TOKEN=\${{secrets.SLACK_BOT_TOKEN}}' \\
+  'SLACK_SIGNING_SECRET=\${{secrets.SLACK_SIGNING_SECRET}}' \\
   GOOGLE_CLIENT_ID=… 'GOOGLE_CLIENT_SECRET=\${{secrets.GOOGLE_CLIENT_SECRET}}' \\
   GMAIL_PUBSUB_TOPIC=… GMAIL_PUBSUB_SUBSCRIPTION=… \\
   'GOOGLE_SERVICE_ACCOUNT_JSON=\${{secrets.GOOGLE_SERVICE_ACCOUNT_JSON}}'
 
 kuiper deploy --source . -u dots --wait
-kuiper dashboard -u dots --enable                 # inspector login`}
+
+# Set <WEB_URL>/webhooks/slack as the Slack app's request URL.`}
       />
       <ul>
-        <li><strong>The Slack forwarder</strong> runs as a second unit with <code>--start-command &quot;pnpm slack-events&quot;</code>. Its public URL is Slack&apos;s request URL, and it reaches Foundry at <code>{"${{dots.INTERNAL_URL}}"}</code>. The README has the commands.</li>
+        <li><strong>One unit.</strong> The web app takes the public port and Foundry runs beside it on loopback. Slack&apos;s events come in through the web app at <code>/webhooks/slack</code>, so nothing else needs an address.</li>
         <li><strong>State</strong> (dots, transcripts, memory, notes, accounts and tokens, the computers, schedules) is on the <code>/data</code> disk. New mail needs nothing public: the Gmail watch pulls its subscription from inside the unit.</li>
-        <li><strong>The API and inspector</strong> are locked by <code>FOUNDRY_TOKEN</code>, which the Slack forwarder also uses. Set it before the first deploy: Foundry won&apos;t listen on a public address without an authorizer.</li>
+        <li><strong>The API and inspector</strong> are locked by <code>FOUNDRY_TOKEN</code>, which the web app sends. Set it before the first deploy.</li>
         <li><strong>Calls</strong> need a public port for the call room, declared in a committed <code>kuiper.json</code>, and <code>OPENAI_API_KEY</code> as a secret, since the model gateway has no realtime route. The README has the steps.</li>
         <li><strong>A real computer.</strong> Mount a <Link href="/foundry/docs/kuiper#execution">Kuiper sandbox and browser</Link> with <code>glove-execution/kuiper</code> in place of the dot&apos;s and the builder&apos;s working environments.</li>
       </ul>
