@@ -77,3 +77,24 @@ export interface AppSummary {
     readonly handledBy: ReadonlyArray<{ readonly agentId: string; readonly agent: string; readonly does?: string }>;
   }>;
 }
+
+/** One message in a mock provider's conversation. `me` is whoever the page lets you be (Rosa's phone, Sam in Slack). */
+export interface MockBubble {
+  readonly id: string;
+  readonly side: "me" | "them";
+  readonly text: string;
+  readonly at: string;
+  /** A small line under the bubble, like "from 1555 0199 999". */
+  readonly note?: string;
+}
+
+/** One line in the delivery log. */
+export interface DeliveryHop {
+  readonly id: string;
+  readonly at: string;
+  /** `in`: the mock sent the app a webhook. `hop`: the app passed it to Foundry. `out`: the app called the mock's API. */
+  readonly direction: "in" | "out" | "hop";
+  readonly title: string;
+  readonly detail?: string;
+  readonly ok: boolean;
+}

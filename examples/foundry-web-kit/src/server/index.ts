@@ -23,3 +23,4 @@ export { liveRun, reduceEvent, resumeAfter, type LiveOptions } from "./live";
 export { approvalView, pendingApprovals } from "./approvals";
 export { appsSummary, type AppsOptions, type PlaybookLine } from "./apps";
 export type { ApprovalDecision, ApprovalView, AppSummary, DisplayMessage, DisplayTool, LiveEvent } from "../shared";
+export { bearer, demoConnectors, hubSignature, mockLog, mockMailWebhook, postToOwnWebhook, sameSignature, slackSignature, type MockEntry, type MockLog, type MockMailHost, type MockMailMessage } from "./demo";

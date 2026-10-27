@@ -71,6 +71,26 @@ Components read CSS variables; set them on `:root` or a wrapper (or use
 | `--kit-mine` | The person's bubble |
 | `--kit-ask`, `--kit-ok` | Approvals and outbound; connected accounts |
 
+## Demo connectors
+
+Mock providers a product serves from its own web app, for demos with no real
+accounts. A webhook from a mock goes to the app's public address and is
+signed the way the provider signs it; the app's sends go to a mock API. The
+products turn them on with `DEMO_CONNECTORS=1`.
+
+| Export | What it does |
+| --- | --- |
+| `withDemoEnv(env, vars)` (`glove-foundry-web-kit/demo-env`) | With `DEMO_CONNECTORS=1`, adds the product's mock settings to `env`. `vars(secret, web)` gets a secret per name, derived from `WEB_SESSION_SECRET`, and the web app's loopback address. The start and dev scripts call it, so Foundry and Next get the same values. |
+| `demoConnectors()` | True when `DEMO_CONNECTORS=1`. |
+| `hubSignature`, `slackSignature`, `sameSignature`, `bearer` | Sign a body the way Meta or Slack does, compare signatures in constant time, and check the token sent to a mock API. |
+| `mockLog(dir)` | What crossed the wire, one JSON line per entry in `demo-connectors.jsonl`: `in` (a webhook), `hop` (what Foundry did with it) and `out` (a send to a mock). |
+| `postToOwnWebhook(path, body, headers)` | POST to one of the app's own routes at `WEB_URL`, through the same edge a provider's webhook comes in by. |
+| `mockMailWebhook(load)` | The `/webhooks/mail` handler. It checks the signature, puts the mail in a sample mailbox, fires the account's inbound route and logs the runs and agents it started. |
+
+On the client, `MockChat`, `MockMail` and `DeliveryLog` draw a mock
+conversation, a new-mail form and the log, and `useDemoState(url)` polls the
+product's demo API.
+
 ## Tests
 
 ```bash

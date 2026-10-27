@@ -7,7 +7,8 @@
   "exports": {
     "./server": "./src/server/index.ts",
     "./client": "./src/client/index.ts",
-    "./shared": "./src/shared.ts"
+    "./shared": "./src/shared.ts",
+    "./demo-env": { "types": "./src/demo-env.d.mts", "default": "./src/demo-env.mjs" }
   },
   "scripts": {
     "test": "node --import tsx --test test/*.test.ts",

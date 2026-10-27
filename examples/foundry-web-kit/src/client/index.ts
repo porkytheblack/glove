@@ -8,4 +8,5 @@ export { ApprovalCard, type ApprovalCardProps } from "./ApprovalCard";
 export { useLiveRun, type LiveRun, type LiveRunOptions, type LiveStatus } from "./useLiveRun";
 export { AppsScreen, type AppsScreenProps } from "./AppsScreen";
 export { themeStyle, token, type KitTheme } from "./theme";
-export type { ApprovalDecision, ApprovalView, AppSummary, DisplayMessage, DisplayTool, LiveEvent } from "../shared";
+export { DeliveryLog, MockChat, MockMail, useDemoState, type MockChatProps, type MockMailInput, type MockMailProps } from "./Mock";
+export type { ApprovalDecision, ApprovalView, AppSummary, DeliveryHop, DisplayMessage, DisplayTool, LiveEvent, MockBubble } from "../shared";
