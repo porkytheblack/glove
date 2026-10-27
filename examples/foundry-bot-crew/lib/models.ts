@@ -8,18 +8,26 @@ import { gmailRoutes } from "./connect.js";
 import { DemoModel, type DemoStep, type DemoTurn } from "./demo-model.js";
 
 // Every bot uses the same model; which bot it is comes from its data. Without
-// ANTHROPIC_API_KEY every bot runs a short script picked by its data, so
-// `pnpm verify` and `pnpm dev` work offline. On Kuiper, ANTHROPIC_BASE_URL
-// points the same adapter at the model gateway.
+// ANTHROPIC_API_KEY or MODELS_API_KEY every bot runs a short script picked by
+// its data, so `pnpm verify` and `pnpm dev` work offline. On Kuiper,
+// ANTHROPIC_BASE_URL points the same adapter at the model gateway; a model
+// name with a slash (openrouter/anthropic/claude-sonnet-5.5) is the gateway's
+// name for another provider key, called at MODELS_BASE_URL.
 
 function scripted(): boolean {
-  return process.env.CREW_DEMO === "1" || !process.env.ANTHROPIC_API_KEY;
+  return process.env.CREW_DEMO === "1" || !(process.env.ANTHROPIC_API_KEY || process.env.MODELS_API_KEY);
 }
 
 export function botModel(_agent: unknown, { agentInstance: bot }: AgentAssemblyContext): ModelAdapter {
   if (scripted()) return new DemoModel(bot.id, scriptFor(bot));
+  const model = process.env.BOT_MODEL ?? "claude-sonnet-5-5";
+  const gateway = process.env.MODELS_BASE_URL;
+  if (gateway && model.includes("/")) {
+    // Cache the prompt and tools, which repeat on every turn.
+    return createAdapter({ provider: "openrouter", model, stream: true, cache: true, baseURL: gateway, apiKey: process.env.MODELS_API_KEY });
+  }
   const baseURL = process.env.ANTHROPIC_BASE_URL;
-  return createAdapter({ provider: "anthropic", model: process.env.BOT_MODEL ?? "claude-sonnet-5-5", stream: true, ...(baseURL ? { baseURL } : {}) });
+  return createAdapter({ provider: "anthropic", model, stream: true, ...(baseURL ? { baseURL } : {}) });
 }
 
 // ── The scripts ─────────────────────────────────────────────────────────────
@@ -77,6 +85,13 @@ function inboxScript(bot: AgentInstance, { text, called, results, lastResult }: 
   // A saved skill, invoked by name: its steps arrive just before this message.
   const skill = /\[invoked_extension__skill_([\w-]+)\]/.exec(text)?.[1];
   if (skill) return say(`Running ${skill} from the steps you saved.`);
+  // A reply she asks for in its chat (the web smoke test): it goes out once she approves.
+  if (/^reply to dan\b/i.test(text)) {
+    if (!called.includes(sendTool())) {
+      return sendMail(bot, { to: "dan@contoso.example", subject: "Re: Thursday's call", body: "Hi Dan, Thursday is tight on our side. Would Friday at 10 work instead? — Maya" });
+    }
+    return say(/"messageId"/.test(lastResult) ? "Sent your reply to Dan." : "You didn't approve it, so nothing went out.");
+  }
   // An ask that named no bot came to it, the starred one: its part, and the sales part to Sales Outbound.
   if (/this week/i.test(text)) {
     if (!called.includes("glove_mesh_list_agents")) return call("glove_mesh_list_agents", {});

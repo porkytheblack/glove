@@ -592,6 +592,9 @@ importers:
       glove-foundry:
         specifier: workspace:*
         version: link:../../packages/glove-foundry
+      glove-foundry-web-kit:
+        specifier: workspace:*
+        version: link:../foundry-web-kit
       glove-js:
         specifier: workspace:*
         version: link:../../packages/glove-js
@@ -601,6 +604,21 @@ importers:
       glove-working-environment:
         specifier: workspace:*
         version: link:../../packages/glove-working-environment
+      next:
+        specifier: ^15.3.3
+        version: 15.5.12(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      react:
+        specifier: ^19.0.0
+        version: 19.2.4
+      react-dom:
+        specifier: ^19.0.0
+        version: 19.2.4(react@19.2.4)
+      server-only:
+        specifier: ^0.0.1
+        version: 0.0.1
+      tsx:
+        specifier: ^4.21.0
+        version: 4.21.0
       zod:
         specifier: ^4.3.6
         version: 4.3.6
@@ -608,9 +626,15 @@ importers:
       '@types/node':
         specifier: ^25.2.3
         version: 25.2.3
-      tsx:
-        specifier: ^4.21.0
-        version: 4.21.0
+      '@types/react':
+        specifier: ^19.0.0
+        version: 19.2.14
+      '@types/react-dom':
+        specifier: ^19.0.0
+        version: 19.2.3(@types/react@19.2.14)
+      playwright-core:
+        specifier: ^1.50.0
+        version: 1.62.1
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
@@ -846,15 +870,33 @@ importers:
       glove-foundry:
         specifier: workspace:*
         version: link:../../packages/glove-foundry
+      glove-foundry-web-kit:
+        specifier: workspace:*
+        version: link:../foundry-web-kit
       glove-js:
         specifier: workspace:*
         version: link:../../packages/glove-js
       glove-memory:
         specifier: workspace:*
         version: link:../../packages/glove-memory
+      next:
+        specifier: ^15.3.3
+        version: 15.5.12(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
       playwright-core:
         specifier: ^1.50.0
         version: 1.62.1
+      react:
+        specifier: ^19.0.0
+        version: 19.2.4
+      react-dom:
+        specifier: ^19.0.0
+        version: 19.2.4(react@19.2.4)
+      server-only:
+        specifier: ^0.0.1
+        version: 0.0.1
+      tsx:
+        specifier: ^4.21.0
+        version: 4.21.0
       zod:
         specifier: ^4.3.6
         version: 4.3.6
@@ -862,9 +904,12 @@ importers:
       '@types/node':
         specifier: ^25.2.3
         version: 25.2.3
-      tsx:
-        specifier: ^4.21.0
-        version: 4.21.0
+      '@types/react':
+        specifier: ^19.0.0
+        version: 19.2.14
+      '@types/react-dom':
+        specifier: ^19.0.0
+        version: 19.2.3(@types/react@19.2.14)
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
@@ -932,6 +977,9 @@ importers:
       glove-foundry:
         specifier: workspace:*
         version: link:../../packages/glove-foundry
+      glove-foundry-web-kit:
+        specifier: workspace:*
+        version: link:../foundry-web-kit
       glove-js:
         specifier: workspace:*
         version: link:../../packages/glove-js
@@ -944,6 +992,21 @@ importers:
       glove-working-environment:
         specifier: workspace:*
         version: link:../../packages/glove-working-environment
+      next:
+        specifier: ^15.3.3
+        version: 15.5.12(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      react:
+        specifier: ^19.0.0
+        version: 19.2.4
+      react-dom:
+        specifier: ^19.0.0
+        version: 19.2.4(react@19.2.4)
+      server-only:
+        specifier: ^0.0.1
+        version: 0.0.1
+      tsx:
+        specifier: ^4.21.0
+        version: 4.21.0
       zod:
         specifier: ^4.3.6
         version: 4.3.6
@@ -951,9 +1014,15 @@ importers:
       '@types/node':
         specifier: ^25.2.3
         version: 25.2.3
-      tsx:
-        specifier: ^4.21.0
-        version: 4.21.0
+      '@types/react':
+        specifier: ^19.0.0
+        version: 19.2.14
+      '@types/react-dom':
+        specifier: ^19.0.0
+        version: 19.2.3(@types/react@19.2.14)
+      playwright-core:
+        specifier: ^1.50.0
+        version: 1.62.1
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
@@ -976,6 +1045,34 @@ importers:
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
+
+  examples/foundry-web-kit:
+    dependencies:
+      glove-foundry:
+        specifier: workspace:*
+        version: link:../../packages/glove-foundry
+    devDependencies:
+      '@types/node':
+        specifier: ^25.2.3
+        version: 25.2.3
+      '@types/react':
+        specifier: ^19.0.0
+        version: 19.2.14
+      next:
+        specifier: ^15.3.3
+        version: 15.5.12(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      react:
+        specifier: ^19.0.0
+        version: 19.2.4
+      react-dom:
+        specifier: ^19.0.0
+        version: 19.2.4(react@19.2.4)
+      tsx:
+        specifier: ^4.21.0
+        version: 4.21.0
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
 
   examples/glovebox-env:
     dependencies:

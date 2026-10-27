@@ -1,4 +1,4 @@
-import type { Message, ModelAdapter, ModelPromptResult, PromptRequest } from "glove-core";
+import type { Message, ModelAdapter, ModelPromptResult, NotifySubscribersFunction, PromptRequest } from "glove-core";
 
 /** What a scripted step sees: the message it is answering and what it has done since. */
 export interface DemoTurn {
@@ -28,7 +28,7 @@ export class DemoModel implements ModelAdapter {
   }
   setSystemPrompt(): void {}
 
-  async prompt(request: PromptRequest): Promise<ModelPromptResult> {
+  async prompt(request: PromptRequest, notify?: NotifySubscribersFunction): Promise<ModelPromptResult> {
     const messages = request.messages.filter((message) => !message.framework_context);
     let start = messages.length - 1;
     while (start > 0 && (messages[start]!.sender !== "user" || messages[start]!.tool_results?.length)) start--;
@@ -44,6 +44,17 @@ export class DemoModel implements ModelAdapter {
     const message: Message = "say" in step
       ? { sender: "agent", text: step.say }
       : { sender: "agent", text: "", tool_calls: [{ tool_name: step.call, input_args: step.input, id: `${step.call}-${Date.now()}` }] };
+    await stream(message, notify);
     return { messages: [message], tokens_in: 1, tokens_out: 1 };
   }
+}
+
+/** Streams a scripted reply the way a real adapter does, a few words at a time, so a web app shows it arriving. */
+async function stream(message: Message, notify?: NotifySubscribersFunction): Promise<void> {
+  if (!notify) return;
+  for (const chunk of message.text.match(/\S+\s*/g) ?? []) {
+    await notify("text_delta", { text: chunk });
+    await new Promise((resolve) => setTimeout(resolve, 15));
+  }
+  for (const call of message.tool_calls ?? []) await notify("tool_use", { id: call.id ?? call.tool_name, name: call.tool_name, input: call.input_args });
 }

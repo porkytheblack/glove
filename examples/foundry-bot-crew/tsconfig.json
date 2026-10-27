@@ -1,7 +1,12 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "noEmit": true
+    "noEmit": true,
+    "jsx": "preserve",
+    "allowJs": true,
+    "incremental": true,
+    "plugins": [{ "name": "next" }]
   },
-  "include": ["agents", "lib", "scripts", "foundry.application.ts", "foundry.config.ts"]
+  "include": ["next-env.d.ts", "app", "agents", "lib", "scripts", "foundry.application.ts", "foundry.config.ts", "next.config.ts", ".next/types/**/*.ts"],
+  "exclude": ["node_modules"]
 }

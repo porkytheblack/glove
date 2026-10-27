@@ -153,9 +153,17 @@ lib/
   groups.ts           messages from your app: askPrimary, and group chats (openGroup, postToGroup)
   templates.ts        duplicateBot, templateOf, fromTemplate, the marketplace
   models.ts           the model per bot, and scripts for offline runs
+  host.ts             what the web app's server calls: lib/, with the file ids bound by discovery
+app/                  the web app (Next.js): sign-in, bots and chats, group chats, profiles, templates, apps
+  server/             its server side: the host functions, workspace checks, chat and group views
+  ui/                 the screens' browser parts, on the kit's components
 demo/                 local MCP servers with Google's and Linear's tool names, for sample accounts
 scripts/
   verify.ts           a whole day, offline
+  web-smoke.ts        the web app in a real browser, offline
+  start.mjs           Foundry on loopback and the web app on $PORT, as one unit
+  dev.mjs             both, for development
+  invite.ts           a sign-in link for one person
   onboard.ts          sign a person up on a running Foundry
   connect.ts          connect one of their apps through the provider's sign-in
 ```
@@ -166,7 +174,7 @@ scripts/
 pnpm install
 pnpm --filter glove-foundry-bot-crew verify   # offline, no keys
 cp .env.example .env                          # add ANTHROPIC_API_KEY
-pnpm --filter glove-foundry-bot-crew dev      # inspector at http://localhost:4143
+pnpm --filter glove-foundry-bot-crew dev      # the web app at http://localhost:3000, the inspector at http://localhost:4143
 pnpm onboard ada "Ada"
 pnpm connect ada gmail                        # needs GOOGLE_CLIENT_ID and friends
 ```
@@ -188,6 +196,65 @@ accounts, whose apps use the local servers in `demo/`:
 12. She duplicates Sales Outbound: the copy has its job, style, apps and Monday routine, and none of its memory or chats. Its template carries no accounts.
 
 Sample sends and issues are listed in `.data/ledger.jsonl`.
+
+## The web app
+
+Maya's side of it, in `app/`: a Next.js app that runs next to Foundry and
+shares its `/data`. It is built on the shared kit in
+`examples/foundry-web-kit`.
+
+- **Bots.** Her bots, the starred Primary Bot first, each with what it is
+  doing (working, waiting for her approval, a routine's time, no job yet), and
+  her group chats. A bot's chat streams its reply in as it is written, with
+  the tools it used above each reply and a chip when it hands work to a
+  sibling. An approval shows inline with what will happen (an email's from,
+  to, subject and body): Allow once, Always allow, or Deny. Always allow adds
+  the tool to that bot's installation (`alwaysAllow`) and approves; it is
+  offered for app tools only, since sending email always asks. Ask, with no
+  bot open, sends a message that names no bot to the Primary Bot
+  (`askPrimary`).
+- **Group chats.** One thread from every member's side (`openGroup`,
+  `postToGroup`): the bots she @-mentions answer, or all of them. Members,
+  and Add a bot.
+- **A bot's profile.** Name, job and working style (a write to the
+  instance), the star, its routines (after an event and on a schedule),
+  the skill library, its apps with what runs without asking, and what it
+  remembers, read-only. Duplicate (`duplicateBot`) and Save as template
+  (`templateOf`).
+- **Templates.** A blank bot (`makeBot`), the marketplace and her saved
+  templates (`fromTemplate`).
+- **Apps.** Each app's accounts, its transmissions in (with the account
+  being watched) and out, and the playbooks that take what comes in: the
+  bots with a routine on new mail. Connect an app runs the provider's
+  sign-in when its OAuth client is set; register
+  `<WEB_URL>/api/apps/<app>/callback` as a redirect URI.
+
+The browser only talks to the app's server. That server holds
+`FOUNDRY_TOKEN` and calls Foundry on loopback; every API route checks the
+session, then checks that Maya's workspace owns the bot, conversation, run or
+approval it names, and answers 404 otherwise. What reaches the page is cut
+down to what it shows: no tokens, prompts or raw tool results. Live updates
+are server-sent events at `/api/runs/<id>/live`, which pass on only text,
+tool names, approvals and the run's start and end.
+
+```bash
+pnpm --filter glove-foundry-bot-crew dev          # Foundry dev + next dev on :3000
+pnpm --filter glove-foundry-bot-crew build        # next build
+pnpm --filter glove-foundry-bot-crew start        # Foundry on 127.0.0.1:4141 + next start on $PORT
+pnpm --filter glove-foundry-bot-crew web-smoke    # offline, in Chromium
+```
+
+**Signing in.** `pnpm invite maya` prints `<WEB_URL>/signin?t=…`, a link for
+Maya that works for 7 days. Its token is HMAC-SHA256 with
+`WEB_SESSION_SECRET` over her id and the expiry. Opening it sets an HttpOnly
+`session` cookie for 30 days (Secure over https); her workspace is her id.
+Sign out from the avatar menu. With no `WEB_SESSION_SECRET` in development,
+the sign-in page offers Maya directly; in production the secret is required.
+
+`web-smoke` builds if needed, starts the unit with scripted models
+(`CREW_DEMO=1`) and signs Maya in through an invite link. She writes to Inbox
+Manager and its reply streams in; she asks it to reply to Dan, allows the
+email once, and it goes out; another person's bot, run and page answer 404.
 
 ## Connect real accounts
 
@@ -215,9 +282,10 @@ kuiper projects create crew && kuiper use crew
 kuiper units create crew
 
 kuiper providers add anthropic --key -            # once per organisation
-kuiper secrets set GOOGLE_CLIENT_SECRET=- GOOGLE_SERVICE_ACCOUNT_JSON=- LINEAR_CLIENT_SECRET=- FOUNDRY_TOKEN=-
+kuiper secrets set GOOGLE_CLIENT_SECRET=- GOOGLE_SERVICE_ACCOUNT_JSON=- LINEAR_CLIENT_SECRET=- FOUNDRY_TOKEN=- WEB_SESSION_SECRET=-
 kuiper env set -u crew CREW_DATA_DIR=/data \
   'FOUNDRY_TOKEN=${{secrets.FOUNDRY_TOKEN}}' \
+  'WEB_SESSION_SECRET=${{secrets.WEB_SESSION_SECRET}}' WEB_URL=https://… \
   'ANTHROPIC_API_KEY=${{models.API_KEY}}' \
   'ANTHROPIC_BASE_URL=${{models.ANTHROPIC_BASE_URL}}' \
   GOOGLE_CLIENT_ID=… 'GOOGLE_CLIENT_SECRET=${{secrets.GOOGLE_CLIENT_SECRET}}' \
@@ -226,20 +294,31 @@ kuiper env set -u crew CREW_DATA_DIR=/data \
   LINEAR_CLIENT_ID=… 'LINEAR_CLIENT_SECRET=${{secrets.LINEAR_CLIENT_SECRET}}'
 
 kuiper deploy --source . -u crew --wait
-kuiper dashboard -u crew --enable                 # inspector login
 kuiper logs -u crew -f
 ```
 
+`kuiper.json` starts `scripts/start.mjs` under `tini` and makes port 3000 public.
+
 Model calls go through Kuiper's model gateway, so the Anthropic key stays with
-the organisation and every call is counted. Bots, threads, skills, accounts,
+the organisation and every call is counted. If the organisation's key is an
+OpenRouter key, set `'MODELS_BASE_URL=${{models.BASE_URL}}'`,
+`'MODELS_API_KEY=${{models.API_KEY}}'` and
+`BOT_MODEL=openrouter/anthropic/claude-sonnet-5.5` instead of the two
+`ANTHROPIC_` variables: a model name with a slash goes through the gateway's
+Chat Completions route, with prompt caching on. Bots, threads, skills, accounts,
 tokens, routes and bindings, transcripts, memory and the computers sit on the
 `/data` disk. A new bot or a new connection is a write there, not a redeploy.
 New mail needs nothing public: the Gmail watch pulls its subscription from
 inside the unit.
 
-`FOUNDRY_TOKEN` goes in before the first deploy: Foundry refuses to listen on a
-public address without an authorizer, and `lib/authorization.ts` makes one
-from that token (or from the inspector login `kuiper dashboard --enable` sets).
+`pnpm start` runs both processes in the unit: the web app on the public port,
+and Foundry on loopback, so the browser never reaches Foundry. Set
+`FOUNDRY_TOKEN` anyway: `lib/authorization.ts` makes Foundry check it, and
+the web app sends it. Make invite links anywhere the secret is known:
+`WEB_SESSION_SECRET=… WEB_URL=https://… pnpm invite maya`. To run Foundry
+alone on a public address instead (its API and inspector, no web app), start
+it with `glove foundry start`; it then needs that token or the inspector
+login `kuiper dashboard --enable` sets.
 
 For a real computer and browser, mount a Kuiper sandbox and a Kuiper browser
 per person with `kuiperSandbox` and `kuiperBrowser` from

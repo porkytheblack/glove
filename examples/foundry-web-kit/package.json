@@ -1,0 +1,32 @@
+{
+  "name": "glove-foundry-web-kit",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "The shared web layer for the Foundry examples: sign-in, workspace guards, a live run relay, and chat, approval and apps components",
+  "exports": {
+    "./server": "./src/server/index.ts",
+    "./client": "./src/client/index.ts",
+    "./shared": "./src/shared.ts"
+  },
+  "scripts": {
+    "test": "node --import tsx --test test/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "glove-foundry": "workspace:*"
+  },
+  "peerDependencies": {
+    "next": ">=15",
+    "react": ">=19"
+  },
+  "devDependencies": {
+    "@types/node": "^25.2.3",
+    "@types/react": "^19.0.0",
+    "next": "^15.3.3",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  }
+}

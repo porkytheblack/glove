@@ -18,15 +18,23 @@
     "glove-core": "workspace:*",
     "glove-env-fetch": "workspace:*",
     "glove-foundry": "workspace:*",
+    "glove-foundry-web-kit": "workspace:*",
     "glove-js": "workspace:*",
     "glove-memory": "workspace:*",
     "glove-voice-s2s": "workspace:*",
     "glove-working-environment": "workspace:*",
+    "next": "^15.3.3",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "server-only": "^0.0.1",
+    "tsx": "^4.21.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {
     "@types/node": "^25.2.3",
-    "tsx": "^4.21.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "playwright-core": "^1.50.0",
     "typescript": "^5.9.3"
   }
 }
