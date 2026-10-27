@@ -1143,15 +1143,22 @@ export class Observer {
     return false;
   }
 
-  async tryCompaction() {
+  async tryCompaction(current?: Message) {
     const current_token_consumption = await this.getCurrentTokenConsumption();
 
     if (current_token_consumption < this.CONTEXT_COMPACTION_LIMIT) return;
 
-    return this.runCompactionNow();
+    return this.runCompactionNow(current);
   }
 
-  async runCompactionNow() {
+  /**
+   * Summarise the conversation and continue from the summary. `current` is the
+   * request being worked on when compaction runs partway through one. The
+   * model sees nothing from before the summary, so the summary carries that
+   * request word for word; otherwise only the summary's retelling of it is
+   * left, and the model can lose what it was asked.
+   */
+  async runCompactionNow(current?: Message) {
     const current_token_consumption = await this.getCurrentTokenConsumption();
 
     await this.notifySubscribers("compaction_start", {
@@ -1189,9 +1196,13 @@ export class Observer {
         lines.join("\n") + "\n";
     }
 
+    const request = current?.text.trim()
+      ? `\n\n[The request being worked on, word for word]\n${current.text}\n`
+      : "";
+
     const summaryMessage: Message = {
       sender: "user",
-      text: `[Conversation summary from compaction]\n\n${summaryText}${inboxBlock}\n\n` +
+      text: `[Conversation summary from compaction]\n\n${summaryText}${inboxBlock}${request}\n\n` +
         `[End of summary - the conversation continues from here]`,
       is_compaction: true
     }
@@ -1302,7 +1313,7 @@ export class Agent {
 
       if (should_compact && has_tool_calls) {
         // so that model results with tool calls are fully resolved, and the model has the full information to make decisions
-        await this.observer.runCompactionNow()
+        await this.observer.runCompactionNow(message)
       }
       await this.context.appendMessages(results.messages);
       await this.observer.addTokensConsumed({
@@ -1346,7 +1357,7 @@ export class Agent {
       };
       await this.context.appendMessages([toolResultMessage]);
 
-      await this.observer.tryCompaction();
+      await this.observer.tryCompaction(message);
     }
   }
 
