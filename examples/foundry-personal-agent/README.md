@@ -245,7 +245,7 @@ scripts/
 ```bash
 pnpm install
 pnpm --filter glove-foundry-personal-agent verify   # offline, no keys; a local Chromium
-cp .env.example .env                                 # add KUIPER_GATEWAY_KEY (or ANTHROPIC_API_KEY, or OPENROUTER_API_KEY)
+cp .env.example .env                                 # add GATEWAY_KEY (or ANTHROPIC_API_KEY, or OPENROUTER_API_KEY)
 pnpm --filter glove-foundry-personal-agent dev       # the app at http://localhost:3000, inspector at :4149
 pnpm onboard sam "Sam" 15550109999 Juniper          # Rosa is seeded; add someone else, naming their agent
 pnpm connect sam gmail read                          # needs GOOGLE_CLIENT_ID and friends
@@ -382,7 +382,7 @@ kuiper secrets set GOOGLE_CLIENT_SECRET=- GOOGLE_SERVICE_ACCOUNT_JSON=- FOUNDRY_
 kuiper secrets set WHATSAPP_TOKEN=- WHATSAPP_APP_SECRET=- WHATSAPP_VERIFY_TOKEN=-
 kuiper env set -u muse MUSE_DATA_DIR=/data \
   'WEB_SESSION_SECRET=${{secrets.WEB_SESSION_SECRET}}' WEB_URL=https://… \
-  'KUIPER_GATEWAY_KEY=${{models.API_KEY}}' \
+  'GATEWAY_KEY=${{models.API_KEY}}' \
   'BROWSERS_URL=${{browsers.BASE_URL}}' \
   GOOGLE_CLIENT_ID=… 'GOOGLE_CLIENT_SECRET=${{secrets.GOOGLE_CLIENT_SECRET}}' \
   GMAIL_PUBSUB_TOPIC=… GMAIL_PUBSUB_SUBSCRIPTION=… \

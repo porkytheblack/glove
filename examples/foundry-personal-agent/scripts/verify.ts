@@ -33,7 +33,7 @@ process.env.MUSE_DEMO = "1"; // the checks below follow the script
 const { ROSA_BISTRO_PASSWORD, startOfflineKuiper } = await import("../demo/kuiper.js");
 const kuiperHere = await startOfflineKuiper();
 process.env.BROWSERS_URL = kuiperHere.url;
-process.env.KUIPER_GATEWAY_KEY = kuiperHere.key;
+process.env.GATEWAY_KEY = kuiperHere.key;
 
 const { FoundryRuntime, installedApplicationTransmissionToolName } = await import("glove-foundry");
 const { default: application } = await import("../foundry.application.js");

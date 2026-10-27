@@ -4,7 +4,7 @@ import { kuiper } from "./kuiper.js";
 
 /** Whether a real model is configured; without one Muse runs its script. */
 export function hasModelKey(): boolean {
-  return Boolean(process.env.KUIPER_GATEWAY_KEY || process.env.ANTHROPIC_API_KEY || process.env.OPENROUTER_API_KEY);
+  return Boolean(process.env.GATEWAY_KEY || process.env.ANTHROPIC_API_KEY || process.env.OPENROUTER_API_KEY);
 }
 
 /**
@@ -21,7 +21,7 @@ export function claudeModel(name: string, options: { readonly stream?: boolean }
   }
   const gateway = kuiper();
   // On Kuiper, a name with a slash is the gateway's name for another provider
-  // key (oprouter/anthropic/claude-sonnet-5.5), served over Chat Completions.
+  // key (openrouter/anthropic/claude-sonnet-5.5), served over Chat Completions.
   if (gateway && name.includes("/")) return createAdapter({ provider: "openrouter", model: name, cache: true, ...options, ...gateway.models.glove("openrouter") });
   return createAdapter({ provider: "anthropic", model: name, ...options, ...(gateway ? gateway.models.glove("anthropic") : {}) });
 }

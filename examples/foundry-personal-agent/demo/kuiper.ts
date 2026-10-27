@@ -112,7 +112,7 @@ const listen = (server: Server) => new Promise<number>((resolve) => server.liste
 export interface OfflineKuiper {
   /** For BROWSERS_URL. */
   readonly url: string;
-  /** For KUIPER_GATEWAY_KEY. */
+  /** For GATEWAY_KEY. */
   readonly key: string;
   /** What Fresh Market charged. */
   readonly orders: ReadonlyArray<Order>;

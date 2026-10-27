@@ -66,7 +66,7 @@ const env = {
   MUSE_DEMO: "1",
   MUSE_DATA_DIR: dataDir,
   BROWSERS_URL: kuiperHere.url,
-  KUIPER_GATEWAY_KEY: kuiperHere.key,
+  GATEWAY_KEY: kuiperHere.key,
   FOUNDRY_TOKEN: token,
   FOUNDRY_PORT: String(foundryPort),
   WEB_SESSION_SECRET: randomBytes(32).toString("base64url"),
