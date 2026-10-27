@@ -25,7 +25,7 @@ export function messagesFrom(slackUserId: string) {
     directives: [{
       action: answer,
       instruction:
-        "Answer with post_to_slack in the same channel. For a mention in a channel, answer in its thread (thread_ts, or ts when there is none). Use what you know from the app too.",
+        "Answer with post_to_slack in the same channel before you finish: Slack sees only what you post, never your final text. For a mention in a channel, answer in its thread (thread_ts, or ts when there is none). Keep it short. Use what you know from the app too.",
     }],
     applications: [slackApp],
   });

@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { currentPerson } from "glove-foundry-web-kit/server";
+import { currentPerson, demoConnectors } from "glove-foundry-web-kit/server";
 import { personOf, teamOf } from "../server/dot";
 import { Nav } from "../ui/Nav";
 
@@ -15,7 +15,7 @@ export default async function DotLayout({ children }: { children: React.ReactNod
       <header className="top">
         <div className="top-left">
           <span className="brand"><span aria-hidden="true" className="brand-dot" />Dot</span>
-          <Nav dotName={team?.dot.name ?? "Your dot"} />
+          <Nav dotName={team?.dot.name ?? "Your dot"} demo={demoConnectors()} />
         </div>
         <details className="me">
           <summary aria-label={`Signed in as ${person.name}`}>{person.name.charAt(0).toUpperCase()}</summary>

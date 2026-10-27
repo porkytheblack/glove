@@ -255,6 +255,29 @@ time zone and a file; he sets a rule and pauses and resumes Pip; Ada's dot,
 runs, approval, hand-off and files answer 404. With `WEB_SMOKE_SHOTS=<dir>` it
 also saves a screenshot of each screen.
 
+## Try it: the demo connectors
+
+Set `DEMO_CONNECTORS=1` and the web app serves a mock Slack and a mock Gmail,
+with a **Try it** link at `/demo`. They stand in for Slack and Google, so the
+whole path runs with no real accounts:
+
+1. The page signs a Slack event the way Slack does (a `v0` signature with
+   `SLACK_SIGNING_SECRET`) and posts it to the app's own `/webhooks/slack` at
+   `WEB_URL`. You can write in your DM with the dot, mention it in #feedback,
+   or write as a teammate. The first two start a run. The teammate's message
+   matches no playbook, so nothing runs.
+2. The dot answers with `post_to_slack`. The post goes to the mock Web API
+   (`app/mock/slack/api/chat.postMessage`, through `SLACK_API_URL`), which
+   checks the bot token and puts the reply on the page.
+3. Mail goes to `/webhooks/mail`, which exists only in this mode. It lands in
+   the sample support inbox and fires its inbound route. The dot reads it,
+   keeps notes and may bring a suggestion to the app.
+
+Every hop goes in `<DOTS_DATA_DIR>/demo-connectors.jsonl`, and the page shows
+it as a delivery log. `scripts/demo-connectors.mjs` derives the mock secrets
+from `WEB_SESSION_SECRET`. It overrides real values, so leave it off when you
+connect real Slack. A person can send at most 30 an hour.
+
 ## Where it differs
 
 - Dots run their own auto-review, which you can't switch off; here it is code over rules and

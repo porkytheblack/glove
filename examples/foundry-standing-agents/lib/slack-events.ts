@@ -33,7 +33,7 @@ export function signed(body: string, timestamp: string, signature: string, signi
   return given.length === expected.length && timingSafeEqual(given, expected);
 }
 
-interface SlackEvent {
+export interface SlackEvent {
   readonly type: string;
   readonly channel_type?: string;
   readonly subtype?: string;
@@ -57,7 +57,14 @@ function forwardable(event: SlackEvent | undefined): event is SlackEvent {
   return event.type === "app_mention" || (event.type === "message" && event.channel_type === "im");
 }
 
-async function forward(config: SlackEventsConfig, payload: SlackPayload, event: SlackEvent): Promise<void> {
+/** What Foundry answered for one event: its status, and the runs it started. */
+export interface Forwarded {
+  readonly event: SlackEvent;
+  readonly status: number;
+  readonly runIds: ReadonlyArray<string>;
+}
+
+async function forward(config: SlackEventsConfig, payload: SlackPayload, event: SlackEvent): Promise<Forwarded> {
   const response = await fetch(`${config.foundryUrl}/api/transmissions/slack-messages/fire`, {
     method: "POST",
     headers: {
@@ -74,11 +81,18 @@ async function forward(config: SlackEventsConfig, payload: SlackPayload, event: 
       raw: payload,
     }),
   });
-  if (!response.ok) console.error(`Foundry refused ${payload.event_id}: ${response.status} ${await response.text()}`);
+  const text = await response.text();
+  if (!response.ok) console.error(`Foundry refused ${payload.event_id}: ${response.status} ${text}`);
+  const runs = response.ok ? (JSON.parse(text) as ReadonlyArray<{ readonly id: string }>) : [];
+  return { event, status: response.status, runIds: runs.map((run) => run.id) };
 }
 
-/** Forward a signed delivery if it is a DM or a mention. */
-export async function forwardPayload(config: SlackEventsConfig, payload: SlackPayload): Promise<void> {
-  if (payload.type !== "event_callback" || !forwardable(payload.event)) return;
-  await forward(config, payload, payload.event).catch((cause) => console.error(cause));
+/** Forward a signed delivery if it is a DM or a mention; what Foundry answered, if it was. */
+export async function forwardPayload(config: SlackEventsConfig, payload: SlackPayload): Promise<Forwarded | undefined> {
+  if (payload.type !== "event_callback" || !forwardable(payload.event)) return undefined;
+  const event = payload.event;
+  return forward(config, payload, event).catch((cause) => {
+    console.error(cause);
+    return { event, status: 0, runIds: [] };
+  });
 }

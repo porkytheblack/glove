@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { demoEnv } from "./demo-connectors.mjs";
 
 // One Kuiper unit runs both processes and they share /data: Foundry on
 // loopback, with no public address, and the web app on the public port. The
@@ -7,7 +8,7 @@ import { fileURLToPath } from "node:url";
 // the web app's /webhooks/slack. If either exits, both stop.
 
 const foundryPort = process.env.FOUNDRY_PORT ?? "4141";
-const env = { ...process.env, FOUNDRY_URL: process.env.FOUNDRY_URL ?? `http://127.0.0.1:${foundryPort}` };
+const env = demoEnv({ ...process.env, FOUNDRY_URL: process.env.FOUNDRY_URL ?? `http://127.0.0.1:${foundryPort}` });
 
 // The installed binaries, not `pnpm exec`: the runtime image has Node but no pnpm.
 // Each in its own process group, so a signal reaches the workers they start too.

@@ -3,13 +3,15 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-export function Nav({ dotName }: { readonly dotName: string }) {
+/** The main links, and Try it when the demo connectors are on. */
+export function Nav({ dotName, demo = false }: { readonly dotName: string; readonly demo?: boolean }) {
   const path = usePathname();
   const links = [
     { href: "/", label: dotName },
     { href: "/activity", label: "Activity" },
     { href: "/rules", label: "Rules" },
     { href: "/apps", label: "Apps" },
+    ...(demo ? [{ href: "/demo", label: "Try it" }] : []),
   ];
   return (
     <nav aria-label="Main" className="nav">

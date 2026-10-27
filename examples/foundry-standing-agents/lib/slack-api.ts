@@ -11,6 +11,9 @@ export interface SlackPost {
   readonly thread_ts?: string;
 }
 
+/** Slack's Web API, or the mock Slack the web app serves when DEMO_CONNECTORS=1. */
+const slackApi = () => (process.env.SLACK_API_URL ?? "https://slack.com/api").replace(/\/$/, "");
+
 /** Post as the bot (Slack Web API, chat.postMessage). */
 export async function postToSlack(token: string, post: SlackPost, signal?: AbortSignal): Promise<{ readonly ts: string }> {
   if (token === OFFLINE_SLACK_TOKEN) {
@@ -18,7 +21,7 @@ export async function postToSlack(token: string, post: SlackPost, signal?: Abort
     await appendFile(dataPath("slack-outbox.jsonl"), `${JSON.stringify({ ...post, at: new Date().toISOString() })}\n`);
     return { ts: `offline-${Date.now()}` };
   }
-  const response = await fetch("https://slack.com/api/chat.postMessage", {
+  const response = await fetch(`${slackApi()}/chat.postMessage`, {
     method: "POST",
     headers: { authorization: `Bearer ${token}`, "content-type": "application/json; charset=utf-8" },
     body: JSON.stringify(post),

@@ -176,3 +176,7 @@ p.small { margin: 0; }
 .welcome { max-width: 480px; margin: 12vh auto 0; padding: 0 16px; display: flex; flex-direction: column; gap: 20px; }
 .welcome h1 { margin: 0; font-size: 30px; font-weight: 600; }
 .welcome p { margin: 0; font-size: 16px; line-height: 1.55; color: var(--kit-muted); }
+
+/* Try it (demo connectors) */
+.demo { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(460px, 100%), 1fr)); gap: 20px; align-items: start; }
+.demo-col { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
