@@ -29,10 +29,10 @@ const time = (at: string) => new Date(at).toLocaleTimeString([], { hour: "numeri
 
 /** A mock provider's conversation, with a box to send as `me`. */
 export function MockChat({ title, subtitle, bubbles, label, placeholder, onSend, controls, empty = "Nothing yet.", style }: MockChatProps) {
-  const end = useRef<HTMLDivElement>(null);
+  const list = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    // Recent browsers return a promise from scrollIntoView; an effect must return nothing or a cleanup.
-    void end.current?.scrollIntoView({ block: "end" });
+    // Scroll the conversation itself, not the page, so a reply never moves the rest of the screen.
+    if (list.current) list.current.scrollTop = list.current.scrollHeight;
   }, [bubbles.length]);
   return (
     <section style={{ ...card, ...style }} aria-label={title}>
@@ -41,7 +41,7 @@ export function MockChat({ title, subtitle, bubbles, label, placeholder, onSend,
         {subtitle ? <div style={{ color: t("muted"), fontSize: 13 }}>{subtitle}</div> : null}
       </header>
       {controls ? <div style={{ padding: "10px 16px", borderBottom: `1px solid ${t("line")}` }}>{controls}</div> : null}
-      <div style={{ flex: 1, minHeight: 220, maxHeight: 420, overflowY: "auto", padding: 16, display: "flex", flexDirection: "column", gap: 10, background: t("bg") }}>
+      <div ref={list} style={{ flex: 1, minHeight: 220, maxHeight: 420, overflowY: "auto", padding: 16, display: "flex", flexDirection: "column", gap: 10, background: t("bg") }}>
         {bubbles.length === 0 ? <p style={{ color: t("muted"), margin: "auto", fontSize: 14 }}>{empty}</p> : null}
         {bubbles.map((bubble) => (
           <div key={bubble.id} style={{ alignSelf: bubble.side === "me" ? "flex-end" : "flex-start", maxWidth: "80%" }}>
@@ -51,7 +51,6 @@ export function MockChat({ title, subtitle, bubbles, label, placeholder, onSend,
             </div>
           </div>
         ))}
-        <div ref={end} />
       </div>
       <Composer label={label} placeholder={placeholder} onSend={onSend} style={{ padding: 12, borderTop: `1px solid ${t("line")}` }} />
     </section>
@@ -127,12 +126,17 @@ export function MockMail({ to, title = "New mail", defaults = {}, onSend, style 
 
 const ARROW = { in: "→ webhook", hop: "→ Foundry", out: "← send" } as const;
 
-/** What crossed the wire, newest last: each webhook, what Foundry did with it, and each send back. */
+/** What crossed the wire, newest last and kept in view: each webhook, what Foundry did with it, and each send back. */
 export function DeliveryLog({ hops, style }: { readonly hops: ReadonlyArray<DeliveryHop>; readonly style?: CSSProperties }) {
+  const list = useRef<HTMLOListElement>(null);
+  useEffect(() => {
+    // Scroll the list itself, not the page, so a new hop never moves what the person is typing in.
+    if (list.current) list.current.scrollTop = list.current.scrollHeight;
+  }, [hops.length]);
   return (
     <section style={{ ...card, ...style }} aria-label="Delivery log">
       <header style={{ padding: "12px 16px", borderBottom: `1px solid ${t("line")}`, fontWeight: 600 }}>Delivery log</header>
-      <ol style={{ listStyle: "none", margin: 0, padding: 0, maxHeight: 420, overflowY: "auto" }}>
+      <ol ref={list} style={{ listStyle: "none", margin: 0, padding: 0, maxHeight: 420, overflowY: "auto" }}>
         {hops.length === 0 ? <li style={{ padding: 16, color: t("muted"), fontSize: 14 }}>Send something to see each hop.</li> : null}
         {hops.map((hop) => (
           <li key={hop.id} style={{ padding: "10px 16px", borderBottom: `1px solid ${t("line")}`, display: "grid", gap: 2 }}>
