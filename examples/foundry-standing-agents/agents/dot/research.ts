@@ -5,9 +5,9 @@ import { aroundTool } from "../../lib/tool-policy.js";
 import slackMessages from "./transmissions/slack-messages.transmission.js";
 
 /**
- * Proactive research. Every two hours the dot wakes on its own, reads the
- * sources of every responsibility it holds, keeps notes and may bring one
- * suggestion. Its tools on these runs only read: they cannot send messages,
+ * Proactive research. Every two hours (DOTS_RESEARCH_EVERY, such as 24h) the
+ * dot wakes on its own, reads the sources of every responsibility it holds,
+ * keeps notes and may bring one suggestion. Its tools on these runs only read: they cannot send messages,
  * change anything or control its computer. The schedule joins the
  * conversation of the run that first syncs it, so onboarding sends the first
  * message in the app conversation.
@@ -15,7 +15,7 @@ import slackMessages from "./transmissions/slack-messages.transmission.js";
 export const research = defineSchedule({
   name: "research",
   description: "Read the sources of every responsibility, keep notes, suggest at most one thing",
-  timing: { kind: "every", interval: "2h" },
+  timing: { kind: "every", interval: process.env.DOTS_RESEARCH_EVERY ?? "2h" },
   message: [
     "Research time. Nobody is waiting on you.",
     "Read the sources of each of your responsibilities, keep what you find in your notes with keep_note,",
