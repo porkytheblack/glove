@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
 
 // One Kuiper unit runs both processes and they share /data: Foundry on
 // loopback, with no public address, and the web app on the public port. The
@@ -7,11 +8,13 @@ import { spawn } from "node:child_process";
 const foundryPort = process.env.FOUNDRY_PORT ?? "4141";
 const env = { ...process.env, FOUNDRY_URL: process.env.FOUNDRY_URL ?? `http://127.0.0.1:${foundryPort}` };
 
+// The installed binaries, not `pnpm exec`: the runtime image has Node but no pnpm.
 // Each in its own process group, so a signal reaches the workers they start too.
-const run = (args) => spawn("pnpm", ["exec", ...args], { stdio: "inherit", env, detached: true });
+const bin = (name) => fileURLToPath(new URL(`../node_modules/.bin/${name}`, import.meta.url));
+const run = (name, args) => spawn(bin(name), args, { stdio: "inherit", env, detached: true });
 const children = [
-  run(["glove", "foundry", "start", "--host", "127.0.0.1", "--port", foundryPort]),
-  run(["next", "start", "-H", "0.0.0.0", "-p", process.env.PORT ?? "3000"]),
+  run("glove", ["foundry", "start", "--host", "127.0.0.1", "--port", foundryPort]),
+  run("next", ["start", "-H", "0.0.0.0", "-p", process.env.PORT ?? "3000"]),
 ];
 
 const signal = (child, name) => {
