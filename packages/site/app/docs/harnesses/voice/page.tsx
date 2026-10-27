@@ -34,7 +34,7 @@ export default function VoiceHarnessPage() {
           "Instances",
           "Conversations",
           "Voice calls",
-          "Delegates",
+          "Foundry mesh",
           "Inspector and WebChat",
         ]}
         write={[
@@ -139,9 +139,9 @@ export async function onUtterance(text: string) {
       <h2 id="skeleton-realtime">Skeleton: a voice agent in Foundry</h2>
       <p>
         In Foundry the call is a run. <code>voiceCall</code> hosts the realtime session over
-        the assembled agent, saves the transcript, and speaks{" "}
-        <Link href="/foundry/docs/layered-agents">delegates</Link>&apos; results at the next
-        pause. The front stays a fast talker; the work goes to sibling agents that can take
+        the assembled agent and saves the transcript. With <code>mesh: true</code> the front
+        messages the caller&apos;s other agents by instance id, and their replies are spoken at
+        the next pause. The front stays a fast talker; the work goes to agents that can take
         their time, ask a question back, and use tools a call should not.
       </p>
       <CodeBlock
@@ -159,24 +159,33 @@ export default defineAgent({
   model: () => s2sDrivenModel({ label: "concierge", provider: "openai", voice: "marin" }),
   systemPrompt: conciergePrompt,
   store: ({ conversationId }) => FileStore.open(conversationId),
-  delegates: [
-    { agent: "bookings", description: "Books tables and travel. Takes a few minutes." },
-    { agent: "research", description: "Looks things up on the web and cites sources." },
-  ],
+  mesh: true, // message the other agents in this workspace by id
   run: voiceCall({
     room: (context) => webSocketRoom(roomFor(context)),   // { port, token } from the request
     greeting: "Greet the caller in one short sentence.",
   }),
 });`}
       />
+      <CodeBlock
+        filename="when a customer signs up"
+        language="typescript"
+        code={`// The agents are data: one workspace per customer, so they only see each other.
+await foundry.createAgent("concierge", { id: "acme", workspaceId: "acme", name: "Concierge" });
+await foundry.createAgent("bookings", {
+  id: "acme-bookings", workspaceId: "acme", name: "Bookings",
+  description: "Books tables and travel. Takes a few minutes.",
+});`}
+      />
       <p>
-        The bookings agent is an ordinary definition. If it needs to know something (indoors
-        or outside?), <code>glove_foundry_ask</code> brings the question back into the call,
-        where the concierge answers from what it knows or asks the caller. Its runs show up in
-        the inspector and can be approved or steered, and a result that lands after the caller
-        hangs up waits in the conversation. LiveKit rooms and phone bridges plug in as{" "}
-        <Link href="/foundry/docs/voice#rooms">rooms</Link>. The full version, with personal
-        memory and a text chat on the same agent, is{" "}
+        The concierge finds Bookings with <code>glove_mesh_list_agents</code> and sends it the
+        job with <code>glove_mesh_send_message</code>. Bookings is an ordinary agent with{" "}
+        <code>mesh</code> set. If it needs to know something (indoors or outside?), its
+        message comes back into the call, where the concierge answers from what it knows or
+        asks the caller. Its runs show up in the inspector and can be approved or steered,
+        and a reply that lands after the caller hangs up waits in the conversation. LiveKit
+        rooms and phone bridges plug in as <Link href="/foundry/docs/voice#rooms">rooms</Link>.
+        The pattern is <Link href="/foundry/docs/layered-agents">layered agents</Link>; the
+        full version, with personal memory and a text chat on the same agent, is{" "}
         <code>examples/foundry-layered-assistant</code>.
       </p>
 

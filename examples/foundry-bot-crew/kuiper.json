@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "project": "glove-foundry-bot-crew",
+  "runtime": { "entrypoint": ["/usr/bin/tini", "--", "node", "scripts/start.mjs"] },
+  "ports": [{ "name": "http", "port": 3000, "public": true }],
+  "env": {
+    "required": ["WEB_SESSION_SECRET", "FOUNDRY_TOKEN"],
+    "optional": [
+      "WEB_URL", "CREW_DATA_DIR", "CREW_DEMO", "BOT_MODEL",
+      "MODELS_BASE_URL", "MODELS_API_KEY", "ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL",
+      "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "GMAIL_PUBSUB_TOPIC", "GMAIL_PUBSUB_SUBSCRIPTION",
+      "GOOGLE_SERVICE_ACCOUNT_JSON", "LINEAR_CLIENT_ID", "LINEAR_CLIENT_SECRET"
+    ]
+  },
+  "resources": {
+    "request": { "cpu": 0.5, "memoryMiB": 1024 },
+    "limit": { "cpu": 2, "memoryMiB": 2048 },
+    "volumeGiB": 5
+  },
+  "health": { "tcp": true, "intervalSec": 10 }
+}

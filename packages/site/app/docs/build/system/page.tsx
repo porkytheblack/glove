@@ -151,12 +151,14 @@ if (pending) await foundry.resolveApproval(pending.id, "approve");   // or "deny
       <h2 id="layers">Layers: a fast agent in front, workers behind</h2>
       <p>
         The reviewer from step 6 ran inside the release assistant&apos;s turn. Work that takes
-        minutes should not: list sibling agents in <code>delegates</code> and the assistant
-        hands it off with <code>glove_foundry_delegate</code>, keeps talking, and hears back in
-        the same conversation. A worker that needs something asks with{" "}
-        <code>glove_foundry_ask</code>. Decide the layers by how fast each part must reply, what
-        it must remember and how long it runs; see{" "}
-        <Link href="/foundry/docs/layered-agents">Layered agents</Link>.
+        minutes should not. Create the workers as instances in the same workspace and put
+        the agents on <Link href="/foundry/docs/multi-agent#mesh">the mesh</Link> with{" "}
+        <code>mesh: true</code>. The assistant finds a worker with{" "}
+        <code>glove_mesh_list_agents</code>, hands it the job with{" "}
+        <code>glove_mesh_send_message</code>, keeps talking, and hears back in the same
+        conversation. A worker that needs something sends a message back the same way. Decide
+        the layers by how fast each part must reply, what it must remember and how long it
+        runs; see <Link href="/foundry/docs/layered-agents">Layered agents</Link>.
       </p>
 
       <h2 id="access">Access: the APIs you didn&apos;t write</h2>

@@ -1,0 +1,45 @@
+{
+  "name": "glove-foundry-personal-agent",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "dev:foundry": "glove foundry dev",
+    "dev:web": "next dev",
+    "build": "next build",
+    "start": "node scripts/start.mjs",
+    "onboard": "node --env-file-if-exists=.env --import tsx scripts/onboard.ts",
+    "connect": "node --env-file-if-exists=.env --import tsx scripts/connect.ts",
+    "invite": "node --env-file-if-exists=.env --import tsx scripts/invite.ts",
+    "whatsapp-webhook": "node --env-file-if-exists=.env --import tsx scripts/whatsapp-webhook.ts",
+    "verify": "node --env-file-if-exists=.env --import tsx scripts/verify.ts",
+    "web-smoke": "node --import tsx scripts/web-smoke.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@kuiper-sh/sdk": "^0.2.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "effect": "^3.22.1",
+    "glove-classifier": "workspace:*",
+    "glove-core": "workspace:*",
+    "glove-execution": "workspace:*",
+    "glove-foundry": "workspace:*",
+    "glove-foundry-web-kit": "workspace:*",
+    "glove-js": "workspace:*",
+    "glove-memory": "workspace:*",
+    "next": "^15.3.3",
+    "playwright-core": "^1.50.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "server-only": "^0.0.1",
+    "tsx": "^4.21.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^25.2.3",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "typescript": "^5.9.3"
+  }
+}

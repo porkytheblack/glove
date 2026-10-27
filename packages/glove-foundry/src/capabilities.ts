@@ -5,8 +5,13 @@ import type {
   Message,
   StoreAdapter,
 } from "glove-core";
-import type { McpAdapter, McpCatalogueEntry } from "glove-mcp";
-import { mountMcp } from "glove-mcp";
+import type {
+  McpAdapter,
+  McpCatalogueEntry,
+  McpToolDef,
+  MountedMcpToolSet,
+} from "glove-mcp";
+import { connectMcpEntry, mountMcp, mountMcpToolSet } from "glove-mcp";
 import type {
   ContextAdapter,
   EntityMemoryAdapter,
@@ -230,9 +235,71 @@ export function defineSharedTool<
   }, "tool", id));
 }
 
+/** What an installed app does with one of its MCP server's tools. */
+export type FoundryAppToolDecision = "allow" | "ask" | "hide";
+
+/** One tool on an app's MCP server, as the app's tool policy sees it. */
+export interface FoundryAppMcpTool {
+  /** The tool's name on the server. */
+  readonly name: string;
+  readonly description?: string;
+  /** The server marks the tool read-only. */
+  readonly readOnly: boolean;
+  /** The server marks the tool destructive. */
+  readonly destructive: boolean;
+}
+
+/**
+ * Back an app with an MCP server. The app stays the unit a person connects:
+ * the server's tools reach the agent through the app, opened with the
+ * installation's account and filtered by the app's tool policy.
+ */
+export interface FoundryAppMcp<TConfig = unknown> {
+  /** Where the server is: a static entry, or one resolved from the installation. */
+  readonly entry:
+    | McpCatalogueEntryWithoutId
+    | ((
+        context: AgentApplicationInstallContext<TConfig>,
+      ) =>
+        | McpCatalogueEntryWithoutId
+        | Promise<McpCatalogueEntryWithoutId>
+        | Effect.Effect<McpCatalogueEntryWithoutId, unknown, never>);
+  /**
+   * Turn the installation's account session into credentials for the
+   * connection: HTTP headers for an HTTP server, environment variables for a
+   * stdio one. It runs inside the agent's `accountSessions` boundary, so
+   * Foundry never holds the credential. Omit it for a server that needs none.
+   */
+  readonly auth?: (
+    session: unknown,
+    context: AgentApplicationInstallContext<TConfig>,
+  ) => Record<string, string> | Promise<Record<string, string>>;
+  /**
+   * Decide each tool: run it, ask the person first, or leave it out. The
+   * default runs read-only tools and asks before everything else.
+   */
+  readonly tools?: (
+    tool: FoundryAppMcpTool,
+    context: AgentApplicationInstallContext<TConfig>,
+  ) => FoundryAppToolDecision;
+}
+
+/** One installed app and the tools it mounted for this run. */
+export interface FoundryInstalledApp {
+  readonly id: string;
+  readonly description: string;
+  readonly accountId?: string;
+  /** The app's live tool names, with whether each only reads. */
+  readonly tools: ReadonlyArray<{ readonly name: string; readonly readOnly?: boolean }>;
+}
+
 export interface AgentApplicationOptions<
   TConfigSchema extends z.ZodType | undefined = undefined,
 > extends ConfiguredCapability<TConfigSchema> {
+  /** Tools from an MCP server, connected with the installation's account. */
+  readonly mcp?: FoundryAppMcp<
+    TConfigSchema extends z.ZodType ? z.output<TConfigSchema> : unknown
+  >;
   /** Inbound transmission mechanisms owned by this application. */
   readonly inbound?: ReadonlyArray<AnyFoundryTransmission>;
   /** Outbound transmission mechanisms mounted as tools when installed. */
@@ -262,6 +329,9 @@ export function defineAgentApplication<
 ): FoundryAgentApplication<TConfigSchema> {
   if (options.id) assertCapabilityId(options.id, "agent application");
   const label = options.id ?? "<application file route>";
+  if (options.mcp && (!options.mcp.entry || !["object", "function"].includes(typeof options.mcp.entry))) {
+    throw new Error(`Application "${label}" declares mcp without an entry.`);
+  }
   const inbound = Object.freeze([...(options.inbound ?? [])]);
   const outbound = Object.freeze([...(options.outbound ?? [])]);
   for (const transmission of inbound) {
@@ -640,6 +710,10 @@ export interface InstallRegistryOptions {
   readonly context: Omit<AgentInstallContext, "installation" | "config">;
   readonly mcpAdapter?: McpAdapterFactory;
   readonly accountSessions?: FoundryAccountSessionAdapter;
+  /** Receives each installed app and its tools. */
+  readonly onApp?: (app: FoundryInstalledApp) => void;
+  /** Receives work to do when the run ends, such as closing app connections. */
+  readonly onCleanup?: (cleanup: () => Promise<void>) => void;
 }
 
 export interface FoundryAccountSessionAdapter {
@@ -654,6 +728,110 @@ export interface FoundryAccountSessionAdapter {
     },
     use: (session: unknown) => Effect.Effect<A, unknown, never>,
   ): Effect.Effect<A, unknown, never>;
+}
+
+/** A tool name the model and every REPL language accept. */
+function appNamespace(id: string): string {
+  return id.replace(/[^A-Za-z0-9_]/g, "_");
+}
+
+function mountAppMcp(
+  application: FoundryAgentApplication,
+  context: AgentApplicationInstallContext,
+  options: InstallRegistryOptions,
+): Effect.Effect<
+  { readonly toolSet: MountedMcpToolSet; readonly readOnly: ReadonlyMap<string, boolean> },
+  unknown,
+  never
+> {
+  return Effect.gen(function* () {
+    const spec = application.mcp!;
+    if (spec.auth && !context.withAccountSession) {
+      throw new Error(
+        `App "${application.id}" connects with an account. Install it with an account and give the agent definition accountSessions.`,
+      );
+    }
+    const source = typeof spec.entry === "function" ? spec.entry(context) : spec.entry;
+    const resolved = Effect.isEffect(source)
+      ? yield* source
+      : source instanceof Promise
+        ? yield* Effect.tryPromise({ try: () => source, catch: (cause) => cause })
+        : source;
+    const entry = identifyMcpEntry(resolved, appNamespace(application.id));
+    const credentials = (): Promise<Record<string, string>> =>
+      Effect.runPromise(context.withAccountSession!(
+        "mcp:connect",
+        (session) => Effect.tryPromise({
+          try: async () => spec.auth!(session, context),
+          catch: (cause) => cause,
+        }),
+      ));
+    const adapter: McpAdapter = {
+      identifier: `foundry-app:${application.id}`,
+      getActive: async () => [entry.id],
+      activate: async () => undefined,
+      deactivate: async () => undefined,
+      ...(spec.auth
+        ? entry.transport?.kind === "stdio"
+          ? { getStdioEnvironment: async () => credentials() }
+          : { getAuthHeaders: async () => credentials() }
+        : {}),
+    };
+    const decisions = new Map<string, { readonly decision: FoundryAppToolDecision; readonly readOnly: boolean }>();
+    const decide = (tool: McpToolDef): boolean => {
+      const described: FoundryAppMcpTool = {
+        name: tool.name,
+        ...(tool.description ? { description: tool.description } : {}),
+        readOnly: tool.annotations?.readOnlyHint === true,
+        destructive: tool.annotations?.destructiveHint === true,
+      };
+      const decision = spec.tools
+        ? spec.tools(described, context)
+        : described.readOnly ? "allow" : "ask";
+      if (decision !== "allow" && decision !== "ask" && decision !== "hide") {
+        throw new Error(
+          `App "${application.id}" returned "${String(decision)}" for tool "${tool.name}". Return "allow", "ask" or "hide".`,
+        );
+      }
+      decisions.set(`${entry.id}__${tool.name}`, { decision, readOnly: described.readOnly });
+      return decision !== "hide";
+    };
+    const toolSet = yield* Effect.tryPromise({
+      try: async () => {
+        const connection = await connectMcpEntry({
+          adapter,
+          entry,
+          clientInfo: { name: `glove-foundry:${application.id}`, version: "1" },
+          filterTools: decide,
+        });
+        try {
+          return await mountMcpToolSet({
+            glove: options.context.glove,
+            connection,
+            entry,
+            // Foundry's agents run in server mode, where bridged MCP tools would
+            // never ask. The app's decision sets the approval instead.
+            wrapTool: (tool) => {
+              const decided = decisions.get(tool.name);
+              return decided ? { ...tool, requiresPermission: decided.decision === "ask" } : tool;
+            },
+          });
+        } catch (cause) {
+          await connection.close().catch(() => undefined);
+          throw cause;
+        }
+      },
+      catch: (cause) => cause,
+    });
+    options.onCleanup?.(() => toolSet.dispose());
+    options.context.emit({
+      type: "foundry.application.mcp.mounted",
+      data: { id: application.id, tools: toolSet.toolNames },
+    });
+    const readOnly = new Map<string, boolean>();
+    for (const [name, decided] of decisions) readOnly.set(name, decided.readOnly);
+    return { toolSet, readOnly };
+  });
 }
 
 /** Install only explicitly selected capabilities onto a running Glove. */
@@ -735,6 +913,24 @@ export function installRegistry(
           ? yield* application.install(headlessContext)
           : undefined;
         for (const tool of contribution?.tools ?? []) options.context.glove.fold(tool);
+        const mounted = application.mcp
+          ? yield* mountAppMcp(application, headlessContext, options)
+          : undefined;
+        const ownTools = (contribution?.tools ?? []).map((tool) => ({ name: tool.name }));
+        options.onApp?.(Object.freeze({
+          id: application.id,
+          description: application.description,
+          ...(installation.accountId ? { accountId: installation.accountId } : {}),
+          get tools() {
+            return [
+              ...ownTools,
+              ...(mounted?.toolSet.toolNames ?? []).map((name) => ({
+                name,
+                readOnly: mounted?.readOnly.get(name) ?? true,
+              })),
+            ];
+          },
+        }));
       } else {
         const mcpDefinition = definition as FoundryMcp;
         const headlessContext: AgentApplicationInstallContext = (() => {

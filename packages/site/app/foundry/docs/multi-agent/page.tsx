@@ -4,7 +4,7 @@ import { CodeBlock } from "@/components/code-block";
 export const metadata = {
   title: "Multi-agent systems",
   description:
-    "Delegates, subagents with least-privilege tools, typed calls, spawn and background runs, client-driven fan-out, mesh peers, voice calls and visible orchestration.",
+    "The mesh between agents, subagents with least-privilege tools, typed calls, spawn and background runs, client-driven fan-out, voice calls and visible orchestration.",
 };
 
 export default function MultiAgentPage() {
@@ -13,8 +13,8 @@ export default function MultiAgentPage() {
       <span className="foundry-doc-kicker">Design your system / Multi-agent systems</span>
       <h1>Multi-agent systems</h1>
       <p className="blog-lede">
-        Foundry does not impose one orchestration pattern. An assistant can hand slow work
-        to a sibling and hear back, ask a read-only researcher for facts inside its turn,
+        Foundry does not impose one orchestration pattern. An assistant can message another
+        agent and hear back, ask a read-only researcher for facts inside its turn,
         fan a batch of tickets out to parallel conversations, or take a live call, and
         every hop shows up in the same event trace.
       </p>
@@ -23,32 +23,69 @@ export default function MultiAgentPage() {
       <table>
         <thead><tr><th>Mechanism</th><th>Runs where</th><th>Result comes back</th><th>Use when</th></tr></thead>
         <tbody>
-          <tr><td><Link href="/foundry/docs/layered-agents"><code>delegates</code></Link></td><td>A new run on a sibling definition, in a conversation per task on a worker instance</td><td>Back in the delegating conversation: into a listening run, or as a new turn. The worker can ask questions too.</td><td>A fast agent hands off slow or tool-heavy work and keeps talking.</td></tr>
+          <tr><td><a href="#mesh"><code>mesh</code></a></td><td>A new run on another agent instance, in a conversation per thread</td><td>Back in the conversation that sent it: into a listening run, or as a new turn. The other agent can ask questions too.</td><td>Agents work together: a fast agent hands off slow work and keeps talking, or teammates pass work between them.</td></tr>
           <tr><td><a href="#subagents"><code>defineSubagent</code></a></td><td>Inside the parent&apos;s run and process, with its own Glove, prompt and store</td><td>As the parent&apos;s tool result</td><td>A bounded sub-task needs a different prompt or fewer tools, and the parent waits for the answer.</td></tr>
           <tr><td><a href="#calls"><code>defineCall</code></a></td><td>Inside the run; a plain function</td><td>Return value, validated by Zod</td><td>A deterministic step with a known output shape. No model involved.</td></tr>
           <tr><td><a href="#spawn"><code>glove_foundry_spawn</code></a></td><td>A new queued run, new or existing instance and conversation</td><td>Not returned (command id only)</td><td>The model decides to start separate durable work now.</td></tr>
           <tr><td><Link href="/foundry/docs/conversations#background"><code>glove_foundry_background</code></Link></td><td>A new queued run on the <em>same</em> instance and conversation</td><td>Optional <code>background.reconvene</code> inbox item</td><td>Follow-up work on the same thread.</td></tr>
           <tr><td><a href="#client-fan-out">Typed client from code</a></td><td>Any instance and conversation</td><td><code>handle.wait()</code></td><td>Deterministic fan-out / fan-in that you, not the model, control.</td></tr>
-          <tr><td><a href="#mesh"><code>mesh</code></a></td><td>Between runs that are live at the same time, over your transport</td><td>Messages land in the receiver&apos;s inbox</td><td>Peers that must talk while both are working.</td></tr>
           <tr><td><a href="#shared-work">Workspace, inbox, tasks</a></td><td>Durable data</td><td>Whenever someone reads it</td><td>Handoffs that may outlive any single run.</td></tr>
           <tr><td><Link href="/foundry/docs/automation">Playbook subscriptions</Link></td><td>The runtime, on inbound events</td><td>—</td><td>An inbound event should provision or wake a workforce.</td></tr>
-          <tr><td><Link href="/foundry/docs/voice"><code>voiceCall</code></Link></td><td>A live call in a run, over the assembled agent</td><td>Delegation results are spoken at the next pause</td><td>A speaking agent must stay responsive while durable work runs elsewhere.</td></tr>
+          <tr><td><Link href="/foundry/docs/voice"><code>voiceCall</code></Link></td><td>A live call in a run, over the assembled agent</td><td>Mesh replies are spoken at the next pause</td><td>A speaking agent must stay responsive while durable work runs elsewhere.</td></tr>
         </tbody>
       </table>
 
-      <h2 id="delegates">Delegates: hand off and hear back</h2>
+      <h2 id="mesh">The mesh: agents message each other</h2>
       <p>
-        Most assistants want one agent that talks and remembers, and siblings that do the
-        work. List the siblings in <code>delegates</code>; the agent gets{" "}
-        <code>glove_foundry_delegate</code> and <code>glove_foundry_reply</code>, the worker
-        gets <code>glove_foundry_ask</code>, and results and questions come back to the
-        conversation that delegated. The full pattern, with a runnable example, is on{" "}
-        <Link href="/foundry/docs/layered-agents">Layered agents</Link>.
+        Foundry hosts <Link href="/docs/mesh">Glove Mesh</Link> for its agents. Turn it on
+        in a definition and every instance of it can message the other agents in its
+        workspace by instance id. Who is on the team is data: an agent added to the
+        workspace is reachable at once, and a rename shows up the next time someone lists
+        the team. There is no transport to run, and the agent you message does not have to
+        be running: the message starts a run.
       </p>
-      <CodeBlock filename="agents/assistant/agent.ts" language="typescript" code={`delegates: [
-  { agent: "coder", description: "Writes and runs code in its own workspace. Takes minutes." },
-  { agent: "researcher", description: "Reads the web and reports back with sources." },
-],`} />
+      <CodeBlock filename="agents/bot/agent.ts" language="typescript" code={`export default defineAgent({
+  description: "A bot: an AI teammate with its own job",
+  // …
+  mesh: {
+    peers: (self, peer) => peer.context.team === self.context.team,  // optional: narrow by data
+    waitMs: 60_000,                                                    // a blocking send waits this long
+    mount: (ctx) => ctx.request.source?.kind !== "activation",         // optional: per run
+  },
+});`} />
+      <CodeBlock filename="when a person makes their team" language="typescript" code={`await foundry.createAgent("bot", { id: "maya-bot-2", workspaceId: "maya", name: "Bug Triage", description: "Files and sorts bug reports." });
+await foundry.createAgent("bot", { id: "maya-bot-3", workspaceId: "maya", name: "Engineer", description: "Fixes filed bugs on a branch." });`} />
+      <table>
+        <thead><tr><th>Tool</th><th>What it does</th></tr></thead>
+        <tbody>
+          <tr><td><code>glove_mesh_list_agents({"{ name? }"})</code></td><td>The agents this one can message: id, name and description, from their instances.</td></tr>
+          <tr><td><code>glove_mesh_send_message({"{ to, content, in_reply_to?, blocking? }"})</code></td><td>A new message starts a thread. <code>in_reply_to</code> answers a message in one. <code>blocking</code> waits in the run for the reply.</td></tr>
+          <tr><td><code>glove_mesh_broadcast({"{ content }"})</code></td><td>One thread per agent it can message; each reply arrives on its own.</td></tr>
+          <tr><td><code>glove_mesh_acknowledge({"{ message_id, note? }"})</code></td><td>A read receipt for an agent that is waiting.</td></tr>
+        </tbody>
+      </table>
+      <table>
+        <thead><tr><th><code>mesh</code> option</th><th>Default / notes</th></tr></thead>
+        <tbody>
+          <tr><td><code>true</code></td><td>The tools on every run, every other agent in the workspace as a peer, a 90 s wait.</td></tr>
+          <tr><td><code>peers(self, peer)</code></td><td>Every other agent in the workspace. Return <code>false</code> to hide a peer; it gets both instances. An agent can always answer whoever messaged it, so <code>() =&gt; false</code> makes an agent that only answers.</td></tr>
+          <tr><td><code>waitMs</code></td><td>90 000. How long a blocking send waits in the run before the run suspends.</td></tr>
+          <tr><td><code>mount(ctx)</code></td><td>Every run. Return <code>false</code> and the run has no mesh tools at all, for example scheduled research that must only read.</td></tr>
+        </tbody>
+      </table>
+      <ul>
+        <li>A thread is a conversation on the recipient. Its final reply goes back to the conversation that started the thread on its own, as a <code>&lt;mesh-message status=&quot;replied&quot;&gt;</code>; a failed or cancelled run sends <code>status=&quot;failed&quot;</code>.</li>
+        <li>Messages go straight into a run that listens with <code>ctx.onMeshMessage</code>. Otherwise they wait until the conversation is free and start one run with <code>source.kind: &quot;mesh&quot;</code>.</li>
+        <li>Workspaces are the boundary. Another tenant&apos;s agents are never listed and cannot be messaged, whatever the peers rule says.</li>
+        <li>Messages still owed are kept on the thread and handed over after a restart. <code>runtime.listThreads()</code> lists threads; the trace has <code>mesh.thread.started</code>, <code>mesh.message.sent</code>, <code>mesh.delivered</code>, <code>mesh.thread.replied</code> and <code>mesh.refused</code>.</li>
+        <li>To mesh Gloves inside a single run, use <Link href="/docs/mesh">glove-mesh</Link> directly, as braind-storm&apos;s lead does with its specialists.</li>
+      </ul>
+      <p>
+        The interactor-and-workers pattern, with questions and voice, is on{" "}
+        <Link href="/foundry/docs/layered-agents">Layered agents</Link>. Why agents are
+        instances rather than definitions is on{" "}
+        <Link href="/foundry/docs/agents-are-data">Agents are data</Link>.
+      </p>
 
       <h2 id="subagents">Subagents with least-privilege tools</h2>
       <p>
@@ -61,7 +98,7 @@ export default function MultiAgentPage() {
       <p>
         The <code>tools</code> option can be a function of the <em>fully assembled</em>{" "}
         parent, resolved only when the subagent is invoked — after installations, MCP
-        servers and message-dependent tools are mounted. That lets a delegate inherit a
+        servers and message-dependent tools are mounted. That lets a subagent inherit a
         read operation without inheriting the parent&apos;s write surface. Foundry has no
         built-in projection helper; <code>parent.tools</code> exposes the registered
         tools, so a five-line function does it:
@@ -116,7 +153,7 @@ export default defineAgent({
         The child uses the parent&apos;s display manager and, unless overridden, its
         model and <code>serverMode</code>; prompt, store and compaction are its own.
         Parent subscribers still record{" "}
-        <code>subagent_invoked</code> and <code>subagent_completed</code>, so delegation
+        <code>subagent_invoked</code> and <code>subagent_completed</code>, so the handoff
         appears in the parent run&apos;s trace (category <code>extension</code>). The{" "}
         <code>subagents</code> field itself can be a resolver, so the set of specialists
         can depend on the instance or message.
@@ -254,29 +291,6 @@ export default defineAgent({
         computed from <code>dependsOn</code>), one lead conversation per campaign.
       </p>
 
-      <h2 id="mesh">Mesh: peers that talk while running</h2>
-      <p>
-        The <code>mesh</code> field mounts <Link href="/docs/mesh">Glove Mesh</Link> on
-        the run. Its value (or resolver result) is a <code>FoundryMeshConfig</code>:
-      </p>
-      <CodeBlock filename="glove-foundry (definition.ts)" language="typescript" code={`interface FoundryMeshConfig {
-  readonly adapter: MeshAdapter; // from glove-mesh: your transport, one adapter per agent
-  readonly identity?: Omit<AgentIdentity, "id"> & { readonly id?: string };
-}`} />
-      <CodeBlock filename="agents/billing/agent.ts" language="typescript" code={`import { createMeshAdapter } from "../../lib/mesh.js"; // your code: a MeshAdapter over Redis, NATS, …
-
-// inside defineAgent({ ... })
-mesh: (_agent, ctx) => ({
-  adapter: createMeshAdapter(ctx.agentId),
-  identity: { name: "Billing", description: "Refunds and invoices", capabilities: ["refunds"] },
-}),`} />
-      <ul>
-        <li>Identity defaults: <code>id</code> and <code>name</code> = the instance id, <code>description</code> = the definition&apos;s; <code>metadata</code> always includes <code>definitionId</code>, <code>conversationId</code> and <code>workspaceId</code>.</li>
-        <li>Mounts <code>glove_mesh_send_message</code>, <code>glove_mesh_broadcast</code>, <code>glove_mesh_list_agents</code> and <code>glove_mesh_acknowledge</code>. Incoming messages become resolved inbox items, so the store must be inbox-capable.</li>
-        <li>The agent registers when the run assembles and <code>adapter.unregister()</code> runs at cleanup: a peer is reachable only while one of its runs is executing.</li>
-        <li>Each run is its own process, so <code>InMemoryMeshAdapter</code> cannot connect two Foundry runs. Use a transport-backed adapter, or build the whole mesh inside one run as braind-storm does.</li>
-      </ul>
-
       <h2 id="shared-work">Coordinate through shared work</h2>
       <p>
         For handoffs that must survive restarts, coordinate through{" "}
@@ -297,14 +311,14 @@ mesh: (_agent, ctx) => ({
       <p>
         A live call is a run: <code>run: voiceCall(...)</code> from{" "}
         <code>glove-foundry/voice</code> hosts a realtime speech session over the assembled
-        agent. Keep the call thin and give it <code>delegates</code>; their results and
-        questions are spoken at the next pause. See{" "}
+        agent. Keep the call thin and turn on the <a href="#mesh">mesh</a>; replies and
+        questions from other agents are spoken at the next pause. See{" "}
         <Link href="/foundry/docs/voice">Voice agents</Link>.
       </p>
       <p>
         <strong>Reference implementations.</strong>{" "}
         <code>examples/foundry-layered-assistant</code> is an assistant that takes chat or
-        calls, keeps personal memory, and delegates to a coder and a researcher.{" "}
+        calls, keeps personal memory, and messages a coder and a researcher on the mesh.{" "}
         <code>examples/foundry-braind-storm</code> is a brand workforce: its briefing line is a{" "}
         <code>voiceCall</code> with Gemini Live, its lead convenes four specialists over an
         in-process mesh with one shared working environment, and its campaign orchestrator

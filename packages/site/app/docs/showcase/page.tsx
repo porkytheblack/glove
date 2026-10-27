@@ -7,10 +7,34 @@ const repo = "https://github.com/porkytheblack/glove/tree/main/examples";
 
 const foundryExamples = [
   {
+    href: "/foundry/docs/rebuilds/grok-bot",
+    kicker: "Rebuild · Grok Bot · Foundry · Kuiper",
+    title: "Bot Crew",
+    desc: "One bot definition; every bot a person makes is data, with its own name, job, apps and memory, and the bots are siblings. A new bot names itself when told its job. Bots work in the apps the person connects (Gmail and Linear as Foundry apps with their accounts), read them in code, and wait for approval before sending. Each runs on its own requests: a message, an @-mention, a sibling's handoff, or its routine on a schedule or new mail. They share group chats and one computer, and learn skills.",
+  },
+  {
+    href: "/foundry/docs/rebuilds/claude-duet",
+    kicker: "Rebuild · Claude Duet · Foundry · Kuiper",
+    title: "Proactive Partner",
+    desc: "One partner in one thread, working in the person's Gmail and Calendar: a morning brief and quiet check-ins in the person's time zone, new mail as it lands, approvals before it sends, pays, signs or deletes, a guard that never lets a card number out, voice, and its own computer.",
+  },
+  {
+    href: "/foundry/docs/rebuilds/openai-dots",
+    kicker: "Rebuild · OpenAI Dots · Foundry · Kuiper",
+    title: "Standing Agents",
+    desc: "A dot you name, holding your ongoing responsibilities: a connected mailbox, read-only research on a schedule, an auto-review with Custom Rules (allow, ask, block) in front of every action, its own computer, the same dot in the app, Slack and on a call, and specialist dots as instances with their own account.",
+  },
+  {
+    href: "/foundry/docs/rebuilds/meta-muse",
+    kicker: "Rebuild · Meta Muse · Foundry · Kuiper",
+    title: "Personal Agent",
+    desc: "One agent per person, in the app and on WhatsApp, that does the work across the apps they connect at the access they choose. It has its own computer, and a separate Sentinel it can't talk round decides what leaves it. It uses logins it never sees, pays with one-time cards after approval, keeps going on its own, forgets when told, and keeps a log of what it did and plans.",
+  },
+  {
     href: `${repo}/foundry-layered-assistant`,
-    kicker: "Foundry · delegates · voice",
+    kicker: "Foundry · mesh · voice",
     title: "Layered Assistant",
-    desc: "A fast interactor with personal memory takes chat or calls and hands work to a coder and a researcher. Workers ask back when they need something; results return to the chat or are spoken mid-call.",
+    desc: "A fast interactor with personal memory takes chat or calls and messages a coder and a researcher over the mesh. Workers ask back when they need something; replies return to the chat or are spoken mid-call.",
   },
   {
     href: "/foundry/docs/browser-and-sandbox",

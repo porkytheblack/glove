@@ -23,6 +23,12 @@ export const foundrySections: FoundryNavSection[] = [
         summary: "What Foundry gives you out of the box, when to use it instead of plain Glove, and the definition → instance → run model.",
       },
       {
+        label: "Agents are data",
+        href: "/foundry/docs/agents-are-data",
+        badge: "new",
+        summary: "A definition is everything a kind of agent could be; each agent, its name, job, apps and teammates are instance data. What goes where, and the mistakes that come from one definition per agent.",
+      },
+      {
         label: "Install & CLI",
         href: "/foundry/docs/getting-started",
         summary: "The setup wizard, both starter templates, every CLI command and flag, and your first run in the inspector.",
@@ -74,18 +80,53 @@ export const foundrySections: FoundryNavSection[] = [
         label: "Layered agents",
         href: "/foundry/docs/layered-agents",
         badge: "new",
-        summary: "Split an assistant by speed, context and duration: an interactor that talks and remembers, workers that do the work, delegates that hand off and hear back.",
+        summary: "Split an assistant by speed, context and duration: an interactor that talks and remembers, and workers that do the work, each an instance in the person's workspace, talking over the mesh.",
       },
       {
         label: "Voice agents",
         href: "/foundry/docs/voice",
         badge: "new",
-        summary: "Run an agent as a live call with voiceCall: rooms, the tools a call may use, and delegation results spoken at the next pause.",
+        summary: "Run an agent as a live call with voiceCall: rooms, the tools a call may use, and replies from other agents spoken at the next pause.",
       },
       {
         label: "Multi-agent systems",
         href: "/foundry/docs/multi-agent",
-        summary: "Every way agents work together: delegates, subagents, typed calls, spawn, mesh, client fan-out and coordination through shared work.",
+        summary: "Every way agents work together: the mesh Foundry hosts, subagents, typed calls, spawn, client fan-out and coordination through shared work.",
+      },
+    ],
+  },
+  {
+    title: "Rebuilds",
+    items: [
+      {
+        label: "Rebuilds",
+        href: "/foundry/docs/rebuilds",
+        badge: "new",
+        summary: "Grok Bot, Claude Duet, OpenAI Dots and Meta Muse rebuilt from Foundry primitives and deployed on Kuiper: how the four shapes compare and what they share.",
+      },
+      {
+        label: "Grok Bot",
+        href: "/foundry/docs/rebuilds/grok-bot",
+        badge: "new",
+        summary: "One bot definition and every bot as data: sibling bots each started by their own requests, bots that name themselves from their job, Gmail and Linear connected as Foundry apps with the person's accounts and read in code, routines on a schedule or on new mail, group chats with no host, handoffs over the mesh, one shared computer and skills.",
+      },
+      {
+        label: "Claude Duet",
+        href: "/foundry/docs/rebuilds/claude-duet",
+        badge: "new",
+        summary: "A proactive partner in one thread: connected Gmail and Calendar read in code, new mail as it lands, a morning brief and quiet check-ins on schedules, approvals before it sends, pays, signs or deletes, a guard on everything outbound, voice, and its own computer.",
+      },
+      {
+        label: "OpenAI Dots",
+        href: "/foundry/docs/rebuilds/openai-dots",
+        badge: "new",
+        summary: "A dot you name, holding your ongoing responsibilities: a connected mailbox, read-only proactive research, Custom Rules (allow, ask, block) and an auto-review before every action, its own computer, the app, Slack and calls, and specialist dots as instances.",
+      },
+      {
+        label: "Meta Muse",
+        href: "/foundry/docs/rebuilds/meta-muse",
+        badge: "new",
+        summary: "A personal agent in the app and on WhatsApp: connected apps at the access the person chooses, its own computer behind a separate Sentinel, logins it never sees, one-time cards, approvals, long work, forgetting, and a log of what it did and plans.",
       },
     ],
   },
@@ -147,7 +188,7 @@ export const foundrySections: FoundryNavSection[] = [
       {
         label: "Inspector & WebChat",
         href: "/foundry/docs/observability",
-        summary: "The built-in inspector, WebChat, run traces, keyboard shortcuts, the event envelope, and custom subscribers.",
+        summary: "The built-in inspector, WebChat, runs opened like DevTools (Network, Console, Context), keyboard shortcuts, the event envelope, and custom subscribers.",
       },
       {
         label: "Persistence",

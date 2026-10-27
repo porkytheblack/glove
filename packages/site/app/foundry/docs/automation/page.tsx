@@ -388,7 +388,7 @@ export default defineSchedule({
           <tr><td><code>glove_foundry_schedules</code></td><td><code>action</code>: <code>list</code> (<code>status?</code>: <code>active</code> default, <code>paused</code>, <code>completed</code>, <code>cancelled</code>, <code>all</code>), <code>update</code> (<code>activationId</code>, <code>message?</code>, <code>payload?</code>, <code>timing?</code>), <code>pause</code>, <code>resume</code>, <code>cancel</code> (<code>activationId</code>)</td><td>Manage this instance’s scheduled activations, both definition and tool-created. Other instances’ schedules are invisible. Updating a paused one keeps it paused; <code>resume</code> works only from <code>paused</code>; completed or cancelled ones cannot be paused.</td></tr>
           <tr><td><code>glove_foundry_sleep</code></td><td><code>{"{ kind: \"for\", duration, message? }"}</code> or <code>{"{ kind: \"until\", at, message? }"}</code></td><td>Persist a wake-up for this instance and conversation. <code>message</code> defaults to “Continue the suspended work.”</td></tr>
           <tr><td><code>glove_foundry_background</code></td><td><code>message</code>, <code>payload?</code>, <code>definitionId?</code>, <code>reconvene?</code> (default <code>true</code>)</td><td>Queue a separate run now on this instance and conversation. With <code>reconvene</code>, its finished run is posted to the shared inbox under topic <code>background.reconvene</code>.</td></tr>
-          <tr><td><code>glove_foundry_transmit</code></td><td><code>routeId</code>, <code>payload</code></td><td>Deliver through an outbound route this run is authorized for (see <Link href="/foundry/docs/applications#outbound-tool">outbound</Link>) and return the adapter’s validated output.</td></tr>
+          <tr><td><code>glove_foundry_transmit</code></td><td><code>routeId</code>, <code>payload</code></td><td>Deliver through an outbound route this instance&apos;s playbooks declare and this run is authorized for (see <Link href="/foundry/docs/applications#outbound-tool">outbound</Link>), asking first when the route&apos;s transmission requires it, and return the adapter’s validated output.</td></tr>
           <tr><td><code>glove_foundry_conversations</code></td><td>none</td><td>List this instance’s conversations.</td></tr>
           <tr><td><code>glove_foundry_workspace</code></td><td><code>action</code>: <code>get</code> (<code>key</code>), <code>set</code> (<code>key</code>, <code>value</code>), <code>list</code></td><td>Read and write the workspace’s shared key-value entries.</td></tr>
           <tr><td><code>glove_foundry_shared_inbox</code></td><td><code>action</code>: <code>list</code>, <code>post</code> (<code>topic</code>, <code>payload</code>, <code>agentId?</code>, <code>conversationId?</code>), <code>update</code> (<code>itemId</code>, <code>status</code>: <code>pending</code> | <code>resolved</code> | <code>dismissed</code>)</td><td>The workspace inbox other agents and conversations read.</td></tr>
@@ -397,10 +397,11 @@ export default defineSchedule({
         </tbody>
       </table>
       <p>
-        Two more sets appear only where they apply. An agent with{" "}
-        <code>delegates</code> gets <code>glove_foundry_delegate</code> and{" "}
-        <code>glove_foundry_reply</code>, and a run working on a delegated task gets{" "}
-        <code>glove_foundry_ask</code>; see <Link href="/foundry/docs/layered-agents">Layered agents</Link>.
+        Two more sets appear only where they apply. An agent with <code>mesh</code> set gets{" "}
+        <code>glove_mesh_list_agents</code>, <code>glove_mesh_send_message</code>,{" "}
+        <code>glove_mesh_broadcast</code> and <code>glove_mesh_acknowledge</code>, to message the
+        other agents in its workspace by instance id; see{" "}
+        <Link href="/foundry/docs/multi-agent#mesh">the mesh</Link>.
         Installed apps add one <code>glove_app_&lt;app&gt;__&lt;transmission&gt;_send</code> tool
         per outbound transmission. Workspace, inbox and tasks are described in{" "}
         <Link href="/foundry/docs/conversations">Conversations &amp; shared work</Link>.

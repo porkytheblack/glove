@@ -575,6 +575,70 @@ importers:
         specifier: ^8.54.0
         version: 8.67.0(eslint@9.39.5)(typescript@5.9.3)
 
+  examples/foundry-bot-crew:
+    dependencies:
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.29.0
+        version: 1.29.0(zod@4.3.6)
+      effect:
+        specifier: ^3.22.1
+        version: 3.22.1
+      glove-core:
+        specifier: workspace:*
+        version: link:../../packages/glove
+      glove-env-fetch:
+        specifier: workspace:*
+        version: link:../../packages/glove-env-fetch
+      glove-foundry:
+        specifier: workspace:*
+        version: link:../../packages/glove-foundry
+      glove-foundry-web-kit:
+        specifier: workspace:*
+        version: link:../foundry-web-kit
+      glove-js:
+        specifier: workspace:*
+        version: link:../../packages/glove-js
+      glove-memory:
+        specifier: workspace:*
+        version: link:../../packages/glove-memory
+      glove-working-environment:
+        specifier: workspace:*
+        version: link:../../packages/glove-working-environment
+      next:
+        specifier: ^15.3.3
+        version: 15.5.12(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      react:
+        specifier: ^19.0.0
+        version: 19.2.4
+      react-dom:
+        specifier: ^19.0.0
+        version: 19.2.4(react@19.2.4)
+      server-only:
+        specifier: ^0.0.1
+        version: 0.0.1
+      tsx:
+        specifier: ^4.21.0
+        version: 4.21.0
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
+    devDependencies:
+      '@types/node':
+        specifier: ^25.2.3
+        version: 25.2.3
+      '@types/react':
+        specifier: ^19.0.0
+        version: 19.2.14
+      '@types/react-dom':
+        specifier: ^19.0.0
+        version: 19.2.3(@types/react@19.2.14)
+      playwright-core:
+        specifier: ^1.50.0
+        version: 1.62.1
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+
   examples/foundry-braind-storm:
     dependencies:
       effect:
@@ -783,6 +847,186 @@ importers:
         specifier: ^5.9.3
         version: 5.9.3
 
+  examples/foundry-personal-agent:
+    dependencies:
+      '@kuiper-sh/sdk':
+        specifier: ^0.2.0
+        version: 0.2.0
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.29.0
+        version: 1.29.0(zod@4.3.6)
+      effect:
+        specifier: ^3.22.1
+        version: 3.22.1
+      glove-classifier:
+        specifier: workspace:*
+        version: link:../../packages/glove-classifier
+      glove-core:
+        specifier: workspace:*
+        version: link:../../packages/glove
+      glove-execution:
+        specifier: workspace:*
+        version: link:../../packages/glove-execution
+      glove-foundry:
+        specifier: workspace:*
+        version: link:../../packages/glove-foundry
+      glove-foundry-web-kit:
+        specifier: workspace:*
+        version: link:../foundry-web-kit
+      glove-js:
+        specifier: workspace:*
+        version: link:../../packages/glove-js
+      glove-memory:
+        specifier: workspace:*
+        version: link:../../packages/glove-memory
+      next:
+        specifier: ^15.3.3
+        version: 15.5.12(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      playwright-core:
+        specifier: ^1.50.0
+        version: 1.62.1
+      react:
+        specifier: ^19.0.0
+        version: 19.2.4
+      react-dom:
+        specifier: ^19.0.0
+        version: 19.2.4(react@19.2.4)
+      server-only:
+        specifier: ^0.0.1
+        version: 0.0.1
+      tsx:
+        specifier: ^4.21.0
+        version: 4.21.0
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
+    devDependencies:
+      '@types/node':
+        specifier: ^25.2.3
+        version: 25.2.3
+      '@types/react':
+        specifier: ^19.0.0
+        version: 19.2.14
+      '@types/react-dom':
+        specifier: ^19.0.0
+        version: 19.2.3(@types/react@19.2.14)
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+
+  examples/foundry-proactive-partner:
+    dependencies:
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.29.0
+        version: 1.29.0(zod@4.3.6)
+      effect:
+        specifier: ^3.22.1
+        version: 3.22.1
+      glove-classifier:
+        specifier: workspace:*
+        version: link:../../packages/glove-classifier
+      glove-core:
+        specifier: workspace:*
+        version: link:../../packages/glove
+      glove-env-fetch:
+        specifier: workspace:*
+        version: link:../../packages/glove-env-fetch
+      glove-foundry:
+        specifier: workspace:*
+        version: link:../../packages/glove-foundry
+      glove-js:
+        specifier: workspace:*
+        version: link:../../packages/glove-js
+      glove-memory:
+        specifier: workspace:*
+        version: link:../../packages/glove-memory
+      glove-voice-s2s:
+        specifier: workspace:*
+        version: link:../../packages/glove-voice-s2s
+      glove-working-environment:
+        specifier: workspace:*
+        version: link:../../packages/glove-working-environment
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
+    devDependencies:
+      '@types/node':
+        specifier: ^25.2.3
+        version: 25.2.3
+      tsx:
+        specifier: ^4.21.0
+        version: 4.21.0
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+
+  examples/foundry-standing-agents:
+    dependencies:
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.29.0
+        version: 1.29.0(zod@4.3.6)
+      effect:
+        specifier: ^3.22.1
+        version: 3.22.1
+      glove-core:
+        specifier: workspace:*
+        version: link:../../packages/glove
+      glove-env-fetch:
+        specifier: workspace:*
+        version: link:../../packages/glove-env-fetch
+      glove-foundry:
+        specifier: workspace:*
+        version: link:../../packages/glove-foundry
+      glove-foundry-web-kit:
+        specifier: workspace:*
+        version: link:../foundry-web-kit
+      glove-js:
+        specifier: workspace:*
+        version: link:../../packages/glove-js
+      glove-memory:
+        specifier: workspace:*
+        version: link:../../packages/glove-memory
+      glove-voice-s2s:
+        specifier: workspace:*
+        version: link:../../packages/glove-voice-s2s
+      glove-working-environment:
+        specifier: workspace:*
+        version: link:../../packages/glove-working-environment
+      next:
+        specifier: ^15.3.3
+        version: 15.5.12(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      react:
+        specifier: ^19.0.0
+        version: 19.2.4
+      react-dom:
+        specifier: ^19.0.0
+        version: 19.2.4(react@19.2.4)
+      server-only:
+        specifier: ^0.0.1
+        version: 0.0.1
+      tsx:
+        specifier: ^4.21.0
+        version: 4.21.0
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
+    devDependencies:
+      '@types/node':
+        specifier: ^25.2.3
+        version: 25.2.3
+      '@types/react':
+        specifier: ^19.0.0
+        version: 19.2.14
+      '@types/react-dom':
+        specifier: ^19.0.0
+        version: 19.2.3(@types/react@19.2.14)
+      playwright-core:
+        specifier: ^1.50.0
+        version: 1.62.1
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+
   examples/foundry-tests:
     dependencies:
       effect:
@@ -801,6 +1045,34 @@ importers:
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
+
+  examples/foundry-web-kit:
+    dependencies:
+      glove-foundry:
+        specifier: workspace:*
+        version: link:../../packages/glove-foundry
+    devDependencies:
+      '@types/node':
+        specifier: ^25.2.3
+        version: 25.2.3
+      '@types/react':
+        specifier: ^19.0.0
+        version: 19.2.14
+      next:
+        specifier: ^15.3.3
+        version: 15.5.12(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      react:
+        specifier: ^19.0.0
+        version: 19.2.4
+      react-dom:
+        specifier: ^19.0.0
+        version: 19.2.4(react@19.2.4)
+      tsx:
+        specifier: ^4.21.0
+        version: 4.21.0
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
 
   examples/glovebox-env:
     dependencies:
@@ -1942,12 +2214,18 @@ importers:
         specifier: ^4.3.6
         version: 4.3.6
     devDependencies:
+      '@kuiper-sh/sdk':
+        specifier: ^0.2.0
+        version: 0.2.0
       '@types/node':
         specifier: ^25.2.3
         version: 25.2.3
       esbuild:
         specifier: ^0.27.3
         version: 0.27.3
+      playwright-core:
+        specifier: ^1.50.0
+        version: 1.62.1
       station-browser-use:
         specifier: ^3.0.0
         version: 3.0.0(playwright@1.62.1)
@@ -2055,6 +2333,9 @@ importers:
         specifier: ^4.3.6
         version: 4.3.6
     devDependencies:
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.29.0
+        version: 1.29.0(zod@4.3.6)
       '@types/node':
         specifier: ^25.2.3
         version: 25.2.3
@@ -4263,6 +4544,30 @@ packages:
   '@kenjiuno/msgreader@1.28.0':
     resolution: {integrity: sha512-+iv2rWCGRHmX/3sBwXZzkThEuuywGJjnYsvxj6Kp1L/FDMICQcFrtqN+6MFrnh2d+umtfGtX904wxaYEDZ52MQ==}
     engines: {node: '>= 10'}
+
+  '@kuiper-sh/browsers@0.2.0':
+    resolution: {integrity: sha512-ynqiqqTiN2dlAjaPi0ZzWRCYUB4BABq5CLwVxO4A7bArD2eKPhhyn1kjsHo0J2ygriWLfp6v4JuMykGotMvz6w==}
+    engines: {node: '>=20'}
+
+  '@kuiper-sh/gateway@0.2.0':
+    resolution: {integrity: sha512-S7XwtSM5Gq926LSsiDU01TatafO+IVcWIOEuLdNiM0wjxxBX3b0DjtIL4cF8/MPeQPGtMZT7Ax2qLj1lBEwfGw==}
+    engines: {node: '>=20'}
+
+  '@kuiper-sh/inbox@0.2.0':
+    resolution: {integrity: sha512-Qq2VR83qW/7ahWhH1NonZQmqI3/KeirAC+FtP+wUdInUPsyBlZc48X0xKzg0u4rvVX7XlLG7aecoCndeQhS53Q==}
+    engines: {node: '>=20'}
+
+  '@kuiper-sh/models@0.2.0':
+    resolution: {integrity: sha512-ohnzUm/AvDbwEva1XgYpMhyAL2UHmXqP6GyhaSKRwgpzof8rRcgxxiWGGrN9hJyPFJMfKGVmAvM8nZRKWhIRVQ==}
+    engines: {node: '>=20'}
+
+  '@kuiper-sh/sandboxes@0.2.0':
+    resolution: {integrity: sha512-rwfalKm/ohzjyevtpg0F0VvOn5Ht6GUOIJV5WqYdx21DQKpWK1EkqdG7UkqJbQ0b40Tw3avPEck3H+yYIV+YJQ==}
+    engines: {node: '>=20'}
+
+  '@kuiper-sh/sdk@0.2.0':
+    resolution: {integrity: sha512-wj77keP22QYkOk8lMDHn5uRQgD++OkJqJ20neO3HB4VEkPL9fk8UUvNCZId4BY3DD1KxQokUQu4hk/zK+alIBg==}
+    engines: {node: '>=20'}
 
   '@lezer/common@1.5.2':
     resolution: {integrity: sha512-sxQE460fPZyU3sdc8lafxiPwJHBzZRy/udNFynGQky1SePYBdhkBl1kOagA9uT3pxR8K09bOrmTUqA9wb/PjSQ==}
@@ -11283,6 +11588,32 @@ snapshots:
     dependencies:
       '@kenjiuno/decompressrtf': 0.1.4
       iconv-lite: 0.6.3
+
+  '@kuiper-sh/browsers@0.2.0':
+    dependencies:
+      '@kuiper-sh/gateway': 0.2.0
+
+  '@kuiper-sh/gateway@0.2.0': {}
+
+  '@kuiper-sh/inbox@0.2.0':
+    dependencies:
+      '@kuiper-sh/gateway': 0.2.0
+
+  '@kuiper-sh/models@0.2.0':
+    dependencies:
+      '@kuiper-sh/gateway': 0.2.0
+
+  '@kuiper-sh/sandboxes@0.2.0':
+    dependencies:
+      '@kuiper-sh/gateway': 0.2.0
+
+  '@kuiper-sh/sdk@0.2.0':
+    dependencies:
+      '@kuiper-sh/browsers': 0.2.0
+      '@kuiper-sh/gateway': 0.2.0
+      '@kuiper-sh/inbox': 0.2.0
+      '@kuiper-sh/models': 0.2.0
+      '@kuiper-sh/sandboxes': 0.2.0
 
   '@lezer/common@1.5.2': {}
 

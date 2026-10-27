@@ -520,7 +520,9 @@ export function claimTicket(ctx: AgentAssemblyContext): GloveFoldArgs<z.infer<ty
           <code>foundryDataEnvironmentPersistence({"{ scope }"})</code> stores snapshots through the
           data adapter’s private snapshot methods. <code>scope: &quot;agent&quot;</code> (the
           default) gives each instance one tree; <code>&quot;conversation&quot;</code> gives each
-          conversation its own.
+          conversation its own; <code>&quot;workspace&quot;</code> gives every agent in a workspace
+          one shared tree, such as a computer a person&apos;s agents share. Saves replace the
+          snapshot, so with a shared tree the last run to finish wins.
         </li>
         <li>
           For large trees or many concurrent writers, pass a native persistent <code>Vfs</code>{" "}

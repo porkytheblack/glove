@@ -4,6 +4,13 @@ A personal assistant built as layers of agents in Glove Foundry. One agent talks
 to the person; the others do the work. Use it as a starting point for any
 assistant that has to stay responsive while real work happens elsewhere.
 
+The definitions in `agents/` say what an assistant, a coder and a researcher
+can be. The agents themselves are data: `lib/team.ts` describes a person's
+assistant ("Iris") and two workers in their own workspace, with their names and
+what they do. `foundry.application.ts` seeds Maya's team with
+`defineAgentInstance`, and `scripts/onboard.ts` creates the same records for
+anyone else. The agents message each other over Glove Mesh, which Foundry hosts.
+
 ```
             person (chat or call)
                     │
@@ -11,7 +18,7 @@ assistant that has to stay responsive while real work happens elsewhere.
    │ assistant · layer 1, interactor │  fast model, personal memory,
    │                                 │  text or voice, no heavy tools
    └───────┬─────────────────▲───────┘
-  delegate │                 │ results and questions
+   message │                 │ replies and questions
    ┌───────▼───────┐  ┌──────┴────────┐
    │ coder         │  │ researcher    │  layer 2, workers: stronger model,
    │ sandbox       │  │ env:fetch     │  their own tools, no memory of the
@@ -23,9 +30,9 @@ Why split it this way:
 | | Interactor (`assistant`) | Workers (`coder`, `researcher`) |
 | --- | --- | --- |
 | How fast it must reply | Now: a person is waiting | Minutes are fine |
-| What context it keeps | The person: who they are, what they want | One task at a time, one conversation per delegation |
+| What context it keeps | The person: who they are, what they want | One task at a time, one conversation per mesh thread |
 | How long it runs | One turn, or one call | As long as the task takes |
-| What it can reach | Memory, the person, its delegates | Its sandbox or the web, and a question back to the interactor |
+| What it can reach | Memory, the person, the other agents in its workspace | Its sandbox or the web, and a question back to whoever sent the work |
 
 ## Files
 
@@ -34,8 +41,8 @@ Each `agent.ts` only assembles. What the agent is made of lives beside it.
 ```
 agents/
   assistant/
-    agent.ts              assembly: model per surface, memory, delegates, run
-    prompt.ts             how the interactor talks and when it delegates
+    agent.ts              assembly: model per surface, memory, mesh, run
+    prompt.ts             how the interactor talks and when it hands work off
     personal.memory.ts    what it knows about the person (glove-memory on SQLite)
     call.ts               the voice call: room, greeting
   coder/
@@ -43,11 +50,13 @@ agents/
   researcher/
     agent.ts  prompt.ts  workspace.ts      the same, plus env:fetch
 lib/
+  team.ts         a person's agents, as data
   models.ts       one model choice per layer
   demo-model.ts   scripted models used when no API key is set
   file-store.ts   durable transcripts
-  workspaces.ts   saves each delegation's workspace
-scripts/verify.ts the whole exchange, offline
+scripts/
+  verify.ts       the whole exchange, offline
+  onboard.ts      create a person's team on a running Foundry
 ```
 
 ## Run it
@@ -59,10 +68,12 @@ cp .env.example .env                                    # add ANTHROPIC_API_KEY
 pnpm --filter glove-foundry-layered-assistant dev       # inspector at http://localhost:4142
 ```
 
-In the inspector, create an `assistant` instance, open WebChat and ask for some
-code. The assistant delegates to the coder and keeps talking. If the coder needs
-to know something, its question comes back to the assistant, which answers from
-memory or asks you. The result arrives as a new turn in the same chat.
+Maya's team is there from the start. In the inspector, open WebChat with Iris
+and ask for some code (`pnpm tsx scripts/onboard.ts ada "Ada"` adds another
+person's team). Iris sends the work
+to the coder and keeps talking. If the coder needs to know something, its
+question comes back to Iris, who answers from memory or asks you. The reply
+arrives as a new turn in the same chat.
 
 ## Call it
 
@@ -77,8 +88,8 @@ await foundry.send("maya", "maya-call", "call", { payload: { call: { port: 4770,
 // binary PCM16 at 16 kHz both ways, plus JSON captions and state
 ```
 
-Set `OPENAI_API_KEY` for the speech model. While the call is live, results and
-questions from the workers are spoken at the next pause. A result that lands
+Set `OPENAI_API_KEY` for the speech model. While the call is live, replies and
+questions from the workers are spoken at the next pause. A reply that lands
 after you hang up starts an ordinary text turn in that conversation, so it is
 waiting in the chat.
 

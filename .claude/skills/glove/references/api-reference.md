@@ -291,6 +291,9 @@ baked-in — use `createAdapter({ provider: "mimo", ... })` for it.
 ```typescript
 // Discriminated union of all subscriber events
 type SubscriberEvent =
+  // Only to subscribers that set modelRequests: true
+  | { type: "model_request"; request_id: string; model: string; purpose: "turn" | "compaction"; system_prompt: string; messages: ReadonlyArray<Message>; tools: ReadonlyArray<ModelRequestTool> }
+  | { type: "model_request_end"; request_id: string; model: string; duration_ms: number; status: "success" | "error" | "aborted"; error?: string; messages?: ReadonlyArray<Message>; tokens_in?: number; tokens_out?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number }
   | { type: "text_delta"; text: string }
   | { type: "tool_use"; id: string; name: string; input: unknown }
   | { type: "model_response"; text: string; tool_calls?: ToolCall[]; stop_reason?: string; tokens_in?: number; tokens_out?: number }
@@ -314,6 +317,7 @@ type NotifySubscribersFunction = <T extends SubscriberEvent["type"]>(
 
 // Interface for event receivers
 interface SubscriberAdapter {
+  modelRequests?: boolean; // opt in to model_request / model_request_end
   record: <T extends SubscriberEvent["type"]>(
     event_type: T, data: SubscriberEventDataMap[T]
   ) => Promise<void>;
@@ -324,6 +328,8 @@ interface SubscriberAdapter {
 
 | Event | Emitted by | Data | Description |
 |-------|-----------|------|-------------|
+| `model_request` | Core (PromptMachine) | `{ request_id, model, purpose, system_prompt, messages, tools }` | A model call is about to be sent, exactly as the adapter gets it (runtime context at the tail). Only to subscribers with `modelRequests: true`; the arrays are shared, don't mutate them |
+| `model_request_end` | Core (PromptMachine) | `{ request_id, model, duration_ms, status, error?, messages?, tokens_in?, tokens_out?, cache_* }` | That call ended: success, error or aborted, with the response |
 | `text_delta` | Adapter (streaming) | `{ text: string }` | Incremental text fragment |
 | `tool_use` | Adapter (streaming) | `{ id, name, input }` | Tool call assembled |
 | `model_response` | Adapter (non-streaming) | `{ text, tool_calls?, stop_reason?, tokens_in?, tokens_out? }` | Complete non-streaming response |
@@ -341,7 +347,7 @@ interface SubscriberAdapter {
 - Non-streaming: emit `model_response` once per prompt call
 - Streaming: emit `text_delta` per chunk, `tool_use` per tool call, `model_response_complete` once at end
 - Use `?? undefined` to coerce null `stop_reason` from provider SDKs
-- Never emit `tool_use_result`, `compaction_start`, `compaction_end`, `token_consumption`, `hook_invoked`, `skill_invoked`, `subagent_invoked`, or `subagent_completed` — those are framework-only
+- Never emit `model_request`, `model_request_end`, `tool_use_result`, `compaction_start`, `compaction_end`, `token_consumption`, `hook_invoked`, `skill_invoked`, `subagent_invoked`, or `subagent_completed` — those are framework-only
 
 #### Subagent bracket symmetry
 

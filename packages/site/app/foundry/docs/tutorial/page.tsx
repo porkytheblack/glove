@@ -44,8 +44,10 @@ pnpm dev`} />
       <p>
         Open <code>http://127.0.0.1:4141</code>. Press <strong>Start a run</strong>, pick the{" "}
         <code>assistant</code> definition, type “What time is it?”, and submit. The inspector
-        creates an instance and a conversation for you, then opens the run: a four-phase spine
-        (Accepted → Assembled → Agent work → Completed) with the model and tool events below it.
+        creates an instance and a conversation for you, then opens the run. Its{" "}
+        <strong>Network</strong> view lists each model request and tool call; click a request to
+        see the system prompt, messages and context it was sent (see{" "}
+        <Link href="/foundry/docs/observability#runs">Following a run</Link>).
         The <strong>Chat</strong> page is the built-in WebChat for the same instance.
       </p>
       <p>
@@ -183,7 +185,7 @@ export default defineAgent({
   tools: [supportHours],
 });`} />
       <p>
-        Ask “Is the support desk open right now?”. The run trace shows a{" "}
+        Ask “Is the support desk open right now?”. The run’s Network view shows a{" "}
         <code>support_hours</code> tool call and its result before the reply. <code>tools</code> can also be a resolver, e.g. to
         return extra tools only for <code>ctx.agentInstance.context.tier === &quot;gold&quot;</code>.
       </p>

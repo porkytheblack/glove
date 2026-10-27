@@ -61,6 +61,10 @@ Foundry stops Station and its resource adapters on shutdown, and cleans up on fa
 
 Programmatic `FoundryRuntime.discover` calls using a daemon adapter must supply `applicationFilePath`; closures are loaded in the child process, never serialized from the parent. Each Foundry runtime owns its Station instance. A fixed port must be unique per instance; omitting it avoids manual port allocation.
 
+## Kuiper's browsers and sandboxes, without a daemon
+
+On [Kuiper](https://kuiper.sh), `glove-execution/kuiper` mounts Kuiper's browsers (real Chrome) and sandboxes through `@kuiper-sh/sdk`: `kuiperBrowser({ browsers: kuiper.browsers, … })` and `kuiperSandbox({ sandboxes: kuiper.sandboxes, … })`. They need no `stationDaemon`. A Kuiper session or sandbox belongs to the project rather than the process, so each run mounts it in `configure`, and the next run reconnects by the IDs the application kept, usually on the agent instance. The browser adapter takes a `guard` that sees every request the browser makes, and an `onHandOff` that gives a person Kuiper's live view for a sign-in. See the [glove-execution README](../../glove-execution/README.md#kuiper) and the personal-agent example.
+
 ## Optional capability mounts
 
 Browser and sandbox support is opt-in through `glove-execution`. Neither `glove-core` nor Foundry depends on that package. Use the same explicit mounting pattern as other Glove extensions, inside Foundry's existing `configure` hook:

@@ -11,6 +11,19 @@ Build guided conversations with first-class, lazy `goals`, `facts`, `forms`, and
 evidence and answers. See [the guidance handbook](./docs/guidance.md) for scope,
 durable SQLite setup, preparation, and a runnable example.
 
+## Agents are data
+
+A definition (`agents/<route>/agent.ts`) is everything a kind of agent can be,
+like a server-rendered page that renders any props. The agents themselves are
+instances, and who each one is lives in data: its `name`, `description`,
+`context`, `installations` and `workspaceId`. Write one `bot` definition, not a
+definition per bot; adding a bot, renaming it or giving it an app is a write
+(`createAgent`, `configureAgent`, `install`), never a deploy. Read names, jobs
+and per-user settings from the instance in resolvers, branch on its data rather
+than its id, and let agents change their own data with tools. Split definitions
+only by what a kind of agent can do or must load. See
+[Agents are data](https://glove.dterminal.net/foundry/docs/agents-are-data).
+
 ## Your first agent application
 
 Dependency installation is selected by default in the setup wizard. Foundry runs
@@ -258,6 +271,25 @@ export default defineAgent({
 
 Credential acquisition and refresh still belong to `mcpAdapterFor`; persisted installation config should contain only a reference such as an environment-variable or vault-record name.
 
+### Apps people connect
+
+When each person connects their own account (Gmail, Linear, a calendar), put the provider's MCP server on a Foundry app. The app opens it with the installation's account, decides per tool, and also owns the sends and incoming events:
+
+```ts
+export default defineApp({
+  description: "Gmail: read mail, send as the owner, new mail as it arrives",
+  outbound: [gmail],                       // glove_app_gmail__gmail_send, delivered by Foundry after approval
+  connections: [gmailWatch],               // new mail into a playbook
+  mcp: {
+    entry: { name: "gmail", description: "Read the owner's mail", url: "https://gmailmcp.googleapis.com/mcp/v1" },
+    auth: (session) => ({ authorization: `Bearer ${(session as GoogleSession).accessToken}` }),   // inside accountSessions.withSession
+    tools: (tool) => (tool.readOnly ? "allow" : "ask"),                         // or "hide"
+  },
+})
+```
+
+Install it with `accountId`. `defineRepl({ programmaticTools: { select: ({ apps }) => apps.flatMap((app) => app.tools.filter((tool) => tool.readOnly)), keepDirect: false } })` gives the reads to the program as `gmail.search_threads(...)` and takes them out of the direct tool list. Keep accounts in your own store and hand Foundry an `AccountDirectory` through `defineApplication({ services })`; `fileTopologyStore(file)` keeps the routes and bindings you write at runtime.
+
 ## Background playbooks and lazy provisioning
 
 A playbook is serializable runtime policy. It is composed by an agent resolver or frontend from transmission primitives, then persisted on the instance. Executable normalization, authentication, predicates, serialization, and delivery live on the transmission definition.
@@ -313,7 +345,7 @@ store. Foundry does not fabricate history from retained runs or UI state.
 ## Least-privilege subagents
 
 Subagents may declare fixed tools or project an invocation-time subset from the
-fully assembled parent. That lets a delegate inherit an installed application or
+fully assembled parent. That lets a subagent inherit an installed application or
 MCP read operation without receiving the parent's write/admin surface. The
 projection is resolved only when the subagent is called, after instance
 installations and message-dependent assembly have completed.
@@ -321,7 +353,7 @@ installations and message-dependent assembly have completed.
 ```ts
 import { getToolJsonSchema } from "glove-core"
 
-// Names of tools the parent has mounted that the delegate may use.
+// Names of tools the parent has mounted that the subagent may use.
 const READ_ONLY = new Set(["web_search", "web_read", "workspace_read_file"])
 
 defineSubagent({
@@ -343,13 +375,18 @@ defineSubagent({
 The child keeps its isolated store, compaction policy, model, prompt and skills.
 Its `layers` and `subscribers` mount when the subagent is invoked and are
 disposed when its request ends. Parent subscribers still receive the subagent
-lifecycle bracket, so delegation remains visible in the same run trace.
+lifecycle bracket, so the subagent call remains visible in the same run trace.
 
-## Layered agents: delegates
+## Agents talking to agents: the mesh
 
-Split an assistant by how fast each part must answer, what it must remember,
-and how long it runs. The agent that talks to the person stays fast and keeps
-their context; sibling agents do the slow, tool-heavy work in their own
+Foundry hosts [Glove Mesh](../glove-mesh). `mesh: true` gives an agent
+`glove_mesh_list_agents`, `glove_mesh_send_message`, `glove_mesh_broadcast` and
+`glove_mesh_acknowledge`, and it messages other agents by instance id. Its peers
+are the other instances in its workspace, so who is on a team is data.
+
+A layered assistant splits by how fast each part must answer, what it must
+remember, and how long it runs. The agent that talks to the person stays fast
+and keeps their context; workers do the slow, tool-heavy work in their own
 processes and conversations, and report back.
 
 ```ts
@@ -359,10 +396,7 @@ export default defineAgent({
   model: fastModel,
   systemPrompt: interactorPrompt,
   memory: [personal],
-  delegates: [
-    { agent: "coder", description: "Writes and runs code. Takes minutes." },
-    { agent: "researcher", description: "Reads the web and cites sources." },
-  ],
+  mesh: true,
 })
 
 // agents/coder/agent.ts — a worker
@@ -371,27 +405,32 @@ export default defineAgent({
   model: strongModel,
   systemPrompt: coderPrompt,
   workingEnvironment: coderWorkspace,
-  answerWaitMs: 120_000,
+  mesh: { waitMs: 120_000 },
+})
+
+// your application — the agents are instances in the person's workspace
+await foundry.createAgent("assistant", { id: "ada", workspaceId: "ada", name: "Iris" })
+await foundry.createAgent("coder", {
+  id: "ada-coder", workspaceId: "ada", name: "Coder",
+  description: "Writes and runs code. Takes minutes. Give it the whole task.",
 })
 ```
 
-`delegates` names siblings by route and adds two tools to the interactor:
-`glove_foundry_delegate` hands off a task and returns at once, and
-`glove_foundry_reply` answers a worker's question or sends more instructions.
-Each delegation runs as its own conversation on a worker instance (one per
-interactor instance and worker), which carries the interactor instance's
-context. The worker gets `glove_foundry_ask`; its final reply is the result.
+A new message starts a thread: a conversation on the recipient. The recipient's
+final reply goes back on its own; a failed or cancelled run sends a failure. It
+can ask back with `glove_mesh_send_message`, and the sender answers with
+`in_reply_to`. Messages reach a run that is listening (`ctx.onMeshMessage`, used
+by `voiceCall`) directly. Otherwise they wait until the conversation is free and
+start one run (`source.kind` `"mesh"`) carrying everything that arrived, as
+`<mesh-message>` blocks. A blocking send waits up to `waitMs` (default 90 s)
+inside the same run, so a worker holding a browser or sandbox session keeps it;
+after that the run suspends and the reply starts a new run. Open threads appear
+in the sender's runtime context, and `runtime.listThreads()` lists them.
 
-Results and questions come back to the conversation that delegated. If a run
-there is listening (`ctx.onDelegationUpdate`, used by `voiceCall`), they reach
-it directly. Otherwise they wait until the conversation is free and start one
-run carrying everything that arrived, as `<delegation>` messages. A worker's
-question waits up to `answerWaitMs` (default 90 s) inside the same run, so a
-worker holding a browser or sandbox session keeps it; after that the run
-suspends and the answer starts a new run in the same conversation. Open
-delegations appear in the interactor's runtime context, and
-`runtime.listDelegations()` lists them all. See
-[`examples/foundry-layered-assistant`](../../examples/foundry-layered-assistant).
+`peers(self, peer)` narrows who an agent may message, from data; an agent can
+always answer whoever messaged it. `mount(ctx)` decides per run whether the
+tools are there, so a scheduled research run can be kept from messaging anyone.
+See [`examples/foundry-layered-assistant`](../../examples/foundry-layered-assistant).
 
 ## Voice calls
 
@@ -408,9 +447,9 @@ run: voiceCall({
 ```
 
 The call uses the assembled agent's prompt, tools and runtime context, saves
-what both sides say to the conversation store, and speaks delegation results
-and questions at the next pause. Foundry's bookkeeping tools and any tool that
-needs an approval stay off the call; delegate that work instead. A room is any
+what both sides say to the conversation store, and speaks mesh replies and
+questions at the next pause. Foundry's bookkeeping tools and any tool that
+needs an approval stay off the call; send that work to another agent instead. A room is any
 `{ open(call), close() }`: `webSocketRoom` serves PCM16 over one WebSocket, and
 a LiveKit or phone room calls `call.joined()` and `call.left()` the same way.
 

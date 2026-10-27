@@ -1,7 +1,7 @@
 {
   "name": "glove-execution",
   "version": "0.2.1",
-  "description": "Mounted browser scripting and persistent sandbox capabilities for Glove agents, with Station backends",
+  "description": "Mounted browser scripting and persistent sandbox capabilities for Glove agents, with Station and Kuiper backends",
   "type": "module",
   "license": "MIT",
   "repository": {
@@ -20,6 +20,10 @@
     "./station": {
       "types": "./dist/station.d.ts",
       "import": "./dist/station.js"
+    },
+    "./kuiper": {
+      "types": "./dist/kuiper.d.ts",
+      "import": "./dist/kuiper.js"
     }
   },
   "files": [
@@ -37,11 +41,19 @@
     "zod": "^4.3.6"
   },
   "peerDependencies": {
+    "@kuiper-sh/sdk": "^0.2.0",
+    "playwright-core": "^1.50.0",
     "station-browser-use": "^3.0.0",
     "station-client": "^3.0.0",
     "station-sandbox": "^3.0.0"
   },
   "peerDependenciesMeta": {
+    "@kuiper-sh/sdk": {
+      "optional": true
+    },
+    "playwright-core": {
+      "optional": true
+    },
     "station-browser-use": {
       "optional": true
     },
@@ -53,8 +65,10 @@
     }
   },
   "devDependencies": {
-    "esbuild": "^0.27.3",
+    "@kuiper-sh/sdk": "^0.2.0",
     "@types/node": "^25.2.3",
+    "esbuild": "^0.27.3",
+    "playwright-core": "^1.50.0",
     "station-browser-use": "^3.0.0",
     "station-client": "^3.0.0",
     "station-sandbox": "^3.0.0",

@@ -21,6 +21,7 @@ import {
 } from "./application.js";
 import type { FoundryConfig } from "./config.js";
 import { DEFAULT_FOUNDRY_CONFIG } from "./config.js";
+import { FOUNDRY_MODEL_REQUESTS_ENV } from "./request-trace.js";
 import {
   FOUNDRY_APPLICATION_ENV,
   FOUNDRY_EXECUTION_MARKER,
@@ -99,20 +100,24 @@ import { FOUNDRY_CORE_COMMAND_EVENT, type FoundryCoreCommand } from "./core-tool
 import {
   FOUNDRY_CONVERSATION_LISTEN_EVENT,
   FOUNDRY_MAILBOX_DIRECTORY_ENV,
-  delegationFromContext,
   drainMailbox,
-  isDelegationId,
-  isOpenDelegation,
-  renderDelegatedTask,
-  renderDeliveries,
-  undeliveredUpdate,
-  workerAgentId,
+  isMeshCommand,
+  isOpenThread,
+  isThreadId,
+  meshIdentity,
+  newMessageId,
+  renderMeshMessages,
+  startedThreadIds,
+  threadFromContext,
+  threadSubject,
   writeMailboxDelivery,
-  type FoundryConversationDelivery,
-  type FoundryDelegation,
-  type FoundryDelegationCommand,
-  type FoundryDelegationStatus,
-} from "./delegation.js";
+  type FoundryMeshCommand,
+  type FoundryMeshMessage,
+  type FoundryMeshOptions,
+  type FoundryMeshSent,
+  type FoundryMeshThread,
+  type FoundryMeshThreadStatus,
+} from "./mesh.js";
 import {
   FOUNDRY_CORE_COMMAND_DIRECTORY_ENV,
   claimFoundryCoreCommandRequest,
@@ -223,12 +228,22 @@ interface ResolvedExecutionConfig {
   readonly idlePollIntervalMs: number;
 }
 
-type DelegationPatch = Partial<Pick<
-  FoundryDelegation,
-  "status" | "question" | "result" | "error" | "undelivered" | "pendingReplies"
+type ThreadPatch = Partial<Pick<
+  FoundryMeshThread,
+  "status" | "question" | "reply" | "error" | "messageIds" | "undelivered" | "pending"
 >>;
 
-/** Where a delegation delivery goes: one agent instance's conversation. */
+/** A definition's mesh field, with `true` meaning the defaults. */
+function meshOptions(value: true | FoundryMeshOptions | undefined): FoundryMeshOptions | undefined {
+  return value === true ? {} : value;
+}
+
+function clipTitle(text: string): string {
+  const flat = text.replace(/\s+/g, " ").trim();
+  return flat.length > 60 ? `${flat.slice(0, 59)}…` : flat;
+}
+
+/** Where a mesh message goes: one agent instance's conversation. */
 interface DeliveryTarget {
   readonly definitionId: string;
   readonly agentId: string;
@@ -333,18 +348,18 @@ export class FoundryRuntime {
     "glove-foundry-mailboxes",
     randomUUID(),
   );
-  /** The run listening for deliveries on each conversation. */
+  /** The run listening for mesh messages on each conversation. */
   private readonly conversationListeners = new Map<string, string>();
   /** Runs holding each conversation, from enqueue or acquire until release. */
   private readonly conversationRuns = new Map<string, Set<string>>();
   private readonly runConversations = new Map<string, string>();
-  /** Deliveries waiting for their conversation to be free. */
-  private readonly heldDeliveries = new Map<
+  /** Mesh messages waiting for their conversation to be free. */
+  private readonly heldMessages = new Map<
     string,
-    { target: DeliveryTarget; deliveries: FoundryConversationDelivery[] }
+    { target: DeliveryTarget; messages: FoundryMeshMessage[] }
   >();
   private readonly conversationQueues = new Map<string, Promise<unknown>>();
-  /** Runs cancelled by steering: a replacement follows, so their delegation stays open. */
+  /** Runs cancelled by steering: a replacement follows, so their thread stays open. */
   private readonly steeredRuns = new Set<string>();
   private started = false;
   private disposed = false;
@@ -449,7 +464,7 @@ export class FoundryRuntime {
       (settled) => {
         void this.handleRunSettled(settled).catch((cause) => {
           this.observability.append({
-            type: "delegation.failed-to-report",
+            type: "mesh.failed-to-report",
             category: "system",
             agent: settled.route,
             runId: settled.run.id,
@@ -516,6 +531,7 @@ export class FoundryRuntime {
         [FOUNDRY_CORE_COMMAND_DIRECTORY_ENV]: this.coreCommandDirectory,
         [FOUNDRY_MAILBOX_DIRECTORY_ENV]: this.mailboxDirectory,
         ...(this.applicationFilePath ? { [FOUNDRY_APPLICATION_ENV]: this.applicationFilePath } : {}),
+        ...(options.config?.observability?.modelRequests === false ? { [FOUNDRY_MODEL_REQUESTS_ENV]: "off" } : {}),
       },
     });
     this.scheduleAdapter = this.signalRunner.schedules;
@@ -605,7 +621,7 @@ export class FoundryRuntime {
         await this.reconstructActivations();
         this.runInBackground("signal", this.signalRunner.start());
         await this.reconcileApplicationConnections();
-        void this.redeliverDelegations().catch((cause) => this.reportDeliveryFailure("startup", cause));
+        void this.redeliverThreads().catch((cause) => this.reportDeliveryFailure("startup", cause));
       } catch (cause) {
         try {
           await this.stop();
@@ -830,6 +846,8 @@ export class FoundryRuntime {
     this.validatePlaybooks(current.definitionId, playbooks, installations);
     const agent = Object.freeze({
       ...current,
+      ...(options.name !== undefined ? { name: options.name } : {}),
+      ...(options.description !== undefined ? { description: options.description } : {}),
       ...(options.context
         ? { context: Object.freeze(structuredClone(options.context)) }
         : {}),
@@ -1989,8 +2007,12 @@ export class FoundryRuntime {
               requirement.playbook.match.routeIds.includes(route.id))
           );
           for (const route of matchingRoutes) {
+            // The account directory is the source of accounts, so accounts an
+            // application adds at runtime get their connections too.
             const account = route.accountId
-              ? this.application.accounts?.find((candidate) => candidate.id === route.accountId)
+              ? await this.services.runPromise(Effect.gen(function* () {
+                  return yield* (yield* AccountDirectory).get(route.accountId!);
+                })).catch(() => undefined)
               : undefined;
             const id = [
               requirement.definitionId,
@@ -2282,48 +2304,45 @@ export class FoundryRuntime {
     }
   }
 
-  // ── Delegation ──────────────────────────────────────────────────────────
+  // ── Mesh ────────────────────────────────────────────────────────────────
   //
-  // A delegation is a worker conversation whose context carries the record.
-  // Results and questions go back to the delegating conversation, replies go
-  // to the worker. Each delivery reaches a run that is listening on the
-  // conversation, or waits until the conversation is free and starts one run
-  // carrying everything that arrived meanwhile.
+  // Agents message each other by instance id. A new message starts a thread:
+  // a conversation on the recipient whose context carries the record. Messages
+  // in a thread go to the other side's conversation. Each one reaches a run
+  // that is listening on that conversation, or waits until the conversation is
+  // free and starts one run carrying everything that arrived meanwhile.
 
-  /** Every delegation, newest first, optionally narrowed to one delegating conversation. */
-  async listDelegations(filter: {
+  /** Every thread, newest first, optionally narrowed to who started it or who it went to. */
+  async listThreads(filter: {
+    /** The agent that started the thread. */
     readonly agentId?: string;
+    /** The conversation that started the thread. */
     readonly conversationId?: string;
-    readonly status?: FoundryDelegationStatus;
-  } = {}): Promise<ReadonlyArray<FoundryDelegation>> {
-    const found: FoundryDelegation[] = [];
+    /** The agent the thread was sent to. */
+    readonly to?: string;
+    readonly status?: FoundryMeshThreadStatus;
+  } = {}): Promise<ReadonlyArray<FoundryMeshThread>> {
+    const found: FoundryMeshThread[] = [];
     for (const agent of await Effect.runPromise(this.data.listAgents())) {
+      if (filter.to && agent.id !== filter.to) continue;
       for (const conversation of await Effect.runPromise(this.data.listConversations(agent.id))) {
-        const delegation = delegationFromContext(conversation.context);
-        if (!delegation || delegation.workerAgentId !== agent.id) continue;
-        if (filter.agentId && delegation.from.agentId !== filter.agentId) continue;
-        if (filter.conversationId && delegation.from.conversationId !== filter.conversationId) continue;
-        if (filter.status && delegation.status !== filter.status) continue;
-        found.push(delegation);
+        const thread = threadFromContext(conversation.context);
+        if (!thread || thread.to.agentId !== agent.id || thread.id !== conversation.id) continue;
+        if (filter.agentId && thread.from.agentId !== filter.agentId) continue;
+        if (filter.conversationId && thread.from.conversationId !== filter.conversationId) continue;
+        if (filter.status && thread.status !== filter.status) continue;
+        found.push(thread);
       }
     }
     return found.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
 
-  private async openDelegationsFrom(
-    agentId: string,
-    conversationId: string,
-  ): Promise<ReadonlyArray<FoundryDelegation>> {
-    const open: FoundryDelegation[] = [];
-    for (const route of this.byRoute.keys()) {
-      const workerId = workerAgentId(agentId, route);
-      if (!(await Effect.runPromise(this.data.getAgent(workerId)))) continue;
-      for (const conversation of await Effect.runPromise(this.data.listConversations(workerId))) {
-        const delegation = delegationFromContext(conversation.context);
-        if (delegation && delegation.from.conversationId === conversationId && isOpenDelegation(delegation)) {
-          open.push(delegation);
-        }
-      }
+  /** The open threads a conversation started, oldest first. */
+  private async openThreadsFrom(conversation: Conversation): Promise<ReadonlyArray<FoundryMeshThread>> {
+    const open: FoundryMeshThread[] = [];
+    for (const id of startedThreadIds(conversation.context)) {
+      const thread = await this.loadThread(id);
+      if (thread && thread.from.conversationId === conversation.id && isOpenThread(thread)) open.push(thread);
     }
     return open.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   }
@@ -2368,7 +2387,7 @@ export class FoundryRuntime {
         this.conversationListeners.delete(conversationId);
         await this.reclaimMailbox(conversationId);
       }
-      await this.flushHeldDeliveries(conversationId);
+      await this.flushHeldMessages(conversationId);
     }).catch((cause) => this.reportDeliveryFailure(conversationId, cause));
   }
 
@@ -2379,11 +2398,11 @@ export class FoundryRuntime {
       if (state === "on") {
         this.conversationListeners.set(conversationId, run.id);
         // Anything held while the conversation was busy goes to the listener.
-        const held = this.heldDeliveries.get(conversationId);
+        const held = this.heldMessages.get(conversationId);
         if (held) {
-          this.heldDeliveries.delete(conversationId);
-          for (const delivery of held.deliveries) {
-            await writeMailboxDelivery(this.mailboxDirectory, conversationId, delivery);
+          this.heldMessages.delete(conversationId);
+          for (const message of held.messages) {
+            await writeMailboxDelivery(this.mailboxDirectory, conversationId, message);
           }
         }
         return;
@@ -2391,17 +2410,18 @@ export class FoundryRuntime {
       if (this.conversationListeners.get(conversationId) !== run.id) return;
       this.conversationListeners.delete(conversationId);
       await this.reclaimMailbox(conversationId);
-      await this.flushHeldDeliveries(conversationId);
+      await this.flushHeldMessages(conversationId);
     }).catch((cause) => this.reportDeliveryFailure(conversationId, cause));
   }
 
-  /** Take back deliveries a listener did not read, to deliver as a run. */
+  /** Take back messages a listener did not read, to deliver as a run. */
   private async reclaimMailbox(conversationId: string): Promise<void> {
-    const deliveries = await drainMailbox(this.mailboxDirectory, conversationId);
-    if (deliveries.length === 0) return;
+    const messages = (await drainMailbox(this.mailboxDirectory, conversationId))
+      .filter((message) => message.kind !== "ack");
+    if (messages.length === 0) return;
     const target = await this.deliveryTargetFor(conversationId);
     if (!target) return;
-    this.holdDeliveries(target, deliveries);
+    this.holdMessages(target, messages);
   }
 
   private async deliveryTargetFor(conversationId: string): Promise<DeliveryTarget | null> {
@@ -2413,304 +2433,340 @@ export class FoundryRuntime {
       definitionId: agent.definitionId,
       agentId: agent.id,
       conversationId,
-      workspaceId: conversation.workspaceId,
+      workspaceId: agent.workspaceId,
     };
   }
 
-  private holdDeliveries(target: DeliveryTarget, deliveries: ReadonlyArray<FoundryConversationDelivery>): void {
-    const held = this.heldDeliveries.get(target.conversationId);
-    if (held) held.deliveries.push(...deliveries);
-    else this.heldDeliveries.set(target.conversationId, { target, deliveries: [...deliveries] });
+  private holdMessages(target: DeliveryTarget, messages: ReadonlyArray<FoundryMeshMessage>): void {
+    const held = this.heldMessages.get(target.conversationId);
+    if (held) held.messages.push(...messages);
+    else this.heldMessages.set(target.conversationId, { target, messages: [...messages] });
   }
 
-  private deliver(target: DeliveryTarget, deliveries: ReadonlyArray<FoundryConversationDelivery>): Promise<void> {
+  /**
+   * Hand messages to a conversation: into the run listening on it, or as one
+   * run once nothing else holds it. A read receipt only ever goes to a
+   * listening run.
+   */
+  private deliver(target: DeliveryTarget, messages: ReadonlyArray<FoundryMeshMessage>): Promise<void> {
     return this.inConversation(target.conversationId, async () => {
       if (this.conversationListeners.has(target.conversationId)) {
-        for (const delivery of deliveries) {
-          await writeMailboxDelivery(this.mailboxDirectory, target.conversationId, delivery);
+        for (const message of messages) {
+          await writeMailboxDelivery(this.mailboxDirectory, target.conversationId, message);
         }
-        await this.markHandedOver(deliveries);
+        await this.markHandedOver(messages);
         this.observability.append({
-          type: "delegation.delivered",
+          type: "mesh.delivered",
           category: "system",
           agent: target.definitionId,
-          runId: this.conversationListeners.get(target.conversationId),
-          data: { conversationId: target.conversationId, mode: "live", count: deliveries.length },
+          runId: this.conversationListeners.get(target.conversationId)!,
+          data: { conversationId: target.conversationId, mode: "live", count: messages.length },
         });
         return;
       }
-      this.holdDeliveries(target, deliveries);
-      await this.flushHeldDeliveries(target.conversationId);
+      const runnable = messages.filter((message) => message.kind !== "ack");
+      if (runnable.length === 0) return;
+      this.holdMessages(target, runnable);
+      await this.flushHeldMessages(target.conversationId);
     });
   }
 
   /** Start one run with everything held for a conversation, once nothing else holds it. */
-  private async flushHeldDeliveries(conversationId: string): Promise<void> {
+  private async flushHeldMessages(conversationId: string): Promise<void> {
     if (!this.started) return;
     if ((this.conversationRuns.get(conversationId)?.size ?? 0) > 0) return;
     if (this.conversationListeners.has(conversationId)) return;
-    const held = this.heldDeliveries.get(conversationId);
-    if (!held || held.deliveries.length === 0) return;
-    this.heldDeliveries.delete(conversationId);
-    const { target, deliveries } = held;
+    const held = this.heldMessages.get(conversationId);
+    if (!held || held.messages.length === 0) return;
+    this.heldMessages.delete(conversationId);
+    const { target, messages } = held;
     const runId = await this.enqueueCoreRequest(target.definitionId, {
       agentId: target.agentId,
       conversationId,
       workspaceId: target.workspaceId,
-      message: renderDeliveries(deliveries),
-      payload: { deliveries },
-      source: { kind: "delegation", id: deliveries[0]!.delegationId },
+      message: renderMeshMessages(messages, (message) => (message.threadId === conversationId ? "recipient" : "starter")),
+      payload: { meshMessages: messages },
+      source: { kind: "mesh", id: messages[0]!.threadId },
     });
     this.occupyConversation(conversationId, runId);
-    await this.markHandedOver(deliveries);
+    await this.markHandedOver(messages);
     this.observability.append({
-      type: "delegation.delivered",
+      type: "mesh.delivered",
       category: "system",
       agent: target.definitionId,
       runId,
-      data: { conversationId, mode: "run", count: deliveries.length },
+      data: { conversationId, mode: "run", count: messages.length },
     });
   }
 
-  /** Clear the bookkeeping that lets a restart hand these deliveries over again. */
-  private async markHandedOver(deliveries: ReadonlyArray<FoundryConversationDelivery>): Promise<void> {
-    for (const delivery of deliveries) {
-      if (delivery.kind === "reply") {
-        await this.updateDelegation(delivery.delegationId, (current) => {
-          const pending = [...(current.pendingReplies ?? [])];
-          const index = pending.indexOf(delivery.message);
-          if (index >= 0) pending.splice(index, 1);
-          return { pendingReplies: pending.length > 0 ? pending : undefined };
-        });
-      } else {
-        await this.updateDelegation(delivery.delegationId, (current) =>
-          current.undelivered === delivery.kind ? { undelivered: undefined } : {});
-      }
+  /** Clear the bookkeeping that lets a restart hand these messages over again. */
+  private async markHandedOver(messages: ReadonlyArray<FoundryMeshMessage>): Promise<void> {
+    for (const message of messages) {
+      if (message.kind === "ack") continue;
+      await this.updateThread(message.threadId, (current) => ({
+        undelivered: current.undelivered?.filter((item) => item.id !== message.id),
+        pending: current.pending?.filter((item) => item.id !== message.id),
+      }));
     }
   }
 
-  /** After a restart, hand over whatever was waiting when the runtime stopped. */
-  private async redeliverDelegations(): Promise<void> {
-    for (const delegation of await this.listDelegations()) {
-      const update = undeliveredUpdate(delegation);
-      if (update) await this.deliver(this.delegatorTarget(delegation), [update]);
-      if (delegation.pendingReplies?.length) {
-        await this.deliver(
-          {
-            definitionId: delegation.to,
-            agentId: delegation.workerAgentId,
-            conversationId: delegation.id,
-            workspaceId: delegation.workspaceId,
-          },
-          delegation.pendingReplies.map((message) => ({
-            kind: "reply" as const,
-            delegationId: delegation.id,
-            from: delegation.from.definitionId,
-            message,
-          })),
-        );
-      }
+  /** After a restart, hand over every message a thread still owes either side. */
+  private async redeliverThreads(): Promise<void> {
+    for (const thread of await this.listThreads()) {
+      if (thread.undelivered?.length) await this.deliver(this.starterTarget(thread), thread.undelivered);
+      if (thread.pending?.length) await this.deliver(this.recipientTarget(thread), thread.pending);
     }
   }
 
   private reportDeliveryFailure(conversationId: string, cause: unknown): void {
     this.observability.append({
-      type: "delegation.delivery.failed",
+      type: "mesh.delivery.failed",
       category: "system",
       data: { conversationId, error: cause instanceof Error ? cause.message : String(cause) },
     });
   }
 
-  private async loadDelegation(id: string): Promise<FoundryDelegation | null> {
+  private async loadThread(id: string): Promise<FoundryMeshThread | null> {
     const conversation = await Effect.runPromise(this.data.getConversation(id));
-    return delegationFromContext(conversation?.context) ?? null;
+    return threadFromContext(conversation?.context) ?? null;
   }
 
-  private updateDelegation(
+  private updateThread(
     id: string,
-    change: DelegationPatch | ((current: FoundryDelegation) => DelegationPatch),
-  ): Promise<FoundryDelegation | null> {
+    change: ThreadPatch | ((current: FoundryMeshThread) => ThreadPatch),
+  ): Promise<FoundryMeshThread | null> {
     return this.inConversation(`record:${id}`, async () => {
       const conversation = await Effect.runPromise(this.data.getConversation(id));
-      const current = delegationFromContext(conversation?.context);
+      const current = threadFromContext(conversation?.context);
       if (!conversation || !current) return null;
       const patch = typeof change === "function" ? change(current) : change;
       if (Object.keys(patch).length === 0) return current;
       const now = new Date().toISOString();
       const merged: Record<string, unknown> = { ...current, ...patch, updatedAt: now };
-      for (const key of Object.keys(merged)) if (merged[key] === undefined) delete merged[key];
-      const next = Object.freeze(merged) as unknown as FoundryDelegation;
+      for (const key of Object.keys(merged)) {
+        const value = merged[key];
+        if (value === undefined || ((key === "undelivered" || key === "pending") && Array.isArray(value) && value.length === 0)) {
+          delete merged[key];
+        }
+      }
+      const next = Object.freeze(merged) as unknown as FoundryMeshThread;
       await Effect.runPromise(this.data.putConversation(Object.freeze({
         ...conversation,
-        context: Object.freeze({ ...conversation.context, delegation: next }),
+        context: Object.freeze({ ...conversation.context, meshThread: next }),
         updatedAt: now,
       })));
       return next;
     });
   }
 
-  private delegatorTarget(delegation: FoundryDelegation): DeliveryTarget {
+  private starterTarget(thread: FoundryMeshThread): DeliveryTarget {
     return {
-      definitionId: delegation.from.definitionId,
-      agentId: delegation.from.agentId,
-      conversationId: delegation.from.conversationId,
-      workspaceId: delegation.workspaceId,
+      definitionId: thread.from.definitionId,
+      agentId: thread.from.agentId,
+      conversationId: thread.from.conversationId,
+      workspaceId: thread.workspaceId,
     };
   }
 
-  private async executeDelegationCommand(
-    command: FoundryDelegationCommand,
-    parentRunId: string,
-  ): Promise<void> {
-    if (!isDelegationId(command.delegationId)) {
-      throw new Error(`"${command.delegationId}" is not a delegation id.`);
-    }
-    if (command.type === "delegate") {
-      await this.startDelegation(command, parentRunId);
+  private recipientTarget(thread: FoundryMeshThread): DeliveryTarget {
+    return {
+      definitionId: thread.to.definitionId,
+      agentId: thread.to.agentId,
+      conversationId: thread.id,
+      workspaceId: thread.workspaceId,
+    };
+  }
+
+  /** A run's mesh call: answered through its request, so the tool hears the outcome. */
+  private async runMeshCommand(command: FoundryMeshCommand, parentRunId: string): Promise<void> {
+    const request = await getFoundryCoreCommandRequest(this.coreCommandDirectory, command.id);
+    if (!request) {
+      await this.executeMeshCommand(command, parentRunId);
       return;
     }
-    const delegation = await this.loadDelegation(command.delegationId);
-    if (command.type === "delegate.reply") {
-      if (
-        !delegation
-        || delegation.from.agentId !== command.agentId
-        || delegation.from.conversationId !== command.conversationId
-      ) {
-        throw new Error(`Delegation "${command.delegationId}" was not started by this conversation.`);
-      }
-      // A reply answers the open question, or reopens finished work as a follow-up.
-      await this.updateDelegation(delegation.id, (current) => ({
-        status: "working",
-        question: undefined,
-        ...(current.undelivered === "question" ? { undelivered: undefined } : {}),
-        pendingReplies: [...(current.pendingReplies ?? []), command.message],
-      }));
-      await this.deliver(
-        {
-          definitionId: delegation.to,
-          agentId: delegation.workerAgentId,
-          conversationId: delegation.id,
-          workspaceId: delegation.workspaceId,
-        },
-        [{ kind: "reply", delegationId: delegation.id, from: command.definitionId, message: command.message }],
-      );
+    if (!(await claimFoundryCoreCommandRequest(this.coreCommandDirectory, command.id))) return;
+    try {
+      if (request.runId !== parentRunId) throw new Error("This mesh call does not belong to this run.");
+      const output = await this.executeMeshCommand(command, parentRunId);
+      await settleFoundryCoreCommandRequest(this.coreCommandDirectory, command.id, { status: "success", output });
+    } catch (cause) {
+      const error = cause instanceof Error ? cause.message : String(cause);
       this.observability.append({
-        type: "delegation.replied",
+        type: "mesh.refused",
         category: "system",
         agent: command.definitionId,
         runId: parentRunId,
-        data: { delegationId: delegation.id, to: delegation.to },
+        data: { type: command.type, error },
       });
-      return;
+      await settleFoundryCoreCommandRequest(this.coreCommandDirectory, command.id, { status: "error", error });
     }
-    if (
-      !delegation
-      || delegation.workerAgentId !== command.agentId
-      || delegation.id !== command.conversationId
-    ) {
-      throw new Error(`Only the worker on delegation "${command.delegationId}" can ask about it.`);
-    }
-    await this.updateDelegation(delegation.id, {
-      status: "waiting",
-      question: command.question,
-      undelivered: "question",
-    });
-    await this.deliver(this.delegatorTarget(delegation), [{
-      kind: "question",
-      delegationId: delegation.id,
-      agent: delegation.to,
-      task: delegation.task,
-      question: command.question,
-    }]);
-    this.observability.append({
-      type: "delegation.question",
-      category: "system",
-      agent: delegation.to,
-      runId: parentRunId,
-      data: { delegationId: delegation.id, question: command.question },
-    });
   }
 
-  private async startDelegation(
-    command: Extract<FoundryDelegationCommand, { readonly type: "delegate" }>,
-    parentRunId: string,
-  ): Promise<void> {
-    const from: DeliveryTarget = {
-      definitionId: command.definitionId,
-      agentId: command.agentId,
-      conversationId: command.conversationId,
-      workspaceId: command.workspaceId,
+  /** The agents an agent may see and message: its workspace, narrowed by its definition's rule. */
+  private async meshPeers(sender: AgentInstance): Promise<ReadonlyArray<AgentInstance>> {
+    const peers = meshOptions(this.byRoute.get(sender.definitionId)?.definition.mesh)?.peers;
+    return (await Effect.runPromise(this.data.listAgents())).filter((agent) =>
+      agent.workspaceId === sender.workspaceId
+      && agent.id !== sender.id
+      && this.byRoute.has(agent.definitionId)
+      && (peers?.(sender, agent) ?? true));
+  }
+
+  private async executeMeshCommand(command: FoundryMeshCommand, parentRunId: string): Promise<unknown> {
+    const sender = await Effect.runPromise(this.data.getAgent(command.agentId));
+    if (!sender || sender.workspaceId !== command.workspaceId) {
+      throw new Error("A mesh call must come from an agent instance in its workspace.");
+    }
+    if (command.type === "mesh.list") {
+      const filter = command.name?.toLowerCase();
+      return (await this.meshPeers(sender))
+        .map(meshIdentity)
+        .filter((identity) => !filter || identity.name.toLowerCase().includes(filter));
+    }
+    const conversation = await Effect.runPromise(this.data.getConversation(command.conversationId));
+    if (!conversation || conversation.agentId !== sender.id) {
+      throw new Error("A mesh call must come from one of the agent's own conversations.");
+    }
+    const own = threadFromContext(conversation.context);
+    const ownThread = own && own.id === conversation.id && own.to.agentId === sender.id ? own : undefined;
+    const startedThreads = async (): Promise<FoundryMeshThread[]> => {
+      const threads: FoundryMeshThread[] = [];
+      for (const id of startedThreadIds(conversation.context)) {
+        const thread = await this.loadThread(id);
+        if (thread && thread.from.conversationId === conversation.id) threads.push(thread);
+      }
+      return threads;
     };
-    if (!this.byRoute.has(command.to)) {
-      await this.deliver(from, [{
-        kind: "failed",
-        delegationId: command.delegationId,
-        agent: command.to,
-        task: command.task,
-        error: `There is no "${command.to}" agent in this project.`,
+
+    if (command.type === "mesh.ack") {
+      const thread = ownThread?.messageIds.includes(command.messageId)
+        ? ownThread
+        : (await startedThreads()).find((item) => item.messageIds.includes(command.messageId));
+      if (!thread) throw new Error(`There is no message "${command.messageId}" in your threads.`);
+      const toStarter = thread.id === ownThread?.id;
+      await this.deliver(toStarter ? this.starterTarget(thread) : this.recipientTarget(thread), [{
+        kind: "ack",
+        id: newMessageId(),
+        threadId: thread.id,
+        from: { agentId: sender.id, name: sender.name ?? sender.id },
+        to: toStarter ? thread.from.agentId : thread.to.agentId,
+        content: command.note,
+        inReplyTo: command.messageId,
+        createdAt: new Date().toISOString(),
       }]);
-      return;
+      return { acknowledged: command.messageId };
     }
-    const delegator = await Effect.runPromise(this.data.getAgent(command.agentId));
-    if (!delegator || delegator.workspaceId !== command.workspaceId) {
-      throw new Error("A delegation must come from an agent instance in its workspace.");
-    }
-    const workerId = workerAgentId(command.agentId, command.to);
-    const worker = await Effect.runPromise(this.data.getAgent(workerId))
-      ?? await this.createAgent(command.to, {
-        id: workerId,
-        workspaceId: command.workspaceId,
-        context: {
-          ...delegator.context,
-          delegatedBy: { agentId: command.agentId, definitionId: command.definitionId },
-        },
+
+    const { message: input } = command;
+    const message = (threadId: string): FoundryMeshMessage => ({
+      kind: "message",
+      id: input.id,
+      threadId,
+      from: { agentId: sender.id, name: sender.name ?? sender.id },
+      to: input.to,
+      content: input.content,
+      ...(input.inReplyTo ? { inReplyTo: input.inReplyTo } : {}),
+      createdAt: new Date().toISOString(),
+    });
+    const sent = (thread: FoundryMeshThread, direction: FoundryMeshSent["direction"]): FoundryMeshSent => {
+      this.observability.append({
+        type: direction === "new" ? "mesh.thread.started" : "mesh.message.sent",
+        category: "system",
+        agent: command.definitionId,
+        runId: parentRunId,
+        data: { threadId: thread.id, messageId: input.id, from: sender.id, to: input.to },
       });
-    if (worker.definitionId !== command.to || worker.workspaceId !== command.workspaceId) {
-      throw new Error(`Agent instance "${workerId}" is not a ${command.to} worker in this workspace.`);
+      return { messageId: input.id, threadId: thread.id, to: input.to, direction };
+    };
+
+    // An answer to whoever messaged this conversation.
+    if (ownThread && input.to === ownThread.from.agentId && (!input.inReplyTo || ownThread.messageIds.includes(input.inReplyTo))) {
+      const outgoing = message(ownThread.id);
+      await this.updateThread(ownThread.id, (current) => ({
+        status: "waiting",
+        question: outgoing.content,
+        messageIds: [...current.messageIds, outgoing.id],
+        undelivered: [...(current.undelivered ?? []), outgoing],
+      }));
+      await this.deliver(this.starterTarget(ownThread), [outgoing]);
+      return sent(ownThread, "to-starter");
     }
+
+    // A reply in a thread this conversation started.
+    if (input.inReplyTo) {
+      const thread = (await startedThreads()).find((item) =>
+        item.to.agentId === input.to && item.messageIds.includes(input.inReplyTo!));
+      if (!thread) {
+        throw new Error(`There is no message "${input.inReplyTo}" in your threads with "${input.to}". Leave in_reply_to out to start a new thread.`);
+      }
+      const outgoing = message(thread.id);
+      // An answer to the open question, or more work on a finished thread.
+      await this.updateThread(thread.id, (current) => ({
+        status: "working",
+        question: undefined,
+        messageIds: [...current.messageIds, outgoing.id],
+        pending: [...(current.pending ?? []), outgoing],
+        undelivered: current.undelivered?.filter((item) => item.kind !== "message"),
+      }));
+      await this.deliver(this.recipientTarget(thread), [outgoing]);
+      return sent(thread, "to-recipient");
+    }
+
+    // A new thread.
+    if (!isThreadId(input.threadId)) throw new Error(`"${input.threadId}" is not a thread id.`);
+    if (input.to === sender.id) throw new Error("That is you.");
+    const recipient = (await this.meshPeers(sender)).find((agent) => agent.id === input.to);
+    if (!recipient) {
+      throw new Error(`There is no agent "${input.to}" you can message. Use glove_mesh_list_agents to see who there is.`);
+    }
+    const outgoing = message(input.threadId);
     const now = new Date().toISOString();
-    const delegation: FoundryDelegation = Object.freeze({
-      id: command.delegationId,
-      to: command.to,
-      workerAgentId: workerId,
-      workspaceId: command.workspaceId,
+    const thread: FoundryMeshThread = Object.freeze({
+      id: input.threadId,
+      workspaceId: sender.workspaceId,
       from: Object.freeze({
-        definitionId: command.definitionId,
-        agentId: command.agentId,
-        conversationId: command.conversationId,
+        agentId: sender.id,
+        name: sender.name ?? sender.id,
+        definitionId: sender.definitionId,
+        conversationId: conversation.id,
         runId: parentRunId,
       }),
-      task: command.task,
+      to: Object.freeze({
+        agentId: recipient.id,
+        name: recipient.name ?? recipient.id,
+        definitionId: recipient.definitionId,
+      }),
+      subject: threadSubject(outgoing.content),
       status: "working",
+      messageIds: Object.freeze([outgoing.id]),
+      pending: Object.freeze([outgoing]),
       createdAt: now,
       updatedAt: now,
     });
-    const title = command.task.replace(/\s+/g, " ").trim();
-    await this.createConversation(workerId, {
-      id: delegation.id,
-      workspaceId: command.workspaceId,
-      title: title.length > 80 ? `${title.slice(0, 79)}…` : title,
-      context: { delegation },
+    await this.createConversation(recipient.id, {
+      id: thread.id,
+      workspaceId: sender.workspaceId,
+      title: `${thread.from.name}: ${clipTitle(outgoing.content)}`,
+      context: { meshThread: thread },
     });
-    const runId = await this.enqueueCoreRequest(command.to, {
-      agentId: workerId,
-      conversationId: delegation.id,
-      workspaceId: command.workspaceId,
-      message: renderDelegatedTask({ delegationId: delegation.id, from: command.definitionId, task: command.task }),
-      payload: { delegation },
-      source: { kind: "delegation", id: delegation.id },
+    // The same queue as thread records: this conversation may be a thread too.
+    await this.inConversation(`record:${conversation.id}`, async () => {
+      const current = await Effect.runPromise(this.data.getConversation(conversation.id));
+      if (!current) return;
+      await Effect.runPromise(this.data.putConversation({
+        ...current,
+        context: Object.freeze({
+          ...current.context,
+          meshThreads: [...startedThreadIds(current.context), thread.id],
+        }),
+        updatedAt: now,
+      }));
     });
-    this.occupyConversation(delegation.id, runId);
-    this.observability.append({
-      type: "delegation.started",
-      category: "system",
-      agent: command.definitionId,
-      runId: parentRunId,
-      data: { delegationId: delegation.id, to: command.to, workerAgentId: workerId, workerRunId: runId },
-    });
+    await this.deliver(this.recipientTarget(thread), [outgoing]);
+    return sent(thread, "new");
   }
 
-  /** Report a worker's finished run back to whoever delegated to it. */
+  /** When the recipient's run on a thread ends, its reply (or its failure) goes back. */
   private async handleRunSettled(event: {
     readonly route: string;
     readonly run: Run;
@@ -2721,56 +2777,61 @@ export class FoundryRuntime {
     this.releaseConversationRun(event.run.id);
     const steered = this.steeredRuns.delete(event.run.id);
     const run = this.toFoundryRun(event.run);
-    if (!run.conversationId || !isDelegationId(run.conversationId)) return;
-    const delegation = await this.loadDelegation(run.conversationId);
-    if (!delegation || run.agentId !== delegation.workerAgentId) return;
+    if (!run.conversationId || !isThreadId(run.conversationId)) return;
+    const thread = await this.loadThread(run.conversationId);
+    if (!thread || run.agentId !== thread.to.agentId) return;
+    const reply = (kind: "reply" | "failed", content: string): FoundryMeshMessage => ({
+      kind,
+      id: newMessageId(),
+      threadId: thread.id,
+      from: { agentId: thread.to.agentId, name: thread.to.name },
+      to: thread.from.agentId,
+      content,
+      createdAt: new Date().toISOString(),
+    });
     if (event.status === "completed") {
       const output = parseJson(event.output) as Partial<FoundryResult> | undefined;
-      // Asleep, or waiting for an answer: it reports when it finishes.
+      // Asleep, or waiting for an answer: it replies when it finishes.
       if (output?.status === "suspended") return;
-      const result = deliveryText(output?.value);
-      await this.updateDelegation(delegation.id, {
-        status: "completed",
-        result,
+      const text = deliveryText(output?.value);
+      if (!text.trim()) {
+        await this.updateThread(thread.id, { status: "replied", question: undefined });
+        return;
+      }
+      const message = reply("reply", text);
+      await this.updateThread(thread.id, (current) => ({
+        status: "replied",
+        reply: text,
         question: undefined,
-        undelivered: "result",
-      });
-      await this.deliver(this.delegatorTarget(delegation), [{
-        kind: "result",
-        delegationId: delegation.id,
-        agent: delegation.to,
-        task: delegation.task,
-        result,
-      }]);
+        messageIds: [...current.messageIds, message.id],
+        undelivered: [...(current.undelivered ?? []), message],
+      }));
+      await this.deliver(this.starterTarget(thread), [message]);
       this.observability.append({
-        type: "delegation.completed",
+        type: "mesh.thread.replied",
         category: "system",
-        agent: delegation.to,
+        agent: thread.to.definitionId,
         runId: event.run.id,
-        data: { delegationId: delegation.id },
+        data: { threadId: thread.id },
       });
       return;
     }
     if (event.status === "cancelled" && steered) return;
     const error = event.status === "cancelled" ? "The work was cancelled." : event.error ?? "The run failed.";
-    await this.updateDelegation(delegation.id, {
+    const message = reply("failed", error);
+    await this.updateThread(thread.id, (current) => ({
       status: event.status === "cancelled" ? "cancelled" : "failed",
       error,
-      undelivered: "failed",
-    });
-    await this.deliver(this.delegatorTarget(delegation), [{
-      kind: "failed",
-      delegationId: delegation.id,
-      agent: delegation.to,
-      task: delegation.task,
-      error,
-    }]);
+      messageIds: [...current.messageIds, message.id],
+      undelivered: [...(current.undelivered ?? []), message],
+    }));
+    await this.deliver(this.starterTarget(thread), [message]);
     this.observability.append({
-      type: event.status === "cancelled" ? "delegation.cancelled" : "delegation.failed",
+      type: event.status === "cancelled" ? "mesh.thread.cancelled" : "mesh.thread.failed",
       category: "system",
-      agent: delegation.to,
+      agent: thread.to.definitionId,
       runId: event.run.id,
-      data: { delegationId: delegation.id, error },
+      data: { threadId: thread.id, error },
     });
   }
 
@@ -2804,8 +2865,8 @@ export class FoundryRuntime {
   }
 
   private async executeCoreCommandUnlocked(command: FoundryCoreCommand, parentRunId: string): Promise<void> {
-    if (command.type === "delegate" || command.type === "delegate.reply" || command.type === "delegate.ask") {
-      await this.executeDelegationCommand(command, parentRunId);
+    if (isMeshCommand(command)) {
+      await this.runMeshCommand(command, parentRunId);
       return;
     }
     if (command.type === "transmit") {
@@ -3289,7 +3350,10 @@ export class FoundryRuntime {
           ...(activation.timing.kind === "every"
             ? { interval: `${activation.timing.intervalMs}ms` }
             : { cron: activation.timing.expression, timezone: activation.timing.timezone }),
-          overlapPolicy: "skip",
+          // Station checks overlap per signal, and a signal is a whole
+          // definition: "skip" would drop one agent's run because another
+          // agent of the same definition is busy. Runs overlap like messages do.
+          overlapPolicy: "allow",
           misfirePolicy: "fire-once",
           misfireGraceMs: 60_000,
           input: await this.executionEnvelope(request),
@@ -3443,8 +3507,8 @@ export class FoundryRuntime {
     if (!agent || !conversation) throw new Error("Cannot schedule an unknown agent instance or conversation.");
     const activations = (await Effect.runPromise(this.data.listActivations(request.workspaceId)))
       .filter((activation) => activation.agentId === request.agentId);
-    const delegations = await this.openDelegationsFrom(request.agentId, request.conversationId);
-    return { [FOUNDRY_EXECUTION_MARKER]: true, request, agent, conversation, activations, delegations };
+    const threads = await this.openThreadsFrom(conversation);
+    return { [FOUNDRY_EXECUTION_MARKER]: true, request, agent, conversation, activations, threads };
   }
 
   private toFoundryRun<TOutput = unknown>(run: Run): FoundryRun<TOutput> {

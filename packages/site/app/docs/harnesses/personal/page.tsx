@@ -105,8 +105,8 @@ import { FileStore } from "../../lib/file-store.js"; // the starter's durable tr
 import { components } from "./composition.js";
 import assistantMemory from "./memory/assistant.memory.js";
 
-// With no apiKey, Kuiper's SDK reads KUIPER_GATEWAY_KEY.
-const inbox = new Inbox({ gatewayUrl: process.env.INBOX_URL }); // \${{inbox.BASE_URL}} on Kuiper
+// The gateway key. A unit can't set KUIPER_ names, so it is GATEWAY_KEY here.
+const inbox = new Inbox({ apiKey: process.env.GATEWAY_KEY, gatewayUrl: process.env.INBOX_URL }); // \${{inbox.BASE_URL}} on Kuiper
 
 const morningBrief = defineSchedule({
   name: "morning-brief",
@@ -124,7 +124,7 @@ export default defineAgent({
       provider: "anthropic",
       model: "claude-sonnet-5-5",
       baseURL: process.env.ANTHROPIC_BASE_URL, // \${{models.ANTHROPIC_BASE_URL}} on Kuiper
-      apiKey: process.env.KUIPER_GATEWAY_KEY,  // \${{models.API_KEY}}
+      apiKey: process.env.GATEWAY_KEY,  // \${{models.API_KEY}}
     }),
   store: ({ conversationId }) => FileStore.open(conversationId),
   systemPrompt: [
@@ -219,10 +219,12 @@ export default defineMemory({
       <p>
         Once the assistant writes code, browses and drafts documents, one agent doing it all
         gets slow and loses track of the person. Split it. Keep this agent as the interactor:
-        fast model, personal memory, the chat channel and calls. Move the heavy work to
-        sibling agents it lists in <code>delegates</code>: a coder with a sandbox, a browser
-        agent, a researcher. They report back to the conversation, and when they need to know
-        something they ask the interactor, which answers from memory or asks the person. See{" "}
+        fast model, personal memory, the chat channel and calls. Move the heavy work to other
+        agents in the person&apos;s workspace: a coder with a sandbox, a browser agent, a
+        researcher. With <code>mesh: true</code> the interactor messages them by instance id
+        over <Link href="/foundry/docs/multi-agent#mesh">the mesh</Link>. Their replies come
+        back to the conversation that asked, and when they need to know something they ask
+        the interactor, which answers from memory or asks the person. See{" "}
         <Link href="/foundry/docs/layered-agents">Layered agents</Link> and the runnable{" "}
         <code>examples/foundry-layered-assistant</code>.
       </p>
@@ -282,7 +284,7 @@ export default defineMemory({
         </li>
         <li>
           Make the mailbox (<code>kuiper inbox create assistant</code>) and wire the gateway in:{" "}
-          <code>&apos;KUIPER_GATEWAY_KEY=${"{{"}models.API_KEY{"}}"}&apos;</code>,{" "}
+          <code>&apos;GATEWAY_KEY=${"{{"}models.API_KEY{"}}"}&apos;</code>,{" "}
           <code>&apos;ANTHROPIC_BASE_URL=${"{{"}models.ANTHROPIC_BASE_URL{"}}"}&apos;</code>,{" "}
           <code>&apos;INBOX_URL=${"{{"}inbox.BASE_URL{"}}"}&apos;</code>. A unit gets one gateway key
           for every service its variables reference.

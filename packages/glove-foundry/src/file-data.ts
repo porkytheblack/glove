@@ -1,8 +1,17 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, open, readFile, rename, stat, unlink } from "node:fs/promises";
 import { dirname } from "node:path";
-import { Effect } from "effect";
+import { Effect, Layer, Ref, Schema } from "effect";
 import type { EnvSnapshot } from "glove-working-environment";
+import {
+  AgentBinding as AgentBindingSchema,
+  BindingNotFound,
+  Route as RouteSchema,
+  RouteNotFound,
+  type AgentBinding,
+  type Route,
+} from "./domain.js";
+import { TopologyStore } from "./services.js";
 import {
   createAgentInstance,
   reconstructAgentInstance,
@@ -459,4 +468,99 @@ export class FileFoundryDataAdapter implements FoundryDataAdapter {
         (item.scope === "conversation" && item.conversationId === scope.conversationId)),
     )));
   }
+}
+
+interface FileTopologyState {
+  readonly version: 1;
+  routes: Route[];
+  bindings: AgentBinding[];
+}
+
+/**
+ * Keep routes and bindings in one JSON file, so topology an application writes
+ * at runtime (a person connecting an app) survives a restart on a single host.
+ * Only the control process holds it; writes are serialized and committed by
+ * atomic rename. Use a database-backed TopologyStore when several hosts share
+ * one topology.
+ */
+export function fileTopologyStore(file: string): Layer.Layer<TopologyStore> {
+  return Layer.effect(TopologyStore, Effect.gen(function* () {
+    const loaded = yield* Effect.promise(async (): Promise<FileTopologyState> => {
+      try {
+        const parsed = JSON.parse(await readFile(file, "utf8")) as Partial<FileTopologyState>;
+        return {
+          version: 1,
+          routes: (parsed.routes ?? []).map((route) => Schema.decodeUnknownSync(RouteSchema)(route)),
+          bindings: (parsed.bindings ?? []).map((binding) => Schema.decodeUnknownSync(AgentBindingSchema)(binding)),
+        };
+      } catch (cause) {
+        if ((cause as NodeJS.ErrnoException).code === "ENOENT") return { version: 1, routes: [], bindings: [] };
+        throw cause;
+      }
+    });
+    const state = yield* Ref.make(loaded);
+    const lock = yield* Effect.makeSemaphore(1);
+    const commit = (next: FileTopologyState) => Effect.promise(async () => {
+      await mkdir(dirname(file), { recursive: true });
+      const temporary = `${file}.${process.pid}.${randomUUID()}.tmp`;
+      const handle = await open(temporary, "wx", 0o600);
+      try {
+        await handle.writeFile(`${JSON.stringify(next, null, 2)}\n`, "utf8");
+        await handle.sync();
+      } finally {
+        await handle.close();
+      }
+      try {
+        await rename(temporary, file);
+      } catch (cause) {
+        try { await unlink(temporary); } catch { /* Preserve the commit failure. */ }
+        throw cause;
+      }
+    });
+    const update = <A>(change: (current: FileTopologyState) => readonly [A, FileTopologyState | undefined]) =>
+      lock.withPermits(1)(Effect.gen(function* () {
+        const [result, next] = change(yield* Ref.get(state));
+        if (next) {
+          yield* commit(next);
+          yield* Ref.set(state, next);
+        }
+        return result;
+      }));
+    const withRoutes = (current: FileTopologyState, routes: Route[]) => ({ ...current, routes });
+    const withBindings = (current: FileTopologyState, bindings: AgentBinding[]) => ({ ...current, bindings });
+
+    return {
+      getRoute: (id) => Ref.get(state).pipe(Effect.flatMap((current) => {
+        const route = current.routes.find((candidate) => candidate.id === id);
+        return route ? Effect.succeed(route) : Effect.fail(new RouteNotFound({ routeId: id }));
+      })),
+      listRoutes: (filter = {}) => Ref.get(state).pipe(Effect.map((current) => current.routes.filter((route) =>
+        (filter.transmissionId === undefined || route.transmissionId === filter.transmissionId) &&
+        (filter.accountId === undefined || route.accountId === filter.accountId) &&
+        (filter.direction === undefined || route.direction === filter.direction) &&
+        (filter.enabled === undefined || route.enabled === filter.enabled)))),
+      putRoute: (route) => update((current) =>
+        [route, withRoutes(current, [...current.routes.filter((candidate) => candidate.id !== route.id), route])] as const),
+      removeRoute: (id) => update((current) => current.routes.some((route) => route.id === id)
+        ? [true, withRoutes(current, current.routes.filter((route) => route.id !== id))] as const
+        : [false, undefined] as const).pipe(
+        Effect.flatMap((removed) => removed ? Effect.void : Effect.fail(new RouteNotFound({ routeId: id })))),
+      getBinding: (id) => Ref.get(state).pipe(Effect.flatMap((current) => {
+        const binding = current.bindings.find((candidate) => candidate.id === id);
+        return binding ? Effect.succeed(binding) : Effect.fail(new BindingNotFound({ bindingId: id }));
+      })),
+      listBindings: (filter = {}) => Ref.get(state).pipe(Effect.map((current) => current.bindings.filter((binding) =>
+        (filter.agentId === undefined || binding.agentId === filter.agentId) &&
+        (filter.transmissionId === undefined || binding.transmissionId === filter.transmissionId) &&
+        (filter.accountId === undefined || binding.accountId === filter.accountId) &&
+        (filter.routeId === undefined || binding.routeId === filter.routeId) &&
+        (filter.enabled === undefined || binding.enabled === filter.enabled)))),
+      putBinding: (binding) => update((current) =>
+        [binding, withBindings(current, [...current.bindings.filter((candidate) => candidate.id !== binding.id), binding])] as const),
+      removeBinding: (id) => update((current) => current.bindings.some((binding) => binding.id === id)
+        ? [true, withBindings(current, current.bindings.filter((binding) => binding.id !== id))] as const
+        : [false, undefined] as const).pipe(
+        Effect.flatMap((removed) => removed ? Effect.void : Effect.fail(new BindingNotFound({ bindingId: id })))),
+    };
+  }));
 }

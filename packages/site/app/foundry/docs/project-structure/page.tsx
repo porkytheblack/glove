@@ -235,7 +235,8 @@ tools/*.tool.ts       tools an instance installs`}
         <li><strong>Pieces with an identity use their convention file.</strong> Memory, apps, MCP servers, layers and subscribers are <code>*.memory.ts</code>, <code>*.app.ts</code> and so on, so the file owns the id.</li>
         <li><strong>Choices shared by several agents go in <code>lib/</code>.</strong> The model for each layer, the conversation store, workspace persistence.</li>
         <li><strong>Parse a request once.</strong> If the payload decides behaviour (a call, a campaign), a module exports the schema and a predicate, and every field uses them.</li>
-        <li><strong>Agents refer to each other by route.</strong> List siblings in <Link href="/foundry/docs/layered-agents"><code>delegates</code></Link>; never import another agent&apos;s <code>agent.ts</code>, or its dependencies load in every one of your runs.</li>
+        <li><strong>Agents reach each other by instance id, at run time.</strong> Put them on <Link href="/foundry/docs/multi-agent#mesh">the mesh</Link> and let them find their peers with <code>glove_mesh_list_agents</code>. Never import another agent&apos;s <code>agent.ts</code>, or its dependencies load in every one of your runs.</li>
+        <li><strong>A folder is a kind of agent, not an agent.</strong> One <code>agents/bot/</code> serves every bot your users create; names, jobs and teammates are <Link href="/foundry/docs/agents-are-data">instance data</Link>.</li>
       </ul>
       <p>
         <code>examples/foundry-layered-assistant</code> follows these rules end to end; its{" "}

@@ -22,6 +22,7 @@ export {
   type FoundryMountedRepl,
   type FoundryProgrammaticToolContext,
   type FoundryProgrammaticToolSelection,
+  type FoundryReplApp,
   type FoundryProgrammaticTools,
   type FoundryPythonReplDefinition,
   type FoundryReplDefinition,
@@ -65,7 +66,6 @@ export {
   type FoundryCallContext,
   type FoundryCallOptions,
   type FoundryExecutionContext,
-  type FoundryMeshConfig,
   type FoundryResolver,
   type FoundryListResolver,
   type FoundryAgentConventionModule,
@@ -104,16 +104,17 @@ export {
 } from "./primitives.js";
 export {
   FileFoundryDataAdapter,
+  fileTopologyStore,
   type FileFoundryDataAdapterOptions,
 } from "./file-data.js";
 export {
-  type FoundryDelegate,
-  type FoundryDelegateOptions,
-  type FoundryDelegation,
-  type FoundryDelegationReply,
-  type FoundryDelegationStatus,
-  type FoundryDelegationUpdate,
-} from "./delegation.js";
+  meshIdentity,
+  type FoundryMeshMessage,
+  type FoundryMeshOptions,
+  type FoundryMeshParty,
+  type FoundryMeshThread,
+  type FoundryMeshThreadStatus,
+} from "./mesh.js";
 export {
   FOUNDRY_PLAYBOOK_ACTION_BRAND,
   FOUNDRY_COMPOSED_PLAYBOOK_BRAND,
@@ -200,6 +201,10 @@ export {
   type FoundryInstallable,
   type FoundryCapabilityKind,
   type FoundryAgentApplication,
+  type FoundryAppMcp,
+  type FoundryAppMcpTool,
+  type FoundryAppToolDecision,
+  type FoundryInstalledApp,
   type FoundryApp,
   type FoundryAccountSessionAdapter,
   type FoundryCapabilityRegistry,

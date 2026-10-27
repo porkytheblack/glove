@@ -123,6 +123,7 @@ jobs:
           --filter glove-env-motion
           --filter glove-image
           --filter glove-classifier
+          --filter glove-execution
           --filter glove-analyst-desk
           --filter glove-document-desk
           --filter glovebox-env-example
@@ -168,6 +169,7 @@ jobs:
           --filter glove-env-motion
           --filter glove-image
           --filter glove-classifier
+          --filter glove-execution
           test
 
       - name: Integration — Foundry architecture and runtime

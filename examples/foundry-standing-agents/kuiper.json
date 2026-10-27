@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "project": "glove-foundry-standing-agents",
+  "runtime": { "entrypoint": ["/usr/bin/tini", "--", "node", "scripts/start.mjs"] },
+  "ports": [
+    { "name": "http", "port": 3000, "public": true },
+    { "name": "call", "port": 4160, "public": true }
+  ],
+  "env": {
+    "required": ["WEB_SESSION_SECRET", "FOUNDRY_TOKEN"],
+    "optional": [
+      "WEB_URL", "DOTS_DATA_DIR", "DOTS_DEMO", "DOTS_RESEARCH_EVERY", "DOT_MODEL", "BUILDER_MODEL",
+      "MODELS_BASE_URL", "MODELS_API_KEY", "ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL", "OPENAI_API_KEY",
+      "SLACK_BOT_TOKEN", "SLACK_TEAM_ID", "SLACK_APP_ID", "SLACK_BOT_USER_ID", "SLACK_SIGNING_SECRET",
+      "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "GMAIL_PUBSUB_TOPIC", "GMAIL_PUBSUB_SUBSCRIPTION",
+      "GOOGLE_SERVICE_ACCOUNT_JSON", "GMAIL_MCP_URL"
+    ]
+  },
+  "resources": {
+    "request": { "cpu": 0.5, "memoryMiB": 1024 },
+    "limit": { "cpu": 2, "memoryMiB": 2048 },
+    "volumeGiB": 5
+  },
+  "health": { "tcp": true, "intervalSec": 10 }
+}

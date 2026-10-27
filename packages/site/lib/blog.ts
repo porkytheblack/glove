@@ -20,6 +20,15 @@ export interface BlogPost {
 
 export const posts: BlogPost[] = [
   {
+    slug: "always-on-agents-rebuilt",
+    title: "Four always-on agents, rebuilt",
+    summary:
+      "Grok Bot, Claude Duet, OpenAI Dots and Meta Muse arrived within a few months of each other. We rebuilt each one from Foundry primitives and deployed it on Kuiper. They share almost every part, and the first one taught us that agents are data.",
+    date: "2026-10-24",
+    readingTime: 6,
+    tags: ["foundry", "kuiper", "examples"],
+  },
+  {
     slug: "every-harness-is-the-same-seven-parts",
     title: "Every agent harness is the same seven parts",
     summary:

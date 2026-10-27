@@ -48,6 +48,37 @@ export default async function MeshPage() {
       </p>
 
       {/* ------------------------------------------------------------------ */}
+      <h2 id="foundry">In Foundry, the mesh is hosted for you</h2>
+
+      <p>
+        Foundry agents don&apos;t mount an adapter. Set <code>mesh</code> on the
+        definition and every run gets the same four tools; Foundry is the
+        transport and keeps the threads durable.
+      </p>
+
+      <CodeBlock
+        filename="agents/assistant/agent.ts"
+        language="typescript"
+        code={`export default defineAgent({
+  description: "Talks with the person and hands work to the other agents",
+  mesh: true, // or { peers, waitMs, mount }
+});`}
+      />
+
+      <ul>
+        <li>Agents are addressed by <strong>instance id</strong>. Their name and description come from the instance, so renaming one is a write, not a deploy.</li>
+        <li>An agent&apos;s peers are the other instances in its <strong>workspace</strong>. A <code>peers(self, peer)</code> rule narrows that from data.</li>
+        <li>A new message starts a thread: a conversation on the recipient. Its final reply goes back to the conversation that asked, on its own, and so does a question it sends in the thread.</li>
+        <li>Messages wait in the thread record until they are handed over, so a restart loses nothing.</li>
+      </ul>
+
+      <p>
+        See <a href="/foundry/docs/multi-agent#mesh">Foundry&apos;s mesh</a> for
+        every option, and <a href="/foundry/docs/agents-are-data">agents are data</a>{" "}
+        for why agents are instances, not definitions.
+      </p>
+
+      {/* ------------------------------------------------------------------ */}
       <h2>Mental model</h2>
 
       <p>

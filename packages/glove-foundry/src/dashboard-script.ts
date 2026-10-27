@@ -1,10 +1,12 @@
 import { PHOSPHOR_ICON_PATHS } from "./dashboard-icons.js";
+import { DASHBOARD_RUN_SCRIPT } from "./dashboard-run.js";
+import { DASHBOARD_TRACE_SCRIPT } from "./dashboard-trace.js";
 
 const ICON_PATHS_JSON = JSON.stringify(PHOSPHOR_ICON_PATHS);
 
 export const DASHBOARD_SCRIPT = String.raw`
 const ICON_PATHS=${ICON_PATHS_JSON};
-const state={manifest:null,instances:[],subscriptions:[],connections:[],runs:[],events:[],health:null,transmissions:[],accounts:[],routes:[],bindings:[],activations:[],approvals:[],conversations:{},workspaces:{},chat:{agentId:"",conversationId:"",transcript:null,query:"",draft:"",files:[],sending:false,error:"",optimistic:null,historyOffset:null,renderedConversationId:"",scrollToBottom:false,scrollToTop:false},showAllEvents:false,eventCategory:"all",ready:false,cursor:-1,liveAt:null};
+const state={manifest:null,instances:[],subscriptions:[],connections:[],runs:[],events:[],health:null,transmissions:[],accounts:[],routes:[],bindings:[],activations:[],approvals:[],conversations:{},workspaces:{},chat:{agentId:"",conversationId:"",transcript:null,query:"",draft:"",files:[],sending:false,error:"",optimistic:null,historyOffset:null,renderedConversationId:"",scrollToBottom:false,scrollToTop:false},runEvents:{},network:{filter:"",kind:"all"},console:{filter:"",level:"default",source:"all"},ready:false,cursor:-1,liveAt:null};
 const $=id=>document.getElementById(id);
 const esc=value=>String(value??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
 const attr=value=>esc(value).replace(/\x60/g,"&#96;");
@@ -78,6 +80,8 @@ async function copyValue(button){
   }catch{toast("Could not copy to the clipboard")}
 }
 
+${DASHBOARD_TRACE_SCRIPT}
+${DASHBOARD_RUN_SCRIPT}
 /* ---- View state. Live updates repaint the page, so the parts a person is
        actively using -- scroll, focus, caret, expanded rows -- survive it. ---- */
 function captureView(){
@@ -89,13 +93,17 @@ function captureView(){
     caret:active&&typeof active.selectionStart==="number"?active.selectionStart:null,
     open:[...document.querySelectorAll("[data-event-key].open")].map(node=>node.dataset.eventKey),
     details:[...document.querySelectorAll("details[data-persist]")].filter(node=>node.open).map(node=>node.dataset.persist),
+    closed:[...document.querySelectorAll("details[data-persist]")].filter(node=>!node.open).map(node=>node.dataset.persist),
+    scrolls:[...document.querySelectorAll("[data-scroll-key]")].map(node=>({key:node.dataset.scrollKey,top:node.scrollTop,bottom:node.scrollHeight-node.scrollTop-node.clientHeight<40})),
     chatScroll:chatScroll?{top:chatScroll.scrollTop,nearBottom:chatScroll.scrollHeight-chatScroll.scrollTop-chatScroll.clientHeight<80}:null
   };
 }
 function restoreView(view){
   if(!view)return;
   if(view.open.length)document.querySelectorAll("[data-event-key]").forEach(node=>{if(view.open.includes(node.dataset.eventKey))node.classList.add("open")});
-  if(view.details.length)document.querySelectorAll("details[data-persist]").forEach(node=>{if(view.details.includes(node.dataset.persist))node.open=true});
+  if(view.details.length||view.closed.length)document.querySelectorAll("details[data-persist]").forEach(node=>{if(view.details.includes(node.dataset.persist))node.open=true;else if(view.closed.includes(node.dataset.persist))node.open=false});
+  /* Panes that scroll on their own keep their place; a live console that was at the bottom stays there. */
+  view.scrolls.forEach(saved=>{const node=document.querySelector('[data-scroll-key="'+CSS.escape(saved.key)+'"]');if(!node)return;node.scrollTop=saved.bottom&&node.hasAttribute("data-follow")?node.scrollHeight:saved.top});
   if(view.focus){
     const node=$(view.focus);
     if(node&&node!==document.activeElement){
@@ -187,7 +195,7 @@ function explainRun(run){
   if(source==="activation")return"Started by a scheduled activation or wake-up.";
   if(source==="spawn")return"Spawned by another agent run.";
   if(source==="background")return"Continued as background work.";
-  if(source==="delegation")return"Delegated work, or a delegation result or question coming back.";
+  if(source==="mesh")return"A message from another agent on the mesh, or its reply coming back.";
   if(run.status==="completed")return"The agent completed the requested work.";
   return"The agent is processing a direct message.";
 }
@@ -218,7 +226,7 @@ function renderAgents(){
   let html=pageHead("Code and runtime","Agents","A definition is the code-discovered recipe. An instance is persisted runtime data with its own context, apps, playbooks, and conversations.",'<button class="button primary" data-new-run>Start a run</button>');
   html+='<div class="callout"><span class="symbol">'+icon("definitions")+'</span><div><b>Definitions and instances are intentionally separate.</b><p>Editing a file changes what can be assembled. Updating an instance changes what one runtime identity actually has installed.</p></div></div>';
   html+='<div class="definition-grid">'+definitions.map(def=>{const instances=state.instances.filter(x=>x.definitionId===def.id);const features=[def.workingEnvironment?"VFS":null,def.repl?def.repl+" repl":null,def.mesh?"mesh":null].filter(Boolean);return'<a class="definition-card" href="/agents/'+attr(def.id)+'" data-link><span class="definition-icon">'+icon("agent")+'</span><span class="definition-open">'+icon("external")+'</span><h3>'+esc(def.id)+'</h3><p>'+esc(def.description)+'</p><div>'+tags(features)+'</div><div class="definition-meta"><b>'+count(instances.length,"instance")+'</b><span class="muted mono" style="font-size:9px">'+esc(def.file)+'</span></div></a>'}).join("")+'</div>';
-  const rows=recent(state.instances).map(instance=>'<tr class="clickable" data-go="/instances/'+attr(instance.id)+'"><td>'+idCell(instance.id)+'<span class="secondary">'+esc(instance.workspaceId)+'</span></td><td><a class="link" href="/agents/'+attr(instance.definitionId)+'" data-link>'+esc(instance.definitionId)+'</a></td><td>'+instance.installations.length+'</td><td>'+instance.playbooks.length+'</td><td>'+relCell(instance.updatedAt)+'</td></tr>').join("");
+  const rows=recent(state.instances).map(instance=>'<tr class="clickable" data-go="/instances/'+attr(instance.id)+'"><td>'+(instance.name?'<strong>'+esc(instance.name)+'</strong> ':'')+idCell(instance.id)+'<span class="secondary">'+esc(instance.workspaceId)+'</span></td><td><a class="link" href="/agents/'+attr(instance.definitionId)+'" data-link>'+esc(instance.definitionId)+'</a></td><td>'+instance.installations.length+'</td><td>'+instance.playbooks.length+'</td><td>'+relCell(instance.updatedAt)+'</td></tr>').join("");
   html+=card("Runtime instances",'<div class="table-wrap"><table class="table"><thead><tr><th>Instance</th><th>Definition</th><th>Installed</th><th>Playbooks</th><th>Updated</th></tr></thead><tbody>'+rows+'</tbody></table></div>'+(rows?"":empty("No runtime instances","Start a run or create an instance from a definition.")),count(state.instances.length,"instance"));
   $("content").innerHTML=html;document.querySelectorAll("[data-new-run]").forEach(x=>x.onclick=openRunDrawer);dataLinks();
 }
@@ -243,7 +251,7 @@ function renderInstance(id){
   const instance=state.instances.find(x=>x.id===id);if(!instance)return renderNotFound("Agent instance");
   crumbs([{label:"Agents",href:"/agents"},{label:instance.definitionId,href:"/agents/"+instance.definitionId},{label:short(id)}]);
   const conversations=state.conversations[id]||[];const runs=recent(state.runs.filter(x=>x.agentId===id));
-  let html=pageHead("Runtime instance",short(id),"Persisted runtime data assembled from "+instance.definitionId+". This identity can be updated without changing the code definition.",'<button class="button" data-copy="'+attr(id)+'">'+icon("copy")+'<span>Copy instance id</span></button><button class="button primary" data-instance-run>Send message</button>');
+  let html=pageHead("Runtime instance",instance.name||short(id),"Persisted runtime data assembled from "+instance.definitionId+". This identity can be updated without changing the code definition.",'<button class="button" data-copy="'+attr(id)+'">'+icon("copy")+'<span>Copy instance id</span></button><button class="button primary" data-instance-run>Send message</button>');
   html+='<div class="detail-strip"><div><label>Definition</label><strong><a class="link" href="/agents/'+attr(instance.definitionId)+'" data-link>'+esc(instance.definitionId)+'</a></strong></div><div><label>Workspace</label><strong><a class="link mono" href="/workspaces/'+attr(instance.workspaceId)+'" data-link>'+esc(instance.workspaceId)+'</a></strong></div><div><label>Conversations</label><strong>'+conversations.length+'</strong></div><div><label>Last updated</label><strong>'+relCell(instance.updatedAt)+'</strong></div></div>';
   html+='<div class="grid cols-2">';
   const convRows=recent(conversations).map(c=>'<tr class="clickable" data-go="'+attr(chatPath(id,c.id))+'"><td><span class="primary-cell">'+esc(c.title||"Untitled conversation")+'</span>'+idCell(c.id)+'</td><td>'+relCell(c.updatedAt)+'</td></tr>').join("");
@@ -322,14 +330,14 @@ function renderChat(){
   const streaming=state.chat.historyOffset===null?liveAssistantMessage(run):null;if(streaming)messages.push(streaming);
   let html='<section class="chat-shell">';
   html+='<aside class="session-rail"><div class="session-head"><div><span class="eyebrow">WebChat</span><h1>Conversations</h1></div><button class="button icon-button" type="button" data-new-chat title="New conversation" aria-label="New conversation">'+icon("plus")+'</button></div>';
-  html+='<label class="session-agent"><span>Agent instance</span><select id="chat-agent">'+state.instances.map(item=>'<option value="'+attr(item.id)+'"'+(item.id===agent.id?" selected":"")+'>'+esc(item.definitionId)+" · "+esc(short(item.id))+'</option>').join("")+'</select></label>';
+  html+='<label class="session-agent"><span>Agent instance</span><select id="chat-agent">'+state.instances.map(item=>'<option value="'+attr(item.id)+'"'+(item.id===agent.id?" selected":"")+'>'+esc(item.name||item.definitionId)+" · "+esc(short(item.id))+'</option>').join("")+'</select></label>';
   html+='<label class="session-search">'+icon("search")+'<input id="chat-search" value="'+attr(state.chat.query)+'" placeholder="Search conversations" /></label>';
   html+='<div class="session-list">'+(visible.length?visible.map(item=>'<button type="button" class="chat-session'+(item.id===conversation?.id?" active":"")+'" data-chat-conversation="'+attr(item.id)+'"><span>'+esc(item.title||"Untitled conversation")+'</span><small>'+esc(relTime(item.updatedAt))+' · '+esc(short(item.id))+'</small></button>').join(""):empty(term?"No matching conversations":"No conversations yet",term?"Try another search.":"Create one to start talking with this instance."))+'</div></aside>';
   html+='<section class="conversation-pane">';
   if(!conversation){
     html+='<div class="chat-empty">'+icon("chat","chat-empty-icon")+'<h2>Start a conversation</h2><p>Messages route to this exact runtime instance and become part of its durable context.</p><button class="button primary" type="button" data-new-chat>'+icon("plus")+' New conversation</button></div>';
   }else{
-    html+='<header class="conversation-head"><div><span class="conversation-kicker">'+esc(agent.definitionId)+" · "+esc(short(agent.id))+'</span><h2>'+esc(conversation.title||"Untitled conversation")+'</h2></div><div class="conversation-meta">'+(run?status(run.status):lastRun?status(lastRun.status):'<span class="status">ready</span>')+'<span>'+esc(transcript?.turnCount??0)+' turns</span><span>'+esc(transcript?.tokenCount??0)+' tokens</span><button type="button" class="conversation-rename" data-export-chat>Export</button><button type="button" class="conversation-rename" data-rename-chat>Rename</button></div></header>';
+    html+='<header class="conversation-head"><div><span class="conversation-kicker">'+esc(agent.name||agent.definitionId)+" · "+esc(short(agent.id))+'</span><h2>'+esc(conversation.title||"Untitled conversation")+'</h2></div><div class="conversation-meta">'+(run?status(run.status):lastRun?status(lastRun.status):'<span class="status">ready</span>')+'<span>'+esc(transcript?.turnCount??0)+' turns</span><span>'+esc(transcript?.tokenCount??0)+' tokens</span><button type="button" class="conversation-rename" data-export-chat>Export</button><button type="button" class="conversation-rename" data-rename-chat>Rename</button></div></header>';
     if(transcript&&!transcript.persisted)html+='<div class="chat-store-warning">This agent has no conversation store. New turns can run, but history cannot be reopened after the worker exits.</div>';
     const page=transcript?.page;const paging=page&&(page.hasEarlier||page.hasLater)?'<div class="load-history">'+(page.hasEarlier?'<button class="button" type="button" data-history-page="earlier">Earlier</button>':"")+'<span>Showing '+esc(page.offset+1)+'–'+esc(page.offset+(transcript?.messages?.length||0))+' of '+esc(page.total)+'</span>'+(page.hasLater?'<button class="button" type="button" data-history-page="later">Newer</button>':"")+'</div>':"";
     html+='<div class="message-scroll" id="message-scroll">'+paging+(messages.length?messages.map((message,index)=>renderChatMessage(message,index===messages.length-1&&Boolean(state.chat.optimistic))).join(""):'<div class="chat-empty compact">'+icon("chat","chat-empty-icon")+'<h2>What should '+esc(agent.definitionId)+' work on?</h2><p>This conversation can include text, images, video, and documents.</p></div>')+'</div>';
@@ -480,11 +488,6 @@ function phaseData(run,events){
     {name:run.status==="failed"?"Failed":run.status==="cancelled"?"Cancelled":run.status==="completed"?"Completed":"In progress",detail:explainRun(run),state:run.status==="failed"||run.status==="cancelled"?"error":run.status==="completed"?"complete":"active",time:run.completedAt||time(/run\.(completed|failed|cancelled)/)}
   ];
 }
-function eventOffset(run,event){
-  const base=new Date(run.createdAt).getTime();const at=new Date(event.timestamp).getTime();
-  if(!Number.isFinite(base)||!Number.isFinite(at))return"";
-  return"+"+durationText(Math.max(0,at-base));
-}
 function runErrorText(run){
   if(run.status!=="failed")return"";
   if(typeof run.error==="string")return run.error;
@@ -503,51 +506,6 @@ function guidanceCard(events){
   const formBody=forms?.length?forms.map(f=>'<p><strong>'+esc(f.definitionId)+'</strong> · '+esc(f.status)+'</p><p>'+count(f.answered,"answered field")+' · '+count(f.pendingHooks,"pending effect batch","pending effect batches")+(f.blockedOn?' · waiting on '+esc(f.blockedOn):'')+'</p>').join(""):'<p class="muted">No form instances started.</p>';
   return '<section class="card"><div class="card-head"><h2>Conversation guidance</h2><span class="meta">Observed '+esc(fmtTime(event.timestamp))+'</span></div><div class="card-body"><div class="grid cols-3"><div><h3>Goals</h3>'+goalBody+'</div><div><h3>Facts</h3>'+factBody+'</div><div><h3>Forms</h3>'+formBody+'</div></div><p class="muted">Latest state observed by this run, not a live database view. '+count(data.contextProviders||0,"custom context provider")+'. Answer values and fact bodies are not included in this summary.</p></div></section>';
 }
-function renderRun(id){
-  const run=state.runs.find(x=>x.id===id);if(!run)return renderNotFound("Run");
-  const events=eventsFor(id);
-  const categories=[...new Set(events.map(event=>event.category))].filter(Boolean).sort();
-  let visibleEvents=state.showAllEvents?events:events.filter(isKeyRunEvent);
-  if(state.eventCategory!=="all")visibleEvents=visibleEvents.filter(event=>event.category===state.eventCategory);
-  crumbs([{label:"Runs",href:"/runs"},{label:short(id)}]);
-  const actions=(isLiveRun(run)?'<button class="button danger" data-cancel>Cancel run</button>':"")
-    +'<button class="button" data-copy="'+attr(run.id)+'">'+icon("copy")+'<span>Copy run id</span></button>'
-    +'<button class="button primary" data-rerun>'+icon("refresh")+'<span>Run again</span></button>';
-  let html=pageHead("Run detail",run.agent+" · "+short(id),"Follow the high-level phases first. Expand individual events only when you need raw adapter or model evidence.",actions);
-  const failure=runErrorText(run);
-  if(failure)html+='<div class="alert danger"><span class="symbol">'+icon("warning")+'</span><div><b>This run failed'+(run.attempts>1?" after "+count(run.attempts,"attempt"):"")+'.</b><p>'+esc(failure)+'</p></div></div>';
-  if(isLiveRun(run))html+='<div class="alert live"><span class="symbol"><i class="pulse-dot"></i></span><div><b>This run is still '+esc(run.status)+'.</b><p>New events stream in below as the runtime records them.</p></div></div>';
-  html+=approvalRail(pendingApprovals(run.id),"This run is waiting for a decision");
-  html+=guidanceCard(events);
-  html+='<div class="detail-strip">'
-    +'<div><label>Status</label><strong>'+status(run.status)+'</strong></div>'
-    +'<div><label>Duration</label><strong>'+durCell(run)+'</strong></div>'
-    +'<div><label>Source</label><strong>'+esc(runSource(run))+'</strong></div>'
-    +'<div><label>Agent instance</label><strong>'+(run.agentId?'<a class="link mono" href="/instances/'+attr(run.agentId)+'" data-link>'+esc(short(run.agentId))+'</a>':"Not recorded")+'</strong></div>'
-    +'<div><label>Attempts</label><strong>'+run.attempts+" of "+run.maxAttempts+'</strong></div>'
-    +'</div>';
-  html+='<div class="grid cols-3"><section class="card span-2"><div class="card-head"><h2>Run spine</h2><span class="meta">'+count(events.length,"event")+'</span></div><div class="card-body"><div class="trace-note">This shows observable work intent and outcomes. It does not expose private hidden chain-of-thought.</div><div class="run-spine">'+phaseData(run,events).map(p=>'<div class="phase '+p.state+'"><span class="phase-dot"></span><div><strong>'+esc(p.name)+'</strong><p>'+esc(p.detail)+'</p></div><time title="'+attr(fullDate(p.time))+'">'+esc(fmtTime(p.time))+'</time></div>').join("")+'</div></div></section>';
-  html+=card("Result",'<div class="card-body"><div class="summary-box"><dl><dt>Created</dt><dd>'+relCell(run.createdAt)+'</dd><dt>Started</dt><dd>'+relCell(run.startedAt)+'</dd><dt>Finished</dt><dd>'+relCell(run.completedAt)+'</dd><dt>Timeout</dt><dd>'+esc(durationText(run.timeoutMs))+'</dd></dl></div><details data-persist="output" open><summary class="link">Output</summary><pre class="json">'+esc(jsonText(run.output??run.error??null))+'</pre></details><details data-persist="input"><summary class="link">Input</summary><pre class="json">'+esc(jsonText(run.input))+'</pre></details></div>',"Recorded outcome");
-  html+='</div>';
-  const eventRows=visibleEvents.map((event,index)=>{
-    const key=event.id||event.type+":"+event.timestamp+":"+index;
-    return'<div class="event-row" data-event-key="'+attr(key)+'">'
-      +'<button class="event-toggle" type="button"><span class="event-time">'+esc(fmtTime(event.timestamp))+'</span><span class="event-offset mono">'+esc(eventOffset(run,event))+'</span><span class="event-category">'+esc(event.category)+'</span><span class="event-type">'+esc(event.type)+'</span><span class="event-caret">'+icon("caretDown")+'</span></button>'
-      +'<div class="event-detail"><div class="event-detail-head"><span class="muted mono">'+esc(event.type)+'</span>'+copyButton(jsonText(event.data),"event payload")+'</div><pre class="json">'+esc(jsonText(event.data))+'</pre></div></div>';
-  }).join("");
-  const categoryChips=categories.length>1?'<div class="chips">'+['all'].concat(categories).map(name=>'<button type="button" class="chip'+(state.eventCategory===name?" active":"")+'" data-category="'+attr(name)+'">'+esc(name==="all"?"All categories":name)+'</button>').join("")+'</div>':"";
-  const eventControl='<div class="event-controls">'+categoryChips+'<div class="event-controls-right"><span class="muted">'+esc(state.showAllEvents?"Showing every retained event, including assembly and process detail.":"Showing the lifecycle events that explain this run.")+'</span><button class="button" type="button" data-toggle-events>'+esc(state.showAllEvents?"Show key events":"Show all "+events.length+" events")+'</button></div></div>';
-  html+=card("Observable event trace",eventControl+'<div class="event-list">'+(eventRows||empty("No events to show","Clear the category filter or show every retained event."))+'</div>',count(visibleEvents.length,"event"));
-  $("content").innerHTML=html;
-  document.querySelectorAll(".event-toggle").forEach(node=>node.onclick=()=>node.parentElement.classList.toggle("open"));
-  document.querySelectorAll("[data-category]").forEach(node=>node.onclick=()=>{state.eventCategory=node.dataset.category;renderRun(id)});
-  document.querySelector("[data-toggle-events]").onclick=()=>{state.showAllEvents=!state.showAllEvents;renderRun(id)};
-  const cancel=document.querySelector("[data-cancel]");if(cancel)cancel.onclick=()=>void cancelRun(id);
-  const rerun=document.querySelector("[data-rerun]");
-  if(rerun)rerun.onclick=()=>openRunDrawer(state.instances.find(x=>x.id===run.agentId)?.definitionId,run.agentId,typeof run.input?.message?.text==="string"?run.input.message.text:typeof run.input?.message==="string"?run.input.message:"");
-  dataLinks();
-}
-
 function renderAutomations(){
   crumbs([{label:"Automations"}]);let html=pageHead("Background work","Automations","Schedules and sleeps create future activations. Playbook subscriptions listen for inbound transmissions and can provision one or many agent instances.","");
   html+='<div class="grid cols-3">'+metric("Scheduled activations",state.activations.length,"Future triggers and sleeping runs",true)+metric("Playbook subscriptions",state.subscriptions.length,"Inbound event policies")+metric("Application connections",state.connections.length,"Long-lived inbound workers")+'</div>';
@@ -635,6 +593,7 @@ async function refreshActivity(){
     const endpoints=["/api/agent-instances","/api/playbook-subscriptions","/api/application-connections","/api/runs","/api/events","/api/activations","/api/approvals","/health"];
     const values=await Promise.all(endpoints.map(url=>api(url)));
     [state.instances,state.subscriptions,state.connections,state.runs,state.events,state.activations,state.approvals,state.health]=values;
+    const current=route();if(current.section==="runs"&&current.id)await ensureRunEvents(current.id);
     renderHealth();
     $("event-state").textContent="Live updates";
     await navigate(false,true);
@@ -652,6 +611,7 @@ async function navigate(load=true,preserve=false){
   try{
     if(load&&current.section==="instances"&&current.id)await ensureConversations(current.id);
     if(load&&current.section==="workspaces"&&current.id)await ensureWorkspace(current.id);
+    if(load&&current.section==="runs"&&current.id)await ensureRunEvents(current.id);
     if(current.section==="chat")await loadChat(current);
     if(current.section==="overview")renderOverview();else if(current.section==="agents"&&!current.id)renderAgents();else if(current.section==="agents")renderDefinition(current.id);else if(current.section==="instances")renderInstance(current.id);else if(current.section==="chat")renderChat();else if(current.section==="runs"&&!current.id)renderRuns();else if(current.section==="runs")renderRun(current.id);else if(current.section==="automations")renderAutomations();else if(current.section==="integrations")renderIntegrations();else if(current.section==="workspaces")renderWorkspaces(current.id);else renderNotFound("Page");
   }catch(error){$("content").innerHTML='<div class="form-error">'+esc(error.message)+'</div>';console.error(error)}
@@ -709,13 +669,15 @@ $("new-run").onclick=()=>openRunDrawer();$("close-drawer").onclick=closeRunDrawe
 $("run-message").addEventListener("keydown",e=>{if((e.metaKey||e.ctrlKey)&&e.key==="Enter"){e.preventDefault();$("run-form").requestSubmit()}});
 document.addEventListener("keydown",e=>{
   if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==="k"){e.preventDefault();openSearch();return}
-  if(e.key==="Escape"){closeSearch();closeRunDrawer();return}
-  if(e.metaKey||e.ctrlKey||e.altKey||isTyping())return;
-  if($("drawer").classList.contains("open")||$("search-modal").classList.contains("open"))return;
+  const modal=$("drawer").classList.contains("open")||$("search-modal").classList.contains("open");
+  if(e.key==="Escape"&&modal){closeSearch();closeRunDrawer();return}
+  if(e.key==="Escape"&&isTyping()){document.activeElement.blur();return}
+  if(e.metaKey||e.ctrlKey||e.altKey||isTyping()||modal)return;
+  if(runKeys(e)){e.preventDefault();return}
   if(e.key==="j"){e.preventDefault();moveCursor(1)}
   else if(e.key==="k"){e.preventDefault();moveCursor(-1)}
   else if(e.key==="Enter"||e.key==="o"){if(state.cursor>=0){e.preventDefault();openCursor()}}
-  else if(e.key==="/"){const box=$("run-search");if(box){e.preventDefault();box.focus();box.select()}else{e.preventDefault();openSearch()}}
+  else if(e.key==="/"){const box=$("run-search")||$("net-filter")||$("con-filter");if(box){e.preventDefault();box.focus();box.select()}else{e.preventDefault();openSearch()}}
   else if(e.key==="c"){e.preventDefault();const current=route();if(current.section==="chat"){const agent=chatAgent();if(agent)void createChatConversation(agent.id)}else openRunDrawer()}
   else if(e.key==="r"){e.preventDefault();void refreshActivity()}
 });

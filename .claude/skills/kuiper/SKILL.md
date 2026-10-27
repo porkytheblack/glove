@@ -104,7 +104,7 @@ Kuiper's model gateway serves **each provider's own API** at one address — Ope
 import { Kuiper } from "@kuiper-sh/sdk";
 import { createAdapter } from "glove-core/models/providers";
 
-const kuiper = new Kuiper(); // reads KUIPER_GATEWAY_KEY when apiKey is omitted; bind it to ${{models.API_KEY}}
+const kuiper = new Kuiper({ apiKey: process.env.GATEWAY_KEY }); // on a unit: GATEWAY_KEY='${{models.API_KEY}}'
 const model = createAdapter({ provider: "anthropic", model: "claude-sonnet-5-5", ...kuiper.models.glove("anthropic") });
 ```
 
@@ -126,7 +126,7 @@ Tools: `check_email`, `read_email`, `get_email_attachment`, `send_email`, `reply
 
 - **Browsers**: real Chrome behind Steel's API; Steel's SDKs work with the base URL changed, Playwright/Puppeteer connect over CDP to the session's `websocketUrl` (`kuiper.browsers.create()`). Profiles, hibernation and recordings; billed by the second.
 - **Sandboxes**: a remote computer per sandbox from `kuiper/base`, `kuiper/documents`, `kuiper/coding`, `kuiper/coding-agents`, `kuiper/video`, `kuiper/data`, `kuiper/full`; `kuiper.sandboxes.create()`, then `sandbox.exec()`, `sandbox.files`, `sandbox.terminal()`, `sandbox.ports`; hibernate to come back later.
-- **For a Glove agent**, either call these from your own tools / a `SandboxBackend` behind `glove-execution`'s `createSandboxAdapter`, or run Station's container sandboxes and browsers (as Foundry's `stationDaemon` resources) on the unit: declare `capabilities.sandbox` / `capabilities.browser` in `kuiper.json` and the unit gets a Docker socket Kuiper serves and polices, with `kuiper/<name>` images by name, every container under gVisor within the unit's limits.
+- **For a Glove agent**, mount them with `glove-execution/kuiper`: `mountBrowser(agent, { adapter: kuiperBrowser({ browsers: kuiper.browsers, … }) })` for `execute_browser` (profiles, `guard` on every request, `handOff` to a person through the live view, sessions the next run reconnects to) and `mountSandbox(agent, { adapter: kuiperSandbox({ sandboxes: kuiper.sandboxes, sandbox: { image: "kuiper/coding" } }) })` for `execute_sandbox`, in Foundry's `configure`. Or run Station's container sandboxes and browsers (as Foundry's `stationDaemon` resources) on the unit: declare `capabilities.sandbox` / `capabilities.browser` in `kuiper.json` and the unit gets a Docker socket Kuiper serves and polices, with `kuiper/<name>` images by name, every container under gVisor within the unit's limits.
 - Budgets (`kuiper budgets create --scope project --limit 50 --action block`) refuse new browser sessions and sandboxes once spent.
 
 ### Databases and buckets
@@ -147,7 +147,7 @@ Two units from one repository: the Foundry unit (root at the app) and the Next.j
 
 ## Writing about Kuiper
 
-When you write docs, READMEs or prompts about Kuiper: call the model gateway what it is (each provider's own API, behind one address with your keys); show unit outputs (`${{models.API_KEY}}`) rather than proposing variable names, unless a library defines the name (`FOUNDRY_TOKEN`, `KUIPER_GATEWAY_KEY`); keep sentences short and steps concrete.
+When you write docs, READMEs or prompts about Kuiper: call the model gateway what it is (each provider's own API, behind one address with your keys); show unit outputs (`${{models.API_KEY}}`) rather than proposing variable names, unless a library defines the name (`FOUNDRY_TOKEN`); a unit can't set a name that starts with `KUIPER_` (Kuiper keeps those for itself), so bind the gateway key under your own name, such as `GATEWAY_KEY`, and pass it as `apiKey`; keep sentences short and steps concrete.
 
 ## Reference files
 
