@@ -133,9 +133,9 @@ export function channel(museId: string, key: "app" | "whatsapp"): CreateConversa
       />
       <p>
         Meta posts messages to a webhook and wants a verify-token handshake and a signature on
-        every delivery. <code>scripts/whatsapp-webhook.ts</code> does both and forwards each text
-        message to Foundry&apos;s <code>whatsapp-in</code> route, the same way the Dots rebuild
-        forwards Slack.
+        every delivery. The web app&apos;s <code>/webhooks/whatsapp</code> route does both
+        (<code>lib/whatsapp-webhook.ts</code>) and forwards each text message to Foundry&apos;s
+        <code>whatsapp-in</code> route on loopback, in the same unit.
       </p>
 
       <h2 id="step-2">2. Apps at the access she chooses</h2>
@@ -417,30 +417,27 @@ kuiper projects create muse && kuiper use muse
 kuiper units create muse
 
 kuiper providers add anthropic --key -            # once per organisation
-kuiper secrets set GOOGLE_CLIENT_SECRET=- GOOGLE_SERVICE_ACCOUNT_JSON=- WHATSAPP_TOKEN=- FOUNDRY_TOKEN=-
+kuiper secrets set GOOGLE_CLIENT_SECRET=- GOOGLE_SERVICE_ACCOUNT_JSON=- FOUNDRY_TOKEN=- WEB_SESSION_SECRET=-
+kuiper secrets set WHATSAPP_TOKEN=- WHATSAPP_APP_SECRET=- WHATSAPP_VERIFY_TOKEN=-
 kuiper env set -u muse MUSE_DATA_DIR=/data \\
+  'WEB_SESSION_SECRET=\${{secrets.WEB_SESSION_SECRET}}' WEB_URL=https://… \\
   'KUIPER_GATEWAY_KEY=\${{models.API_KEY}}' \\
   'BROWSERS_URL=\${{browsers.BASE_URL}}' \\
   GOOGLE_CLIENT_ID=… 'GOOGLE_CLIENT_SECRET=\${{secrets.GOOGLE_CLIENT_SECRET}}' \\
   GMAIL_PUBSUB_TOPIC=… GMAIL_PUBSUB_SUBSCRIPTION=… \\
   'GOOGLE_SERVICE_ACCOUNT_JSON=\${{secrets.GOOGLE_SERVICE_ACCOUNT_JSON}}' \\
   WHATSAPP_PHONE_NUMBER_ID=… 'WHATSAPP_TOKEN=\${{secrets.WHATSAPP_TOKEN}}' \\
+  'WHATSAPP_APP_SECRET=\${{secrets.WHATSAPP_APP_SECRET}}' \\
+  'WHATSAPP_VERIFY_TOKEN=\${{secrets.WHATSAPP_VERIFY_TOKEN}}' \\
   'FOUNDRY_TOKEN=\${{secrets.FOUNDRY_TOKEN}}'
 kuiper deploy --source . -u muse --wait
 
-# The WhatsApp webhook, the only public way in:
-kuiper units create whatsapp-webhook
-kuiper settings -u whatsapp-webhook --start-command "pnpm whatsapp-webhook" --port 4150
-kuiper secrets set WHATSAPP_APP_SECRET=- WHATSAPP_VERIFY_TOKEN=-
-kuiper env set -u whatsapp-webhook 'WHATSAPP_APP_SECRET=\${{secrets.WHATSAPP_APP_SECRET}}' \\
-  'WHATSAPP_VERIFY_TOKEN=\${{secrets.WHATSAPP_VERIFY_TOKEN}}' \\
-  'FOUNDRY_TOKEN=\${{secrets.FOUNDRY_TOKEN}}' 'FOUNDRY_URL=\${{muse.INTERNAL_URL}}'
-kuiper deploy --source . -u whatsapp-webhook --wait`}
+# Register <WEB_URL>/webhooks/whatsapp with Meta.`}
       />
       <ul>
         <li><strong>One key, two services.</strong> The two references give the unit one gateway key for models and browsers. <code>@kuiper-sh/sdk</code> reads it for Muse&apos;s and the Sentinel&apos;s models and for each person&apos;s browser.</li>
         <li><strong>State</strong> (Muses, conversations, memory and plans, accounts and tokens, the Sentinel&apos;s lists, the log and each person&apos;s browser IDs) sits on the <code>/data</code> disk and survives redeploys. The browsers and profiles are Kuiper&apos;s: a redeploy reconnects to them.</li>
-        <li><strong>New mail needs nothing public.</strong> The Gmail watch pulls from inside the unit. WhatsApp needs the webhook unit, which reaches Foundry over the private address.</li>
+        <li><strong>One unit, one public port.</strong> The web app takes port 3000 and Foundry runs beside it on loopback. Meta&apos;s webhook is a route of the web app, and the Gmail watch pulls from inside the unit, so nothing else is public.</li>
       </ul>
 
       <h2 id="differences">Where it differs</h2>

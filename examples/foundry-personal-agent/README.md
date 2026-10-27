@@ -24,7 +24,7 @@ This is an independent example. It is not affiliated with or endorsed by Meta,
 and it is not how Muse is built.
 
 ```
-   the app ─────┐                  WhatsApp ──► scripts/whatsapp-webhook.ts ──► whatsapp-in
+   the app ─────┐                  WhatsApp ──► the web app's /webhooks/whatsapp ──► whatsapp-in
                 ▼                                                                    │
    ┌───────────────────────────────── Muse · one per person ─────────────────────────▼──┐
    │ conversations: app, whatsapp · one memory                                          │
@@ -54,8 +54,8 @@ outbound transmission:
   recipient. Muse can answer its person on WhatsApp but cannot message anyone
   else there.
 - Meta needs a webhook with a verify-token handshake and signed deliveries.
-  `scripts/whatsapp-webhook.ts` does both and forwards each text message to
-  Foundry.
+  The web app's `/webhooks/whatsapp` route does both and forwards each text
+  message to Foundry (`lib/whatsapp-webhook.ts`).
 
 ## Apps at the access she chooses
 
@@ -224,9 +224,11 @@ lib/
   activity.ts         the log: done and planned; plans for the app
   handoffs.ts         a browser handed to the person, kept host-side for the app until its session closes
   whatsapp.ts         Meta's Cloud API
+  whatsapp-webhook.ts Meta's webhook: handshake, signature, forward to Foundry
   oauth.ts  google.ts  mcp-servers.ts  people.ts  models.ts
   host.ts             what the web app's server loads from lib, after discovery
-app/                  the web app (Next.js): Chat, Watch, Plans, You, Connections, sign-in
+app/                  the web app (Next.js): Chat, Watch, Plans, You, Connections, sign-in;
+                      /webhooks/whatsapp for Meta
 demo/                 local Gmail and Calendar MCP servers; a stand-in for Kuiper's browser API, and sample sites
 scripts/
   verify.ts           a day, offline
@@ -235,7 +237,7 @@ scripts/
   invite.ts           a sign-in link for one person
   onboard.ts          sign a person up on a running Foundry
   connect.ts          connect their Gmail or Calendar at an access level
-  whatsapp-webhook.ts Meta's webhook: handshake, signature, forward
+  whatsapp-webhook.ts the same webhook on its own port, for local runs
 ```
 
 ## Run it
@@ -357,9 +359,11 @@ answer 404 to her. Set `WEB_SMOKE_SHOTS=<dir>` to save each screen.
   `GOOGLE_*` and `GMAIL_PUBSUB_*` variables, then
   `pnpm connect <person> gmail read`.
 - **WhatsApp.** In Meta's developer app, add WhatsApp and note the phone
-  number id; make a system user token. Run `pnpm whatsapp-webhook` somewhere
-  public and register its URL with your `WHATSAPP_VERIFY_TOKEN`. Set
-  `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_TOKEN` and `WHATSAPP_APP_SECRET`.
+  number id; make a system user token. Register `<WEB_URL>/webhooks/whatsapp`
+  as the webhook with your `WHATSAPP_VERIFY_TOKEN`. Set
+  `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_TOKEN`, `WHATSAPP_APP_SECRET` and
+  `WHATSAPP_VERIFY_TOKEN`. Locally, `pnpm whatsapp-webhook` serves the same
+  webhook on port 4150 for a tunnel.
   WhatsApp only takes free text within 24 hours of the person's last message;
   outside that window, send a template.
 
@@ -374,7 +378,8 @@ kuiper projects create muse && kuiper use muse
 kuiper units create muse
 
 kuiper providers add anthropic --key -            # once per organisation
-kuiper secrets set GOOGLE_CLIENT_SECRET=- GOOGLE_SERVICE_ACCOUNT_JSON=- WHATSAPP_TOKEN=- FOUNDRY_TOKEN=- WEB_SESSION_SECRET=-
+kuiper secrets set GOOGLE_CLIENT_SECRET=- GOOGLE_SERVICE_ACCOUNT_JSON=- FOUNDRY_TOKEN=- WEB_SESSION_SECRET=-
+kuiper secrets set WHATSAPP_TOKEN=- WHATSAPP_APP_SECRET=- WHATSAPP_VERIFY_TOKEN=-
 kuiper env set -u muse MUSE_DATA_DIR=/data \
   'WEB_SESSION_SECRET=${{secrets.WEB_SESSION_SECRET}}' WEB_URL=https://… \
   'KUIPER_GATEWAY_KEY=${{models.API_KEY}}' \
@@ -383,6 +388,8 @@ kuiper env set -u muse MUSE_DATA_DIR=/data \
   GMAIL_PUBSUB_TOPIC=… GMAIL_PUBSUB_SUBSCRIPTION=… \
   'GOOGLE_SERVICE_ACCOUNT_JSON=${{secrets.GOOGLE_SERVICE_ACCOUNT_JSON}}' \
   WHATSAPP_PHONE_NUMBER_ID=… 'WHATSAPP_TOKEN=${{secrets.WHATSAPP_TOKEN}}' \
+  'WHATSAPP_APP_SECRET=${{secrets.WHATSAPP_APP_SECRET}}' \
+  'WHATSAPP_VERIFY_TOKEN=${{secrets.WHATSAPP_VERIFY_TOKEN}}' \
   'FOUNDRY_TOKEN=${{secrets.FOUNDRY_TOKEN}}'
 
 kuiper deploy --source . -u muse --wait
@@ -396,21 +403,10 @@ the secret is known: `WEB_SESSION_SECRET=… WEB_URL=https://… pnpm invite ros
 To run Foundry alone instead (its API and inspector, no web app), start it
 with `glove foundry start` and `kuiper dashboard -u muse --enable`.
 
-The WhatsApp webhook runs as a second unit from the same source. It reaches
-Foundry over the private address, so it needs Foundry listening there: with the
-web app in the unit, Foundry is on loopback, so run the webhook in the same
-unit or give Foundry a private listener first. Its public URL
-is the webhook URL you register with Meta:
-
-```bash
-kuiper units create whatsapp-webhook
-kuiper settings -u whatsapp-webhook --start-command "pnpm whatsapp-webhook" --port 4150
-kuiper secrets set WHATSAPP_APP_SECRET=- WHATSAPP_VERIFY_TOKEN=-
-kuiper env set -u whatsapp-webhook 'WHATSAPP_APP_SECRET=${{secrets.WHATSAPP_APP_SECRET}}' \
-  'WHATSAPP_VERIFY_TOKEN=${{secrets.WHATSAPP_VERIFY_TOKEN}}' \
-  'FOUNDRY_TOKEN=${{secrets.FOUNDRY_TOKEN}}' 'FOUNDRY_URL=${{muse.INTERNAL_URL}}'
-kuiper deploy --source . -u whatsapp-webhook --wait
-```
+Meta's webhook is a route of the same web app, so it needs no second unit:
+register `<WEB_URL>/webhooks/whatsapp` with Meta. It checks the signature,
+answers Meta at once and forwards each text message to Foundry on loopback.
+Without `WHATSAPP_APP_SECRET` and `WHATSAPP_VERIFY_TOKEN` it answers 404.
 
 The two Kuiper references give the unit one gateway key that opens both models
 and browsers. `@kuiper-sh/sdk` reads it, calls Muse's and the Sentinel's models

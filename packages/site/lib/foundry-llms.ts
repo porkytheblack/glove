@@ -829,9 +829,10 @@ guards the browser, while app reads and sends go through Foundry's apps.
 - WhatsApp is a Foundry app (transmission in and out). Inbound on one shared
   route (Muse's business number, an app-owned account); each person's playbook
   has a from-person predicate on their number. Outbound on a route per person
-  whose config.to fixes the recipient. scripts/whatsapp-webhook.ts answers
-  Meta's verify-token handshake, checks X-Hub-Signature-256 and forwards each
-  text message to /api/transmissions/whatsapp-in/fire.
+  whose config.to fixes the recipient. The web app's /webhooks/whatsapp route
+  (lib/whatsapp-webhook.ts) answers Meta's verify-token handshake, checks
+  X-Hub-Signature-256 and forwards each text message to
+  /api/transmissions/whatsapp-in/fire on loopback, in the same unit.
 - Access per app is installation config { access: "read" | "act" }. The app's
   mcp.tools policy hides writes under "read"; configure removes Gmail's
   transmission send tool; the send binding is enabled only for "act".

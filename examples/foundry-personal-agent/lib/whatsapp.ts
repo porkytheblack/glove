@@ -3,7 +3,7 @@ import { Schema } from "effect";
 // WhatsApp Business Cloud API: what Muse needs to talk with people on
 // WhatsApp. Muse has one business number; people message it, and Muse answers
 // each person on their own number. Meta posts incoming messages to a webhook
-// (scripts/whatsapp-webhook.ts checks and forwards them).
+// (lib/whatsapp-webhook.ts checks and forwards them).
 
 const version = () => process.env.WHATSAPP_GRAPH_VERSION ?? "v23.0";
 

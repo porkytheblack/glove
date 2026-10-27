@@ -17,7 +17,7 @@ export const museNumber = defineAccount({
   metadata: { phoneNumberId },
 });
 
-/** Every WhatsApp message to Muse's number arrives here (scripts/whatsapp-webhook.ts forwards it). */
+/** Every WhatsApp message to Muse's number arrives here (lib/whatsapp-webhook.ts forwards it). */
 export const whatsappIn = defineInboundRoute({
   id: "whatsapp-in",
   transmission: whatsapp,
