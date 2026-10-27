@@ -81,7 +81,7 @@ a.button.primary:hover { color: var(--kit-on-accent); background: #164D38; }
 textarea.input { padding: 10px 12px; resize: none; line-height: 1.4; }
 
 /* Tabs */
-.tabs { flex: none; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-top: 1px solid var(--kit-line); background: var(--kit-surface); padding-bottom: max(8px, env(safe-area-inset-bottom)); }
+.tabs { flex: none; display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); border-top: 1px solid var(--kit-line); background: var(--kit-surface); padding-bottom: max(8px, env(safe-area-inset-bottom)); }
 .tabs a { display: flex; align-items: center; justify-content: center; min-height: 52px; font-size: 13px; color: var(--kit-muted); text-decoration: none; }
 .tabs a[aria-current="page"] { font-weight: 600; color: var(--kit-accent); }
 

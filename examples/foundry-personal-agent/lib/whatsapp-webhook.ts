@@ -60,7 +60,14 @@ export function textMessages(delivery: Delivery): ReadonlyArray<{ readonly messa
   return out;
 }
 
-export async function forward(config: WhatsAppWebhookConfig, raw: Delivery, message: Message): Promise<void> {
+/** What Foundry answered for one message: its status, and the runs it started. */
+export interface Forwarded {
+  readonly message: Message;
+  readonly status: number;
+  readonly runIds: ReadonlyArray<string>;
+}
+
+export async function forward(config: WhatsAppWebhookConfig, raw: Delivery, message: Message): Promise<Forwarded> {
   const response = await fetch(`${config.foundryUrl}/api/transmissions/whatsapp-in/fire`, {
     method: "POST",
     headers: {
@@ -77,12 +84,21 @@ export async function forward(config: WhatsAppWebhookConfig, raw: Delivery, mess
       raw,
     }),
   });
-  if (!response.ok) console.error(`Foundry refused ${message.id}: ${response.status} ${await response.text()}`);
+  const text = await response.text();
+  if (!response.ok) console.error(`Foundry refused ${message.id}: ${response.status} ${text}`);
+  const runs = response.ok ? (JSON.parse(text) as ReadonlyArray<{ readonly id: string }>) : [];
+  return { message, status: response.status, runIds: runs.map((run) => run.id) };
 }
 
-/** Forward every text message in a signed delivery. */
-export async function forwardDelivery(config: WhatsAppWebhookConfig, body: Buffer): Promise<void> {
+/** Forward every text message in a signed delivery; what Foundry answered for each. */
+export async function forwardDelivery(config: WhatsAppWebhookConfig, body: Buffer): Promise<ReadonlyArray<Forwarded>> {
+  const results: Forwarded[] = [];
   for (const { message, raw } of textMessages(JSON.parse(body.toString("utf8")) as Delivery)) {
-    await forward(config, raw, message).catch((cause) => console.error(cause));
+    const result = await forward(config, raw, message).catch((cause) => {
+      console.error(cause);
+      return { message, status: 0, runIds: [] };
+    });
+    results.push(result);
   }
+  return results;
 }

@@ -6,6 +6,8 @@ import { Schema } from "effect";
 // (lib/whatsapp-webhook.ts checks and forwards them).
 
 const version = () => process.env.WHATSAPP_GRAPH_VERSION ?? "v23.0";
+/** Meta's Graph API, or the mock WhatsApp the web app serves when DEMO_CONNECTORS=1. */
+const graph = () => (process.env.WHATSAPP_GRAPH_URL ?? "https://graph.facebook.com").replace(/\/$/, "");
 
 /** The parts of a webhook delivery Muse reads: one text message from a person. */
 export const WhatsAppWebhook = Schema.Struct({
@@ -60,7 +62,7 @@ export async function sendText(
   message: { readonly phoneNumberId: string; readonly to: string; readonly text: string },
   signal?: AbortSignal,
 ): Promise<{ readonly messageId: string }> {
-  const response = await fetch(`https://graph.facebook.com/${version()}/${message.phoneNumberId}/messages`, {
+  const response = await fetch(`${graph()}/${version()}/${message.phoneNumberId}/messages`, {
     method: "POST",
     headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
     body: JSON.stringify({

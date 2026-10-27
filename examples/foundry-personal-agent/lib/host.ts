@@ -18,6 +18,8 @@ export * as connect from "./connect.js";
 export * as handoffs from "./handoffs.js";
 export * as people from "./people.js";
 export { forget, memoryOf } from "./memory.js";
+export { dataDir } from "./paths.js";
+export { arrive } from "../demo/mailbox.js";
 export { rulesOf } from "../agents/muse/sentinel.js";
 
 /** The names Muse's send tools have once installed: what an approval or a log line says it used. */

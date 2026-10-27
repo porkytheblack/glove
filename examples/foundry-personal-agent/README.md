@@ -349,6 +349,31 @@ forgets something from You, renames Muse, gives Gmail send access, and finds
 her plan and log in Plans. Sam's run, an approval id and Sam's memory entry
 answer 404 to her. Set `WEB_SMOKE_SHOTS=<dir>` to save each screen.
 
+## Try it: the demo connectors
+
+Set `DEMO_CONNECTORS=1` and the web app serves a mock WhatsApp and a mock
+Gmail, with a **Try it** tab at `/demo`. They stand in for Meta and Google, so
+the whole path runs with no real accounts:
+
+1. The page signs a WhatsApp delivery the way Meta does
+   (`X-Hub-Signature-256`) and posts it to the app's own `/webhooks/whatsapp`
+   at `WEB_URL`, through the same edge a real webhook comes in by.
+2. The webhook checks the signature, answers 200 and forwards the message to
+   Foundry's `whatsapp` route. A message from Rosa's number starts a run; a
+   stranger's matches no playbook, so nothing runs.
+3. Muse answers through the WhatsApp transmission. The send goes to the mock
+   Graph API (`app/mock/whatsapp`), which checks the token and puts the reply
+   on the page.
+4. Mail goes to `/webhooks/mail`, which exists only in this mode. It lands in
+   the sample Gmail and fires the account's inbound route, as the Gmail watch
+   would for a real account.
+
+Every hop goes in `<MUSE_DATA_DIR>/demo-connectors.jsonl`, and the page shows
+it as a delivery log. `scripts/demo-connectors.mjs` derives the mock secrets
+from `WEB_SESSION_SECRET` and points `WHATSAPP_GRAPH_URL` at the mock. It
+overrides real values, so leave it off when you connect real accounts. A
+person can send at most 30 an hour, since each one starts a model run.
+
 ## Connect real accounts and WhatsApp
 
 - **Gmail and Calendar.** Create a Google OAuth client with the Gmail, Gmail

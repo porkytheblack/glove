@@ -10,11 +10,13 @@ const TABS = [
   { href: "/you", label: "You" },
 ] as const;
 
-export function Tabs() {
+/** The four tabs, and Try it when the demo connectors are on. */
+export function Tabs({ demo = false }: { readonly demo?: boolean }) {
   const path = usePathname();
+  const tabs = demo ? [...TABS, { href: "/demo", label: "Try it" }] : TABS;
   return (
     <nav aria-label="Main" className="tabs">
-      {TABS.map((tab) => (
+      {tabs.map((tab) => (
         <Link key={tab.href} href={tab.href} aria-current={path === tab.href || path.startsWith(`${tab.href}/`) ? "page" : undefined}>
           {tab.label}
         </Link>

@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { HttpError, currentPerson } from "glove-foundry-web-kit/server";
+import { HttpError, currentPerson, demoConnectors } from "glove-foundry-web-kit/server";
 import { museOf } from "../server/muse";
 import { Tabs } from "../ui/Tabs";
 
@@ -27,7 +27,7 @@ export default async function MuseLayout({ children }: { children: React.ReactNo
   return (
     <div className="phone">
       {children}
-      <Tabs />
+      <Tabs demo={demoConnectors()} />
     </div>
   );
 }
