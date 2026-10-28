@@ -19,8 +19,9 @@ function demoModel(): ModelAdapter {
     const name = /(?:my name is|call me)\s+([\p{L} '-]+)/iu.exec(text)?.[1]?.trim();
     if (!name) return { messages: [{ sender: "agent", text: "What name would you like me to use? Try: My name is Mira." }], tokens_in: 0, tokens_out: 0 };
     const runtime = input.messages.filter(m => m.framework_context === "runtime").map(m => m.text).join("\n");
-    const version = Number(/version (\d+)/.exec(runtime)?.[1] ?? 1);
-    if (pass++ === 0 && !runtime.includes("intake (version " + version + "; completed)")) return {
+    const goals = /<goals [^>]*version="(\d+)" status="(\w+)"/.exec(runtime);
+    const version = Number(goals?.[1] ?? 1);
+    if (pass++ === 0 && goals?.[2] !== "completed") return {
       messages: [{ sender: "agent", text: "", tool_calls: [
         { id: "record-name", tool_name: "record_fact", input_args: { fact: `Preferred name: ${name}` } },
         { id: "complete-goal", tool_name: "glove_goal_update", input_args: { goalKey: identityGoal.key, completed: [nameRequirement.key], reason: "The user supplied a name", ifVersion: version } },
