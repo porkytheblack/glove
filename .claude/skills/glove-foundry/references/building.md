@@ -140,9 +140,11 @@ keep, how long does it run. Then give each agent only the access its job needs.
   `delegatedBy`) and one conversation per delegation (id = delegation id).
   Keep secrets out of instance context.
 - Results, questions and failures arrive in the delegating conversation as
-  `<delegation id agent status>` messages: into a run that listens via
-  `ctx.onDelegationUpdate(handler)`, else as one new run (`source.kind`
-  `"delegation"`) once no run holds the conversation. Open delegations appear in
+  `<delegation id agent status>` messages: to a `ctx.onDelegationUpdate(handler)`,
+  else into the delegating turn at its next tool step while it is still calling
+  tools (a Glove event), else as one new run (`source.kind` `"delegation"`) once
+  the run has ended and no run holds the conversation. Replies reach a working
+  worker the same way. Open delegations appear in
   runtime context. `runtime.listDelegations(filter)` lists them; trace events are
   `delegation.started|question|replied|completed|failed|cancelled|delivered`.
 - Voice: `run: voiceCall({ room, greeting?, idleMs?, maxDurationMs?, openDelayMs?,

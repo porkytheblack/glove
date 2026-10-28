@@ -178,8 +178,9 @@ export interface FoundryExecutionContext<TInput = unknown>
   /**
    * Receive delegation results and questions inside this run while it stays
    * live, such as a voice call, instead of Foundry starting a new run for each.
-   * Returns a function that stops listening; anything that arrives after it
-   * is delivered as a new run.
+   * Without a handler, an update joins the run's turn at its next tool step
+   * while the turn is still working. Returns a function that stops listening;
+   * anything that arrives after it goes to that turn, or to a new run.
    */
   readonly onDelegationUpdate: (
     handler: (updates: ReadonlyArray<FoundryDelegationUpdate>) => void | Promise<void>,

@@ -293,9 +293,12 @@ delegates: [
 - glove_foundry_reply({ delegationId, message }) answers a question or sends a
   follow-up (reopens a finished delegation).
 - Results, questions and failures return to the delegating conversation as
-  <delegation id agent status="completed|question|failed"> messages: into a run
-  that listens (ctx.onDelegationUpdate; voiceCall does), otherwise as one new run
-  once the conversation is free (source.kind "delegation"). Open delegations are
+  <delegation id agent status="completed|question|failed"> messages: to a
+  ctx.onDelegationUpdate handler (voiceCall has one); else into the delegating
+  turn at its next tool step if it is still calling tools (a Glove event, saved
+  after the tool results; replies reach a working worker the same way); else,
+  after the run ends, as one new run once the conversation is free
+  (source.kind "delegation"). Open delegations are
   in the interactor's runtime context. Updates and replies not yet handed over
   are kept on the record (undelivered, pendingReplies) and handed over again
   when the runtime starts. runtime.listDelegations({ agentId?,

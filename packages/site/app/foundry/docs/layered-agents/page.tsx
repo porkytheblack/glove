@@ -187,8 +187,9 @@ If you already know the answer, reply with glove_foundry_reply. Otherwise ask th
         worker&apos;s ask waits in the same run for up to <code>answerWaitMs</code> (90 seconds by
         default), so a worker holding a browser session or a running sandbox keeps it and gets
         the answer as the tool&apos;s result. If no answer comes in time, the tool tells the
-        worker to end its turn; the run finishes as suspended, and the answer later starts a
-        new run in the same conversation. Give workers a durable store so that run has the
+        worker to end its turn. An answer that still reaches that turn joins it like any
+        update; otherwise the run finishes as suspended, and the answer later starts a new
+        run in the same conversation. Give workers a durable store so that run has the
         history.
       </p>
 
@@ -205,10 +206,19 @@ If you already know the answer, reply with glove_foundry_reply. Otherwise ask th
           next pause.
         </li>
         <li>
-          <strong>Otherwise, as a new turn.</strong> Updates wait until no run holds the
-          conversation, then start one run with everything that arrived meanwhile, as{" "}
-          <code>&lt;delegation&gt;</code> messages with <code>source.kind</code>{" "}
-          <code>&quot;delegation&quot;</code>.
+          <strong>Into the turn that is still working.</strong> A run with delegates listens
+          for as long as it lasts. An update that arrives while its turn is still calling
+          tools joins at the next tool step, as a{" "}
+          <Link href="/docs/runtime-context#events">Glove event</Link> that reads as the same{" "}
+          <code>&lt;delegation&gt;</code> message, and is saved after the tool results. The
+          open-delegations list stops showing it. Replies reach a working worker the same way.
+        </li>
+        <li>
+          <strong>Otherwise, as a new turn.</strong> Updates the run did not read (they
+          arrived during its final answer, or after it) go back to the runtime when the run
+          ends. Once no run holds the conversation, they start one run with everything that
+          arrived meanwhile, as <code>&lt;delegation&gt;</code> messages with{" "}
+          <code>source.kind</code> <code>&quot;delegation&quot;</code>.
         </li>
       </ul>
       <p>
@@ -280,7 +290,7 @@ If you already know the answer, reply with glove_foundry_reply. Otherwise ask th
           <tr><td><code>glove_foundry_reply</code></td><td>Checks the delegation was started by this conversation, marks it <code>working</code>, and delivers the reply to the worker: into its waiting run, or as a new run.</td><td><code>delegation.replied</code></td></tr>
           <tr><td>Worker run completes</td><td>Unless it suspended (asleep or waiting for an answer), records the result and delivers it.</td><td><code>delegation.completed</code></td></tr>
           <tr><td>Worker run fails or is cancelled</td><td>Records the error and delivers a <code>failed</code> update.</td><td><code>delegation.failed</code>, <code>delegation.cancelled</code></td></tr>
-          <tr><td>Any delivery</td><td>Into a listening run (<code>mode: &quot;live&quot;</code>) or a new run (<code>mode: &quot;run&quot;</code>).</td><td><code>delegation.delivered</code></td></tr>
+          <tr><td>Any delivery</td><td>Into a listening run (<code>mode: &quot;live&quot;</code>) or a new run (<code>mode: &quot;run&quot;</code>). A run with delegates, open delegations or a task of its own listens while it lasts.</td><td><code>delegation.delivered</code></td></tr>
         </tbody>
       </table>
       <ul>

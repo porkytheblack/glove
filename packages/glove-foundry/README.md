@@ -382,13 +382,17 @@ Each delegation runs as its own conversation on a worker instance (one per
 interactor instance and worker), which carries the interactor instance's
 context. The worker gets `glove_foundry_ask`; its final reply is the result.
 
-Results and questions come back to the conversation that delegated. If a run
-there is listening (`ctx.onDelegationUpdate`, used by `voiceCall`), they reach
-it directly. Otherwise they wait until the conversation is free and start one
-run carrying everything that arrived, as `<delegation>` messages. A worker's
-question waits up to `answerWaitMs` (default 90 s) inside the same run, so a
-worker holding a browser or sandbox session keeps it; after that the run
-suspends and the answer starts a new run in the same conversation. Open
+Results and questions come back to the conversation that delegated. A handler
+registered with `ctx.onDelegationUpdate` (`voiceCall` uses one) takes them
+directly. Otherwise, one that arrives while the delegating turn is still
+calling tools joins it at the next tool step as a Glove event, read as the same
+`<delegation>` message. Anything the run did not read goes back to the runtime
+when it ends and, once the conversation is free, starts one run carrying
+everything that arrived. A worker's question waits up to `answerWaitMs`
+(default 90 s) inside the same run, so a worker holding a browser or sandbox
+session keeps it; after that the run suspends and the answer starts a new run
+in the same conversation. Follow-up replies reach a worker that is still
+working at its next tool step. Open
 delegations appear in the interactor's runtime context, and
 `runtime.listDelegations()` lists them all. See
 [`examples/foundry-layered-assistant`](../../examples/foundry-layered-assistant).

@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, readdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { GloveFoldArgs } from "glove-core";
+import { defaultEventFormatter } from "glove-core";
+import type { AgentEvent, EventFormatter, EventQueueAdapter, GloveFoldArgs } from "glove-core";
 import { z } from "zod";
 
 /** @internal Directory the runtime uses to hand deliveries to runs that are listening. */
@@ -280,6 +281,7 @@ export function createDelegatorTools(
   context: DelegationToolContext,
   delegates: ReadonlyArray<Required<FoundryDelegateOptions>>,
   onDelegated: (delegation: { readonly id: string; readonly to: string; readonly task: string }) => void,
+  onReplied: (delegationId: string) => void = () => {},
 ): ReadonlyArray<GloveFoldArgs<any>> {
   if (delegates.length === 0) return [];
   const routes = delegates.map((delegate) => delegate.agent) as [string, ...string[]];
@@ -344,6 +346,7 @@ export function createDelegatorTools(
           delegationId: input.delegationId,
           message: input.message,
         });
+        onReplied(input.delegationId);
         return { status: "success" as const, data: { delegationId: input.delegationId, sent: true } };
       },
     },
@@ -396,8 +399,8 @@ export function createWorkerTools(
           delegationId: delegation.id,
           question: input.question,
         };
-        // Listening starts inside waitForReply before the question leaves, so
-        // an instant answer cannot miss this run.
+        // The wait is registered before the question leaves, so an instant
+        // answer cannot miss this run.
         const reply = options.waitForReply(options.answerWaitMs);
         context.emit(command);
         const answer = await reply;
@@ -503,7 +506,12 @@ export async function drainMailbox(
 }
 
 export interface ConversationListener {
-  stop(): Promise<void>;
+  /**
+   * Stop polling. `beforeOff` runs after the last read and before the runtime
+   * hears that listening stopped, so what it writes back to the mailbox is
+   * taken back by the runtime rather than left behind.
+   */
+  stop(beforeOff?: () => Promise<void>): Promise<void>;
 }
 
 /**
@@ -542,14 +550,208 @@ export function listenToConversation(options: {
   };
   void reported.then(tick);
   return {
-    async stop() {
+    async stop(beforeOff) {
       if (stopped) return;
       stopped = true;
       if (timer) clearTimeout(timer);
       await reported;
       await polling;
-      // Anything that lands after this is the runtime's to redeliver.
-      await options.report("off");
+      try {
+        if (beforeOff) await beforeOff();
+      } finally {
+        // Anything that lands after this is the runtime's to redeliver.
+        await options.report("off");
+      }
     },
   };
+}
+
+/**
+ * Where a run puts deliveries nobody in it is waiting for (Foundry queues
+ * them as Glove events), and takes back the ones it has not used.
+ */
+export interface RunMailboxSink {
+  forward(deliveries: ReadonlyArray<FoundryConversationDelivery>): Promise<void>;
+  /** Remove and return forwarded deliveries the run has not used yet. */
+  reclaim(match: (delivery: FoundryConversationDelivery) => boolean): Promise<FoundryConversationDelivery[]>;
+}
+
+/** One listener per run, shared by everything in the run that hears from delegations. */
+export interface RunMailbox {
+  /** Wait up to `timeoutMs` for a reply on `delegationId`; null on timeout or abort. */
+  waitForReply(delegationId: string, timeoutMs: number, signal: AbortSignal): Promise<FoundryDelegationReply | null>;
+  /** Take results, questions and failures while registered, including any already waiting. */
+  onUpdates(handler: (updates: ReadonlyArray<FoundryDelegationUpdate>) => void | Promise<void>): () => Promise<void>;
+  /** Stop listening and hand what the run did not use back to the runtime. */
+  close(): Promise<void>;
+}
+
+/**
+ * Route a run's deliveries: a reply goes to the `glove_foundry_ask` waiting
+ * for it, updates go to `onUpdates` handlers, and everything else goes to the
+ * sink. On close, whatever the sink still holds is written back to the
+ * mailbox, so the runtime delivers it as a new run.
+ */
+export function openRunMailbox(options: {
+  readonly directory: string;
+  readonly conversationId: string;
+  readonly report: (state: "on" | "off") => Promise<void> | void;
+  readonly sink: RunMailboxSink;
+  readonly pollMs?: number;
+}): RunMailbox {
+  type UpdateHandler = (updates: ReadonlyArray<FoundryDelegationUpdate>) => void | Promise<void>;
+  const waiters = new Map<string, (reply: FoundryDelegationReply | null) => void>();
+  const handlers = new Set<UpdateHandler>();
+  let closed = false;
+  const toHandlers = async (updates: ReadonlyArray<FoundryDelegationUpdate>): Promise<void> => {
+    for (const handler of [...handlers]) await handler(updates);
+  };
+  const listener = listenToConversation({
+    directory: options.directory,
+    conversationId: options.conversationId,
+    report: options.report,
+    ...(options.pollMs !== undefined ? { pollMs: options.pollMs } : {}),
+    handler: async (deliveries) => {
+      const replies = new Map<string, FoundryDelegationReply[]>();
+      const updates: FoundryDelegationUpdate[] = [];
+      const rest: FoundryConversationDelivery[] = [];
+      for (const delivery of deliveries) {
+        if (delivery.kind === "reply" && waiters.has(delivery.delegationId)) {
+          replies.set(delivery.delegationId, [...(replies.get(delivery.delegationId) ?? []), delivery]);
+        } else if (delivery.kind !== "reply" && handlers.size > 0) {
+          updates.push(delivery);
+        } else {
+          rest.push(delivery);
+        }
+      }
+      for (const [delegationId, batch] of replies) {
+        waiters.get(delegationId)?.({ ...batch[0]!, message: batch.map((reply) => reply.message).join("\n\n") });
+      }
+      if (updates.length > 0) await toHandlers(updates);
+      if (rest.length > 0) await options.sink.forward(rest);
+    },
+  });
+  return {
+    waitForReply(delegationId, timeoutMs, signal) {
+      return new Promise((resolveReply) => {
+        if (closed || timeoutMs <= 0 || signal.aborted || waiters.has(delegationId)) {
+          resolveReply(null);
+          return;
+        }
+        const finish = (reply: FoundryDelegationReply | null): void => {
+          if (waiters.get(delegationId) !== finish) return;
+          waiters.delete(delegationId);
+          clearTimeout(timer);
+          signal.removeEventListener("abort", onAbort);
+          resolveReply(reply);
+        };
+        const onAbort = (): void => finish(null);
+        const timer = setTimeout(() => finish(null), timeoutMs);
+        waiters.set(delegationId, finish);
+        signal.addEventListener("abort", onAbort, { once: true });
+      });
+    },
+    onUpdates(handler) {
+      handlers.add(handler);
+      // Updates that came in before this handler did are its to take.
+      const waiting = options.sink
+        .reclaim((delivery) => delivery.kind !== "reply")
+        .then(async (updates) => {
+          if (updates.length > 0) await handler(updates as FoundryDelegationUpdate[]);
+        });
+      return async () => {
+        handlers.delete(handler);
+        await waiting;
+      };
+    },
+    async close() {
+      if (closed) return;
+      closed = true;
+      for (const finish of [...waiters.values()]) finish(null);
+      await listener.stop(async () => {
+        for (const delivery of await options.sink.reclaim(() => true)) {
+          await writeMailboxDelivery(options.directory, options.conversationId, delivery);
+        }
+      });
+    },
+  };
+}
+
+// ── Deliveries as Glove events ─────────────────────────────────────────────
+//
+// A delivery that arrives while the run's turn is still going joins it at the
+// next tool step, as a Glove event. The event carries the delivery so the
+// formatter can render it as the same <delegation> message a new run would
+// start with.
+
+const DELIVERY_KEY = "foundry_delivery";
+
+export function deliveryEvent(delivery: FoundryConversationDelivery): AgentEvent {
+  const from = delivery.kind === "reply" ? delivery.from : delivery.agent;
+  return {
+    id: `${delivery.kind}:${delivery.delegationId}:${randomUUID()}`,
+    source: `foundry:${from}`,
+    kind: `delegation.${delivery.kind}`,
+    content: renderDelivery(delivery),
+    metadata: { [DELIVERY_KEY]: delivery },
+  };
+}
+
+export function deliveryOf(event: AgentEvent): FoundryConversationDelivery | undefined {
+  return event.metadata?.[DELIVERY_KEY] as FoundryConversationDelivery | undefined;
+}
+
+/** Deliveries read exactly as they do when they start a run; other events keep Glove's format. */
+export const formatRunEvents: EventFormatter = (events, phase) => {
+  const deliveries = events.map(deliveryOf).filter((delivery): delivery is FoundryConversationDelivery => Boolean(delivery));
+  const others = events.filter((event) => !deliveryOf(event));
+  const text = renderDeliveries(deliveries);
+  if (others.length === 0) return { sender: "user", framework_context: "event", text };
+  const rest = defaultEventFormatter(others, phase);
+  if (deliveries.length === 0) return rest;
+  return {
+    ...rest,
+    text: `${text}\n\n${rest.text}`,
+    ...(rest.content ? { content: [{ type: "text" as const, text }, ...rest.content] } : {}),
+  };
+};
+
+/** The run's event queue, which can hand back the deliveries it still holds. */
+export class RunEventQueue implements EventQueueAdapter {
+  private events: AgentEvent[] = [];
+
+  async push(event: AgentEvent): Promise<boolean> {
+    if (this.events.some((queued) => queued.id === event.id)) return false;
+    this.events.push(structuredClone(event));
+    return true;
+  }
+
+  async peek(): Promise<AgentEvent[]> {
+    return structuredClone(this.events);
+  }
+
+  async take(): Promise<AgentEvent[]> {
+    const taken = this.events;
+    this.events = [];
+    return taken;
+  }
+
+  async remove(ids: ReadonlyArray<string>): Promise<void> {
+    const drop = new Set(ids);
+    this.events = this.events.filter((event) => !drop.has(event.id));
+  }
+
+  /** Remove and return queued deliveries that match, with their event ids, in one step. */
+  async reclaim(
+    match: (delivery: FoundryConversationDelivery) => boolean,
+  ): Promise<Array<{ readonly id: string; readonly delivery: FoundryConversationDelivery }>> {
+    const taken: Array<{ readonly id: string; readonly delivery: FoundryConversationDelivery }> = [];
+    this.events = this.events.filter((event) => {
+      const delivery = deliveryOf(event);
+      if (!delivery || !match(delivery)) return true;
+      taken.push({ id: event.id, delivery });
+      return false;
+    });
+    return taken;
+  }
 }

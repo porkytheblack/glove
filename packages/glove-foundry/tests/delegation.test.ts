@@ -11,8 +11,12 @@ import { createAgentInstance } from "../src/primitives.js";
 import { FoundryRuntime, type FoundryRun } from "../src/runtime.js";
 import {
   drainMailbox,
+  RunEventQueue,
+  deliveryEvent,
+  formatRunEvents,
   listenToConversation,
   normalizeDelegates,
+  openRunMailbox,
   renderDelivery,
   renderOpenDelegations,
   workerAgentId,
@@ -166,6 +170,25 @@ test("a run that listens receives the result itself, and no extra run starts", a
   });
 });
 
+test("a result that arrives while the delegating turn still runs joins it at the next tool step", async () => {
+  await withRuntime(async (runtime, logFile) => {
+    const agent = await runtime.createAgent("planner", { id: "ed" });
+    const conversation = await runtime.createConversation(agent.id, { id: "ed-chat" });
+    const run = await runtime.send(agent.id, conversation.id, "plan it");
+    const done = await runtime.waitForRun(run.id, { timeoutMs: 30_000 });
+    assert.equal(done?.status, "completed");
+    assert.equal((done?.output as { value?: unknown }).value, "inline: hello world done");
+
+    const heard = (await entries(logFile)).find((entry) => entry.event === "planner-heard");
+    assert.equal(heard?.stillListed, false, "a delegation that answered is no longer listed as open");
+    await new Promise((resolveWait) => setTimeout(resolveWait, 500));
+    const runs = (await runtime.listRuns("planner")).filter((item) => item.conversationId === conversation.id);
+    assert.equal(runs.length, 1, "no second run for a result the turn already read");
+    const [delegation] = await runtime.listDelegations({ conversationId: conversation.id });
+    assert.equal(delegation?.status, "completed");
+  });
+});
+
 test("delegating to an agent that does not exist reports back instead of failing silently", async () => {
   await withRuntime(async (runtime) => {
     const agent = await runtime.createAgent("assistant", { id: "ed" });
@@ -299,6 +322,53 @@ test("the mailbox hands each delivery over once, oldest first", async () => {
     await listener.stop();
     assert.deepEqual(states, ["on", "off"]);
     assert.deepEqual(received, ["one"]);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("a run's mailbox routes replies to their waiter and updates to handlers, and hands back what the run left", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "glove-foundry-run-mailbox-"));
+  const conversationId = "conversation/run";
+  try {
+    const queue = new RunEventQueue();
+    const states: string[] = [];
+    const mailbox = openRunMailbox({
+      directory,
+      conversationId,
+      pollMs: 10,
+      report: (state) => { states.push(state); },
+      sink: {
+        async forward(deliveries) { for (const delivery of deliveries) await queue.push(deliveryEvent(delivery)); },
+        async reclaim(match) { return (await queue.reclaim(match)).map(({ delivery }) => delivery); },
+      },
+    });
+    const update = { kind: "result", delegationId: "delegation_a", agent: "coder", task: "t", result: "done" } as const;
+    const reply = { kind: "reply", delegationId: "delegation_b", from: "assistant", message: "blue" } as const;
+
+    // Nobody waits: both are forwarded, and read as the messages a run would start with.
+    await writeMailboxDelivery(directory, conversationId, update);
+    await eventually(async () => ((await queue.peek()).length === 1 ? true : undefined), "the update to be forwarded", 2_000);
+    assert.equal(formatRunEvents(await queue.peek(), "loop").text, renderDelivery(update));
+
+    // A waiting ask gets its reply first.
+    const answer = mailbox.waitForReply("delegation_b", 2_000, new AbortController().signal);
+    await writeMailboxDelivery(directory, conversationId, reply);
+    assert.equal((await answer)?.message, "blue");
+
+    // A handler takes what was already forwarded, then what comes next.
+    const handled: string[] = [];
+    const stop = mailbox.onUpdates((updates) => { for (const item of updates) handled.push(item.delegationId); });
+    await eventually(async () => (handled.length === 1 ? true : undefined), "the handler to take the waiting update", 2_000);
+    assert.equal((await queue.peek()).length, 0);
+    await stop();
+
+    // What the run never used goes back to the mailbox before the runtime hears it stopped.
+    await writeMailboxDelivery(directory, conversationId, { ...reply, message: "more" });
+    await eventually(async () => ((await queue.peek()).length === 1 ? true : undefined), "the late reply to be forwarded", 2_000);
+    await mailbox.close();
+    assert.deepEqual(states, ["on", "off"]);
+    assert.deepEqual(await drainMailbox(directory, conversationId), [{ ...reply, message: "more" }]);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
