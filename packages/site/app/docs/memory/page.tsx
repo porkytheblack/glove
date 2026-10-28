@@ -501,14 +501,24 @@ const curator = new Glove({ /* ... */ })
       </table>
 
       <p>
-        <code>useContext</code> registers a live context provider. Before each
-        model iteration, including after tool results, Glove calls
+        <code>useContext</code> registers a live{" "}
+        <a href="/docs/runtime-context">context provider</a>. By default, before
+        each model iteration, including after tool results, Glove calls{" "}
         <code>adapter.render()</code> and appends a transient user-role message
         at the model-input tail. Forms and goals use the same mechanism.
         The system prompt and saved history remain unchanged, preserving the
         stable prefix for caching. Subscribers receive <code>runtime_context</code>
         events. Requires glove-core 4.0 or newer; proxies forward
         <code>addContextProvider</code> and <code>getRuntimeContext</code>.
+      </p>
+
+      <p>
+        Pass <code>delivery</code> to change when it arrives:{" "}
+        <code>useContext(glove, adapter, &#123; delivery: &quot;request&quot; &#125;)</code>{" "}
+        reads it once per request, and <code>delivery: &quot;history&quot;</code> saves
+        it to the conversation only when it changes (key <code>glove.context</code>,
+        or give each history-delivered mount its own <code>key</code>). Requires
+        glove-core 4.4. See <a href="/docs/runtime-context#delivery">Delivery</a>.
       </p>
 
       {/* ------------------------------------------------------------------ */}

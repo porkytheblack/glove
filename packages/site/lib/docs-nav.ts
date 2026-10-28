@@ -209,7 +209,7 @@ export const docsSections: DocsNavSection[] = [
         label: "Core Concepts",
         href: "/docs/concepts",
         summary:
-          "The agent loop, tools, the display stack, stores, adapters and context compaction.",
+          "The agent loop, tools, the display stack, stores, adapters, runtime context, events and context compaction.",
       },
       {
         label: "Core API Reference",
@@ -275,6 +275,14 @@ export const docsSections: DocsNavSection[] = [
     blurb:
       "Reference: what the agent sees on every call and what it carries between them.",
     items: [
+      {
+        label: "Runtime Context",
+        href: "/docs/runtime-context",
+        badge: "new",
+        summary:
+          "Live state for the model: providers read every call, once per request, or saved to history on change — plus events from other systems and the turn queue.",
+        packages: ["glove-core", "glove-memory"],
+      },
       {
         label: "The Inbox",
         href: "/docs/inbox",
