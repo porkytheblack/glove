@@ -118,6 +118,37 @@ await runner.update({
         no-ops; unknown or repeated keys reject the whole update.
       </p>
 
+      <h2 id="lazy">Lazy goals</h2>
+      <p>
+        Some goals are nudges rather than obligations: mention a promotion,
+        ask for feedback, acknowledge something the user just shared. Give a
+        goal <code>lazy: {"{ turns }"}</code> and it is shown in the runtime
+        context for that many user turns, then drops off on its own. Nobody
+        has to call a tool to mark it done.
+      </p>
+      <CodeBlock language="typescript" code={`await runner.start(defineGoalProgram({
+  key: "intake",
+  goals: [
+    // Shown for the next two user turns, beside the ordered goals.
+    { key: "sale", title: "Mention the spring sale", objective: "Bring it up if it fits.",
+      items: [], lazy: { turns: 2 } },
+    { key: "identity", title: "Confirm identity", objective: "Verify the client.",
+      items: [{ key: "name", label: "Legal name" }] },
+  ],
+}));`} />
+      <p>
+        A lazy goal never takes the active slot, so it does not hold up the
+        goals after it, and it may have no items. Each{" "}
+        <code>processRequest</code> on a mounted runnable counts one turn
+        (<code>refresh()</code> does not). After its last turn the goal&apos;s
+        status becomes <code>expired</code>, an <code>onExpire</code> hook
+        fires, and it leaves the rendered status. Settling its items first
+        completes it early. Turn counts are saved with the goal set, so they
+        survive restarts and fresh runnables. Hosts that drive their own loop
+        call <code>runner.advanceTurn()</code> once per user turn. A lazy goal
+        added in the middle of a turn also stays for the rest of that turn.
+      </p>
+
       <h2 id="tools">Agent tools</h2>
       <table>
         <thead><tr><th>Tool</th><th>Purpose</th></tr></thead>
@@ -137,8 +168,8 @@ await runner.update({
 
       <h2 id="lifecycle">Configure the agent as goals progress</h2>
       <p>
-        Host-defined <code>onEnter</code>, <code>onComplete</code>, and
-        <code> onReopen</code> hooks receive the goal, historical status,
+        Host-defined <code>onEnter</code>, <code>onComplete</code>,
+        <code> onReopen</code>, and <code>onExpire</code> hooks receive the goal, historical status,
         transition, reason, and a stable idempotency key. Mounted hooks also
         receive the typed <code>glove</code> runnable, so they can fold tools
         or switch its model during a turn. Hook code stays in the host;

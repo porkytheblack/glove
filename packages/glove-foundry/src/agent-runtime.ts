@@ -453,6 +453,9 @@ async function executeDefinition(
       ...(definition.enableToolResultSummary !== undefined
         ? { enableToolResultSummary: definition.enableToolResultSummary }
         : {}),
+      ...(definition.runtimeContextPlacement !== undefined
+        ? { runtimeContextPlacement: definition.runtimeContextPlacement }
+        : {}),
     }).build();
     base.addSubscriber(subscriber);
 

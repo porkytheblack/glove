@@ -37,12 +37,12 @@ function tool<I>(name: string, description: string, inputSchema: z.ZodType<I>, r
 export function buildGoalRunnerTools(runner: GoalRunner): Array<GloveFoldArgs<any>> {
   return [
     tool("status", "Read the goal set, stable goal/item keys, current version, progress and outstanding deferrals. Read before revising or updating.", z.object({}).strict(), () => runner.status()),
-    tool("start", "Start a structured goal program in this conversation's bound goal scope. Existing progress is never reset. For an existing set, use revise with its current version.",
+    tool("start", "Start a structured goal program in this conversation's bound goal scope. Existing progress is never reset. For an existing set, use revise with its current version. A goal with lazy: { turns } is shown beside the sequence for that many user turns, then drops off by itself; it needs no update and may have no items.",
       z.object({ program: GoalProgramSchema, reason: z.string().trim().min(1).max(4000) }).strict(),
       (input) => runner.start(input.program, input.reason)),
     tool("update", "Record named checklist items in any goal. completed means done; deferred and declined settle progression without claiming the work happened. Revisit deferred items with completed, or reopened to make them pending again. Supply a reason and the version you read; a conflict requires reading status again. Unknown keys reject the whole call.",
       GoalUpdateSchema.safeExtend({ ifVersion: z.number().int().positive() }), (input) => runner.update(input)),
-    tool("revise", "Adapt the goal definitions to newly learned context. Send the FULL ordered program with the version you read and a reason. Preserve keys for the same obligation; new obligations need new keys. Same-key progress survives edits. Removed/retired items remain in history, including outstanding deferrals. Locked obligations cannot be changed or removed. A new pending item reopens a completed goal.",
+    tool("revise", "Adapt the goal definitions to newly learned context. Send the FULL ordered program with the version you read and a reason. Preserve keys for the same obligation; new obligations need new keys. Same-key progress survives edits. Removed/retired items remain in history, including outstanding deferrals. Locked obligations cannot be changed or removed. A new pending item reopens a completed goal. Add a lazy goal (lazy: { turns }) for a short-lived nudge that should lapse without a tool call.",
       z.object({ program: GoalProgramSchema, ifVersion: z.number().int().positive(), reason: z.string().trim().min(1).max(4000) }).strict(),
       (input) => runner.revise(input.program, input)),
     tool("history", "Inspect the saved definition and progress revision history, including reasons and provenance, for this goal scope.",
@@ -54,6 +54,7 @@ export function buildGoalRunnerTools(runner: GoalRunner): Array<GloveFoldArgs<an
  * Mount goals independently of forms. The host can start/revise/tick through
  * the returned runner, while tools call exactly the same operations.
  * Status refreshes before every turn and after each committed runner write.
+ * Each processRequest counts one turn for lazy goals; refresh does not.
  * Other processes' writes appear next turn (or call refresh explicitly).
  * Like Glove itself, a mounted runnable is for one conversation at a time.
  */
@@ -96,6 +97,7 @@ export function useGoalRunner<G extends GoalEnableTarget>(glove: G, adapter: Goa
     onEnter: config.hooks.onEnter ? (context) => config.hooks!.onEnter!({ ...context, glove }) : undefined,
     onComplete: config.hooks.onComplete ? (context) => config.hooks!.onComplete!({ ...context, glove }) : undefined,
     onReopen: config.hooks.onReopen ? (context) => config.hooks!.onReopen!({ ...context, glove }) : undefined,
+    onExpire: config.hooks.onExpire ? (context) => config.hooks!.onExpire!({ ...context, glove }) : undefined,
   } : undefined;
   const runner = new GoalRunner(adapter, {
     ...config, hooks,
@@ -108,8 +110,10 @@ export function useGoalRunner<G extends GoalEnableTarget>(glove: G, adapter: Goa
   // Validate tool selection before mutating either the registry or the prompt.
   const tools = selectFoldArgs(buildGoalRunnerTools(runner), config.tools);
   for (const entry of tools) glove.fold(entry);
-  const synchronize = async () => {
+  const synchronize = async (turn: boolean) => {
     assertPreparationAgent();
+    // A new request is a user turn: shown lazy goals count it, and expire past their window.
+    if (turn) await runner.advanceTurn();
     if (config.preparation) await runner.prepare();
     const resumed = await runner.resumeHooks();
     if (resumed.blockedBy) throw new Error(`Goal transition is still being handled: ${resumed.blockedBy}. Retry before starting the model.`);
@@ -123,6 +127,6 @@ export function useGoalRunner<G extends GoalEnableTarget>(glove: G, adapter: Goa
     return renderGoalStatus(selectStatus(await runner.status()));
   });
   const original = glove.processRequest.bind(glove);
-  glove.processRequest = async (request, signal) => { await synchronize(); return original(request, signal); };
-  return { glove, runner, refresh: async () => { await synchronize(); } };
+  glove.processRequest = async (request, signal) => { await synchronize(true); return original(request, signal); };
+  return { glove, runner, refresh: async () => { await synchronize(false); } };
 }

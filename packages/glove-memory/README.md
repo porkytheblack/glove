@@ -585,7 +585,7 @@ Details worth knowing:
 
 ## Runtime context (context, forms, and goals)
 
-`useContext` registers a live provider through `addContextProvider`. Before each model iteration, including after tool results, Glove calls `adapter.render()` and appends the rendered block as a transient user-role message at the model-input tail. Forms and goals register independent providers. Snapshots never rewrite the system prompt or enter persisted chat history; the adapters remain authoritative. This preserves the stable system/history prefix for caching, although actual cache hits depend on the provider.
+`useContext` registers a live provider through `addContextProvider`. Before each model iteration, including after tool results, Glove calls `adapter.render()` and appends the rendered block as a transient user-role message at the model-input tail (or just before the user's latest message with Glove's `runtimeContextPlacement: "before_request"`). Forms and goals register independent providers. Snapshots never rewrite the system prompt or enter persisted chat history; the adapters remain authoritative. This preserves the stable system/history prefix for caching, although actual cache hits depend on the provider.
 
 Requires `glove-core` 4.0 or newer. Runnable proxies must forward `addContextProvider` and, for external runtimes, `getRuntimeContext`. Forms/goals may use `injectStatus: false` with a custom renderer. Subscribers receive `runtime_context` snapshots for tracing. Realtime voice injects changed snapshots silently at session start and after tools; call `await realtime.refreshContext()` after external changes.
 
@@ -1078,6 +1078,30 @@ the returned runner still supports host operations.
 - Unknown keys or keys repeated across disposition lists reject the entire
   update. Repeating an existing disposition is a no-op, preserving its original
   note/timestamp. Use a real state transition to reopen or revisit an item.
+
+### Lazy goals
+
+A goal with `lazy: { turns }` is shown in the runtime context for that many
+user turns and then drops off by itself, with no tool call to settle it. Use it
+for nudges rather than obligations: mention a promotion, ask for feedback.
+
+```ts
+{ key: "sale", title: "Mention the spring sale", objective: "Bring it up if it fits.",
+  items: [], lazy: { turns: 2 } }
+```
+
+- Lazy goals sit beside the ordered program. They never become `activeGoal`,
+  so they do not hold up later goals, and they may have no items.
+- Each `processRequest` on a runnable mounted with `useGoalRunner` counts one
+  turn for every lazy goal currently shown; `refresh()` does not. Hosts that
+  drive their own loop call `runner.advanceTurn()` once per user turn. It
+  writes nothing when no lazy goal is shown.
+- Turn counts are stored with the goal set (`GoalSnapshot.lazy`), so they
+  survive restarts. Each counted turn is a revision of kind `"turn"`.
+- After its last turn the goal's status is `expired`, an `expire` transition
+  runs the `onExpire` hook, and the goal leaves the rendered status. Settling
+  its items first completes it early. A revision can raise `turns` to extend it.
+- A lazy goal added in the middle of a turn also stays for the rest of that turn.
 
 ### Persistence and concurrency
 

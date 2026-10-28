@@ -92,3 +92,30 @@ test("native content context is transient and telemetry omits media payloads", a
   remove();
   assert.equal((await agent.getRuntimeContext()).length, 1);
 });
+
+test("before_request placement keeps the user's latest message after runtime context, across tool steps", async () => {
+  const store = new MemoryStore("runtime-before-request");
+  const history: Message[] = [{ sender: "user", text: "Earlier question" }, { sender: "agent", text: "Earlier answer" }];
+  await store.appendMessages(history);
+  let phase = "pending"; let calls = 0;
+  const snapshots: Message[][] = [];
+  const model: ModelAdapter = { name: "test", setSystemPrompt() {}, async prompt(request) {
+    snapshots.push(structuredClone(request.messages));
+    if (calls++ === 0) return { messages: [{ sender: "agent", text: "", tool_calls: [{ id: "advance", tool_name: "advance", input_args: {} }] }], tokens_in: 1, tokens_out: 1 };
+    return { messages: [{ sender: "agent", text: "Done" }], tokens_in: 1, tokens_out: 1 };
+  } };
+  const builder = new Glove({ model, displayManager: new Displaymanager(), systemPrompt: "Stable instructions",
+    compaction_config: { compaction_instructions: "Summarize", max_turns: 5 }, runtimeContextPlacement: "before_request" });
+  builder.addContextProvider(() => `Goals: ${phase}`);
+  builder.fold({ name: "advance", description: "Advance", inputSchema: z.object({}), do: async () => { phase = "complete"; return { status: "success", data: "advanced" }; } });
+  const agent = builder.build(store);
+  await agent.processRequest("Continue");
+  assert.equal(calls, 2);
+  // First call: history, context, then the user's words last.
+  assert.deepEqual(snapshots[0].map(m => m.text), ["Earlier question", "Earlier answer", "Goals: pending", "Continue"]);
+  assert.equal(snapshots[0].at(-2)?.framework_context, "runtime");
+  // After a tool step the refreshed context stays anchored before the request; the tool bundle stays whole at the tail.
+  assert.deepEqual(snapshots[1].slice(0, 4).map(m => m.text), ["Earlier question", "Earlier answer", "Goals: complete", "Continue"]);
+  assert.ok(snapshots[1].at(-2)?.tool_calls?.length && snapshots[1].at(-1)?.tool_results?.length);
+  assert.ok(!(await store.getMessages()).some(m => m.text?.startsWith("Goals:")));
+});

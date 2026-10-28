@@ -5,7 +5,7 @@
 // how do you achieve undos? include something in the do, that can be undone
 
 import z from "zod";
-import { Agent, ContentPart, Context, Executor, HandOverFunction, Message, ModelAdapter, ModelPromptResult, NotifySubscribersFunction, Observer, PromptMachine, StoreAdapter, SubscriberAdapter, Tool, ToolResultData } from "./core";
+import { Agent, ContentPart, Context, Executor, HandOverFunction, Message, ModelAdapter, ModelPromptResult, NotifySubscribersFunction, Observer, PromptMachine, RuntimeContextPlacement, StoreAdapter, SubscriberAdapter, Tool, ToolResultData } from "./core";
 import { MemoryStore } from "./utils";
 import { createTaskTool } from "./tools/task-tool";
 import { createInboxTool } from "./tools/inbox-tool";
@@ -160,7 +160,13 @@ interface GloveConfig {
   maxRetries?: number,
   maxConsecutiveErrors?: number,
   compaction_config: CompactionConfig,
-  enableToolResultSummary?: boolean
+  enableToolResultSummary?: boolean,
+  /**
+   * Default "tail". "before_request" keeps the user's latest message after
+   * runtime context. Trade-off: on the next request the previous request's
+   * transcript is no longer a cached prefix, because its snapshot is gone.
+   */
+  runtimeContextPlacement?: RuntimeContextPlacement
 }
 
 
@@ -186,6 +192,7 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
   private subscribers: Array<SubscriberAdapter> = []
   private contextProviders = new Set<RuntimeContextProvider>()
   private compactionConfig: CompactionConfig
+  private runtimeContextPlacement: RuntimeContextPlacement
 
   private store_defined = false
   private built = false
@@ -201,6 +208,7 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
     this._displayManager = config.displayManager
     this.serverMode = config.serverMode ?? false
     this.compactionConfig = config.compaction_config
+    this.runtimeContextPlacement = config.runtimeContextPlacement ?? "tail"
 
     this.context = new Context(this.store)
     this.promptMachine = new PromptMachine(config.model, this.context,config.systemPrompt, config.enableToolResultSummary)
@@ -216,7 +224,8 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
       this.context,
       this.observer,
       this.promptMachine,
-      (signal) => this.getRuntimeContext(signal)
+      (signal) => this.getRuntimeContext(signal),
+      this.runtimeContextPlacement,
     )
 
   }
@@ -477,7 +486,8 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
         this.context,
         this.observer,
         this.promptMachine,
-        (signal) => this.getRuntimeContext(signal)
+        (signal) => this.getRuntimeContext(signal),
+        this.runtimeContextPlacement,
       )
 
       for (const tool of previousTools) this.executor.registerTool(tool)

@@ -563,17 +563,7 @@ export class PromptMachine {
   };
 
   summarizeOlderToolResults(messages: Array<Message>): Array<Message> {
-    let lastUserMessageIdx = -1;
-
-    for (let i = messages.length - 1; i >= 0; i--){
-      const message = messages[i]
-      if (message.sender == "user" && !message.tool_results &&
-          !message.framework_context && !message.is_skill_injection &&
-          !message.is_compaction && !message.is_compaction_request) {
-        lastUserMessageIdx = i
-        break;
-      }
-    }
+    const lastUserMessageIdx = lastUserRequestIndex(messages);
 
     return messages.map((message, i) => {
       if (i > lastUserMessageIdx) return message;
@@ -1123,6 +1113,24 @@ export class Observer {
   }
 }
 
+/**
+ * Where runtime snapshots sit in each model input. "tail" (default) appends
+ * after history and tool results. "before_request" inserts them just before
+ * the latest real user message, so the user's own words stay last.
+ */
+export type RuntimeContextPlacement = "tail" | "before_request";
+
+/** The newest message a person actually sent: not a tool result, framework entry, skill or compaction marker. */
+export function lastUserRequestIndex(messages: Array<Message>): number {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i]
+    if (message.sender == "user" && !message.tool_results &&
+        !message.framework_context && !message.is_skill_injection &&
+        !message.is_compaction && !message.is_compaction_request) return i
+  }
+  return -1
+}
+
 export class Agent {
   store: StoreAdapter;
   executor: Executor;
@@ -1137,6 +1145,7 @@ export class Agent {
     observer: Observer,
     prompt_machine: PromptMachine,
     private runtimeContext?: (signal?: AbortSignal) => Promise<Array<Message>>,
+    private runtimeContextPlacement: RuntimeContextPlacement = "tail",
   ) {
     this.store = store;
     this.executor = executor;
@@ -1178,9 +1187,16 @@ export class Agent {
         return { messages: [errorMsg], tokens_in: 0, tokens_out: 0 } as ModelPromptResult;
       }
 
-      // Dynamic state belongs at the tail, leaving the system prompt and
-      // persisted conversation prefix unchanged. Refresh between tool steps.
-      if (this.runtimeContext) messages.push(...await this.runtimeContext(signal));
+      // Dynamic state never enters the system prompt or persisted history.
+      // Refresh between tool steps. By default it sits at the tail; with
+      // "before_request" it precedes the user's latest message so their own
+      // words come last. Falls back to the tail when compaction removed it.
+      if (this.runtimeContext) {
+        const snapshots = await this.runtimeContext(signal);
+        const anchor = this.runtimeContextPlacement === "before_request" ? lastUserRequestIndex(messages) : -1;
+        if (anchor === -1) messages.push(...snapshots);
+        else messages.splice(anchor, 0, ...snapshots);
+      }
       if (signal?.aborted) throw new AbortError();
 
       let results = await this.prompt_machine.run(
