@@ -8,7 +8,7 @@
 
 ## Mesh Network (`glove-mesh`)
 
-`glove-mesh` lets multiple Glove agents talk to each other — direct messages, broadcasts, acknowledgements — on top of the existing `glove-inbox` primitive. The package is behaviorally additive to `glove-core` except for one small runtime API addition: `IGloveRunnable.store` (a `readonly` accessor that `mountMesh` reads to write resolved inbox items directly). No agent-loop semantics change. The package itself ships no authentication; the consumer's `MeshAdapter` owns transport and any signing/verification.
+`glove-mesh` lets multiple Glove agents talk to each other — direct messages, broadcasts, acknowledgements. Incoming messages are inbox items by default, or glove-core events with `delivery: "events"` (glove-core ≥ 4.4). No agent-loop semantics change. The package itself ships no authentication; the consumer's `MeshAdapter` owns transport and any signing/verification.
 
 ### When to use it
 
@@ -19,9 +19,12 @@ If you just need one agent to delegate work to another sub-task in isolation, us
 
 ### Mental model
 
-Each agent owns its own `StoreAdapter`+inbox. The `MeshAdapter` is a per-agent view of the network (matches `McpAdapter`'s per-conversation pattern). When agent A calls `glove_mesh_send_message({ to: "b", content: ... })`, the framework drops a `status: "resolved"` `InboxItem` with tag `mesh:from:a` into B's store. B's existing `Agent.injectResolvedInboxItems` path (glove-core) surfaces it as a synthetic user message on B's next `ask()` — exactly like an externally-resolved inbox item.
+The `MeshAdapter` is a per-agent view of the network (matches `McpAdapter`'s per-conversation pattern). When agent A calls `glove_mesh_send_message({ to: "b", content: ... })`, the adapter delivers it to B and `mountMesh` hands it to B's Glove:
 
-The "shared inbox" is conceptual: the mesh is shared; the inbox stays per-agent.
+- **`delivery: "events"`** (needs `emitEvent` and `addContextProvider`): `glove.emitEvent({ id: msg.id, source: "mesh:a", kind: "direct" | "broadcast" | "reply", content })`. While B works it joins at the next tool step; while B is idle it wakes B, or waits for B's user's next message, per B's event policy and `mountMesh`'s `whenIdle`. The model sees escaped `<event source="mesh:a">` XML marked as outside information; re-deliveries of a message id are dropped. Blocking sends wait in memory and show as `<mesh_waiting>` runtime context (iteration delivery) until the ack or reply, which arrives as a `kind="ack"`/`"reply"` event. Acks that end no wait are dropped. No store inbox methods needed.
+- **`delivery: "inbox"`** (default): a `status: "resolved"` `InboxItem` tagged `mesh:from:a` in B's store, injected on B's next turn (or next tool step); blocking sends are pending blocking inbox items. Keep it when a short-lived runnable must leave messages in a store for the next one (Foundry builds one per run) or when code reads mesh traffic from the inbox (the voice examples do).
+
+With events, peers can trigger each other without a person in the loop; a Glove `events.policy` can defer or drop mesh events by `source` (e.g. stop two agents thanking each other forever).
 
 ### `mountMesh` — the canonical entry point
 
@@ -45,9 +48,8 @@ await mountMesh(glove, {
 
 What it does:
 
-1. Validates `glove.store` implements the four inbox methods (`getInboxItems`, `addInboxItem`, `updateInboxItem`, `getResolvedInboxItems`) — throws `MeshStoreUnsupportedError` otherwise.
-2. Awaits `adapter.register(identity)` so peers can discover this agent.
-3. Calls `adapter.subscribe(handler)` once. The handler converts incoming messages into resolved inbox items (or resolves a pending blocking item on ack).
+1. Picks the delivery (`config.delivery`, default `"inbox"`). Event delivery on a runnable without events throws; inbox delivery validates the four inbox methods (`getInboxItems`, `addInboxItem`, `updateInboxItem`, `getResolvedInboxItems`) and throws `MeshStoreUnsupportedError` otherwise.
+2. Calls `adapter.subscribe(handler)` once, then awaits `adapter.register(identity)` so peers can discover this agent. The handler emits events or writes inbox items, and ends waits on acks and replies.
 4. Folds four tools onto the running Glove: `glove_mesh_send_message`, `glove_mesh_broadcast`, `glove_mesh_list_agents`, `glove_mesh_acknowledge`.
 
 Returns `Promise<void>` (not chainable). Mirrors `mountMcp`'s async-setup convention.
@@ -56,7 +58,7 @@ Returns `Promise<void>` (not chainable). Mirrors `mountMcp`'s async-setup conven
 
 | Tool | Input | Behavior |
 |------|-------|----------|
-| `glove_mesh_send_message` | `{ to, content, in_reply_to?, blocking? }` | Calls `adapter.send`. Blocking inserts a pending blocking inbox item tagged `mesh:waiting:<msg_id>` that resolves on ack or reply. |
+| `glove_mesh_send_message` | `{ to, content, in_reply_to?, blocking? }` | Calls `adapter.send`. Blocking records a wait (a `<mesh_waiting>` entry in event mode, a pending blocking inbox item tagged `mesh:waiting:<msg_id>` in inbox mode) that ends on ack or reply. |
 | `glove_mesh_broadcast` | `{ content, blocking? }` | Calls `adapter.broadcast`. Blocking resolves on the FIRST ack received. |
 | `glove_mesh_list_agents` | `{ filter?: { capability?, name_contains? } }` | Calls `adapter.listAgents`; filters; excludes self. |
 | `glove_mesh_acknowledge` | `{ message_id, note? }` | Calls `adapter.acknowledge`. Lightweight confirmation; for substantive replies use `glove_mesh_send_message` with `in_reply_to` instead. |
@@ -115,9 +117,9 @@ const b = new InMemoryMeshAdapter(net, "agent-b");
 | `glove_mesh_broadcast({ blocking: true })` | Yes | first ack from any peer |
 | `glove_mesh_acknowledge` (this agent acking inbound) | No | n/a — itself |
 
-A pending blocking item synthesises a transient reminder each turn via `Agent.buildPendingBlockingMessage` until it resolves. When the ack/reply arrives, the resolved item shows up via the standard `[Inbox: N item(s) resolved]` injection.
+"Pending item" means the recorded wait. In event mode it is shown as `<mesh_waiting>` runtime context on every model call and the ending ack/reply arrives as an event. In inbox mode a pending blocking item synthesises a transient reminder each turn via `Agent.buildPendingBlockingMessage` until it resolves, and the resolved item shows up via the standard `[Inbox: N item(s) resolved]` injection.
 
-**Reply implies ack.** A direct incoming with `in_reply_to: X` does BOTH: inserts a new resolved inbox item with the reply body AND resolves the pending item for `X`. Saves the recipient one tool call.
+**Reply implies ack.** A direct incoming with `in_reply_to: X` does BOTH: delivers the reply body (event or resolved inbox item) AND ends the wait for `X`. Saves the recipient one tool call.
 
 ### Tag convention
 

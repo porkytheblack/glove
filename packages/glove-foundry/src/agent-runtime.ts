@@ -824,6 +824,11 @@ async function executeDefinition(
     }
     if (mesh) {
       await mountMesh(base, {
+        // Foundry builds a runnable per run, so a message that arrives
+        // between runs has to wait in the conversation store, not in an
+        // in-memory event queue that is gone once the run ends. The inbox
+        // still delivers mid-run messages at the next tool step.
+        delivery: "inbox",
         adapter: mesh.adapter,
         identity: {
           id: mesh.identity?.id ?? request.agentId,
