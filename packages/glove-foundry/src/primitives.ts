@@ -87,6 +87,22 @@ export interface InboundDeliveryClaim {
   readonly completedAt?: string;
 }
 
+/**
+ * An inbound event handed to one agent and not yet finished with: kept from
+ * dispatch until the run that handles it settles, so a restart delivers it
+ * again instead of losing it with the in-memory run queue.
+ */
+export interface FoundryPendingInbound {
+  /** `<routeId>:<eventId>:<agentId>`. */
+  readonly id: string;
+  readonly definitionId: string;
+  /** The request a run for this event starts from. */
+  readonly request: FoundryRequest;
+  /** The run handling it now; absent while the event waits for its conversation. */
+  readonly runId?: string;
+  readonly createdAt: string;
+}
+
 export interface FoundryWorkingEnvironmentSnapshotOwner {
   readonly scope: "agent" | "conversation";
   readonly definitionId: string;
@@ -134,6 +150,14 @@ export interface FoundryDataAdapter {
   claimInboundDelivery(key: string): Effect.Effect<boolean, unknown, never>;
   completeInboundDelivery(key: string, runIds: ReadonlyArray<string>): Effect.Effect<void, unknown, never>;
   releaseInboundDelivery(key: string): Effect.Effect<void, unknown, never>;
+  /**
+   * Pending inbound events (optional). With these, an inbound event survives
+   * a restart until the run that handles it finishes; without them, an event
+   * whose run was still queued or running when the process stopped is lost.
+   */
+  putPendingInbound?(record: FoundryPendingInbound): Effect.Effect<void, unknown, never>;
+  deletePendingInbound?(id: string): Effect.Effect<void, unknown, never>;
+  listPendingInbound?(): Effect.Effect<ReadonlyArray<FoundryPendingInbound>, unknown, never>;
   getActivation(id: string): Effect.Effect<FoundryActivationRecord | null, unknown, never>;
   putActivation(activation: FoundryActivationRecord): Effect.Effect<void, unknown, never>;
   listActivations(workspaceId?: string): Effect.Effect<ReadonlyArray<FoundryActivationRecord>, unknown, never>;
@@ -284,6 +308,7 @@ export class MemoryFoundryDataAdapter implements FoundryDataAdapter {
   private readonly agentsByProvisioningKey = new Map<string, string>();
   private readonly subscriptions = new Map<string, PlaybookSubscription>();
   private readonly inboundDeliveries = new Map<string, InboundDeliveryClaim>();
+  private readonly pendingInbound = new Map<string, FoundryPendingInbound>();
   private readonly activations = new Map<string, FoundryActivationRecord>();
   private readonly conversations = new Map<string, Conversation>();
   private readonly workspace = new Map<string, WorkspaceEntry>();
@@ -402,6 +427,12 @@ export class MemoryFoundryDataAdapter implements FoundryDataAdapter {
       this.inboundDeliveries.delete(key);
     }
   }); }
+  putPendingInbound(record: FoundryPendingInbound) { return Effect.sync(() => {
+    this.pendingInbound.set(record.id, structuredClone(record));
+  }); }
+  deletePendingInbound(id: string) { return Effect.sync(() => { this.pendingInbound.delete(id); }); }
+  listPendingInbound() { return Effect.sync(() =>
+    [...this.pendingInbound.values()].map((record) => structuredClone(record))); }
   getActivation(id: string) { return Effect.succeed(this.activations.get(id) ?? null); }
   putActivation(activation: FoundryActivationRecord) { return Effect.sync(() => {
     this.activations.set(activation.id, reconstructActivation(activation));

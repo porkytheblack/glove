@@ -204,6 +204,14 @@ exposeToAgent? }) (exposed as a tool by default; callable via ctx.invoke).
   bindings". Transmission ids are global across agents.
 - Fire inbound events: POST /api/transmissions/:routeId/fire or client.dispatchInbound.
   Delivery is claimed idempotently by routeId:eventId.
+- One run at a time per conversation, for every way a run starts. A later run waits
+  (pending, no concurrency slot, wait not counted against its timeout) in arrival
+  order; steer's replacement goes first; schedule firings wait in their process.
+  An inbound event for a busy thread joins the running turn at its next tool step,
+  else starts the thread's next run once free. Pending inbound events are kept in
+  the data adapter until a run finishes with them and redelivered after a restart
+  (FileFoundryDataAdapter; custom adapters: optional putPendingInbound,
+  deletePendingInbound, listPendingInbound).
 - Credentials: Foundry never does OAuth, stores secrets, refreshes tokens or picks
   accounts. accessRef is opaque; your accountSessions adapter resolves it;
   outbound adapters call context.withAccountSession(operation, use).

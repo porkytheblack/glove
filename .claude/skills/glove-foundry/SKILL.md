@@ -17,7 +17,7 @@ Docs: https://glove.dterminal.net/foundry/docs · Tutorial: https://glove.dtermi
 | --- | --- | --- |
 | **Definition** | code: `agents/<route>/agent.ts` | What an agent of this kind *can* assemble: model, prompt, tools, catalogue, memory, schedules. The file path is the id. |
 | **Instance** | data: `FoundryDataAdapter` | One persisted agent: `{ id, definitionId, workspaceId, context, installations, playbooks }`. Created by your app, the API, a seed, or a subscription when an event arrives. |
-| **Conversation** | data | A durable thread owned by one instance. An instance can own many. |
+| **Conversation** | data | A durable thread owned by one instance. An instance can own many. One run at a time: later runs wait their turn, and inbound events or delegation updates join the running turn. |
 | **Run** | a fresh child process | One message processed by a Glove assembled **from scratch** out of the definition, the instance and the message. Instance edits apply on the next message without a deploy. |
 
 Consequences you must design for:

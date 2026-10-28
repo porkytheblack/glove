@@ -94,6 +94,7 @@ import {
   withFoundryPermissions,
 } from "./approval.js";
 import {
+  FOUNDRY_CONVERSATION_LEASE_EVENT,
   FOUNDRY_CONVERSATION_LISTEN_EVENT,
   FOUNDRY_MAILBOX_DIRECTORY_ENV,
   createDelegatorTools,
@@ -102,10 +103,12 @@ import {
   RunEventQueue,
   deliveryEvent,
   formatRunEvents,
+  isDelegationUpdate,
   isOpenDelegation,
   normalizeDelegates,
   openRunMailbox,
   renderOpenDelegations,
+  waitForConversationLease,
   type FoundryConversationDelivery,
   type FoundryDelegate,
   type FoundryDelegation,
@@ -330,6 +333,8 @@ async function executeDefinition(
     readonly conversation: Conversation;
     readonly activations?: ReadonlyArray<FoundryActivationRecord>;
     readonly delegations?: ReadonlyArray<FoundryDelegation>;
+    /** The runtime admitted this run, so it already holds its conversation. */
+    readonly conversationLease?: true;
   };
   const request = envelope.request;
   const input = request;
@@ -338,6 +343,18 @@ async function executeDefinition(
   const abortController = new AbortController();
   const onTerminate = (): void => abortController.abort();
   process.once("SIGTERM", onTerminate);
+  // One run at a time per conversation: a run the runtime did not admit (a
+  // schedule firing) waits here, before it reads any history, for its turn.
+  const leaseDirectory = process.env[FOUNDRY_MAILBOX_DIRECTORY_ENV];
+  if (!envelope.conversationLease && leaseDirectory) {
+    try {
+      await writeAgentEvent(FOUNDRY_CONVERSATION_LEASE_EVENT, { conversationId: request.conversationId });
+      await waitForConversationLease(leaseDirectory, runId, abortController.signal);
+    } catch (cause) {
+      process.removeListener("SIGTERM", onTerminate);
+      throw cause;
+    }
+  }
   let disposeSurfaces: (() => Promise<void>) | undefined;
   const cleanups: Array<() => void | Promise<void>> = [];
   const application = await loadRuntimeApplication();
@@ -632,8 +649,8 @@ async function executeDefinition(
           const delivery = forwarded.get(id);
           if (!delivery) continue;
           forwarded.delete(id);
-          if (delivery.kind !== "reply") heard.set(delivery.delegationId, delivery);
-          else if (pendingQuestion.current?.delegationId === delivery.delegationId) {
+          if (isDelegationUpdate(delivery)) heard.set(delivery.delegationId, delivery);
+          else if (delivery.kind === "reply" && pendingQuestion.current?.delegationId === delivery.delegationId) {
             // The answer reached this run after all; it no longer waits on it.
             pendingQuestion.current = undefined;
           }
@@ -695,12 +712,11 @@ async function executeDefinition(
         waitForReply,
       })) base.fold(tool);
     }
-    // A run that can hear back listens for as long as it lasts: what arrives
-    // while its turn runs joins at the next tool step, and the rest goes back
-    // to the runtime as a new run when this one ends.
-    if (mailboxDirectory && (normalizedDelegates.length > 0 || assemblyContext.delegations.length > 0 || ownDelegation)) {
-      mailbox();
-    }
+    // The run listens on its conversation for as long as it lasts: what
+    // arrives for it (delegation updates, inbound events on its thread) joins
+    // its turn at the next tool step, and the rest goes back to the runtime
+    // as the conversation's next run when this one ends.
+    if (mailboxDirectory) mailbox();
 
     const workbench = await mountFoundryWorkbench({
       glove: base,
@@ -1029,6 +1045,7 @@ export function compileAgentDefinition(
       question: z.string().optional(), result: z.string().optional(), error: z.string().optional(),
       createdAt: z.string(), updatedAt: z.string(),
     })).default([]),
+    conversationLease: z.literal(true).optional(),
   });
   let builder = signal(internalAgentName(route))
     .input(executionEnvelope)

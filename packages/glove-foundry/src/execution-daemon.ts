@@ -7,7 +7,7 @@ import { pathToFileURL } from "node:url";
 import { createStation, MemoryKeyStorage, MemoryLogStorage, type StationInstance } from "station-daemon/server";
 import { resolveConfig } from "station-daemon";
 import { StationClient, StationApiError } from "station-client";
-import { MemoryAdapter, configure, type AnySignal, type SignalSubscriber } from "station-signal";
+import { MemoryAdapter, configure, notifyLocalEnqueue, type AnySignal, type SignalSubscriber } from "station-signal";
 import { ScheduleMemoryAdapter } from "station-schedules";
 import { MemoryEnvStorage } from "station-env";
 import type { FoundryApplication } from "./application.js";
@@ -18,6 +18,8 @@ import { executionEvents, type DaemonRequest, type DaemonResponse } from "./exec
 let station: StationInstance | undefined;
 let client: StationClient | undefined;
 const queue = new MemoryAdapter();
+// Far enough out that Station never finds a parked run due on its own.
+const PARKED_UNTIL = new Date("9999-12-31T00:00:00.000Z");
 const schedules = new ScheduleMemoryAdapter();
 const definitions = new Map<string, AnySignal>();
 let stopping: Promise<void> | undefined;
@@ -91,9 +93,35 @@ process.on("message", (message: DaemonRequest) => {
       case "trigger": {
         const definition = definitions.get(command.name);
         if (!definition) throw new Error("Unknown agent definition.");
+        if (command.parked) {
+          // A parked run waits for its conversation: it exists (so callers can
+          // wait on it) but is not due until "release" makes it due.
+          const input = definition.inputSchema.parse(command.input);
+          const id = queue.generateId();
+          await queue.addRun({
+            id, signalName: definition.name, kind: "trigger", input: JSON.stringify(input),
+            status: "pending", attempts: 0, maxAttempts: definition.maxAttempts,
+            timeout: definition.timeout, createdAt: new Date(), nextRunAt: PARKED_UNTIL,
+          });
+          value = id;
+          break;
+        }
         // Native enqueue preserves schema validation, local wakeups and large
         // multimodal envelopes without the public HTTP API's 5 MiB body cap.
         value = await definition.trigger(command.input);
+        break;
+      }
+      case "release": {
+        const run = await queue.getRun(command.id);
+        if (!run || run.status !== "pending") { value = false; break; }
+        const definition = definitions.get(run.signalName);
+        if (!definition) throw new Error("Unknown agent definition.");
+        await queue.updateRun(command.id, {
+          input: JSON.stringify(definition.inputSchema.parse(command.input)),
+          nextRunAt: undefined,
+        });
+        notifyLocalEnqueue();
+        value = true;
         break;
       }
       case "get": value = await queue.getRun(command.id); break;

@@ -285,7 +285,11 @@ Provisioning modes:
 
 The data adapter atomically enforces `provisioningKey`. Inbound delivery claims are also adapter-backed, so retrying the same route/event does not create duplicate runs.
 
+A conversation has one run at a time. An inbound event for a thread whose run is still working joins that run's turn at its next tool step; one that arrives during its final answer starts the thread's next run once it is free. Until a run has finished with an event, the event is kept as pending in the data adapter (`FileFoundryDataAdapter` keeps it on disk; custom adapters implement the optional `putPendingInbound`, `deletePendingInbound` and `listPendingInbound`), and a restart delivers it again.
+
 ## Conversations and shared work
+
+Different conversations run in parallel; one conversation runs one run at a time. A run asked for while another holds the conversation waits (pending, holding no concurrency slot, its wait not counted against its timeout) and starts once the run ahead has finished. Steering's replacement goes ahead of waiting runs. Schedule firings wait in their process, before reading history.
 
 One agent instance can own many conversations. Messages use native Glove content parts,
 and media parts may retain an optional human-facing filename. The server keeps JSON at

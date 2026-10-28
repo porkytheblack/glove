@@ -272,6 +272,7 @@ export default defineAgent({
           <tr><td>Hosts</td><td>One process</td><td>One host; sibling processes coordinate with a lock</td></tr>
           <tr><td>Default identifier</td><td><code>foundry-memory-data</code></td><td><code>foundry-file:&lt;file&gt;</code></td></tr>
           <tr><td><code>compareAndSetWorkspaceEntry</code></td><td>Yes</td><td>Yes</td></tr>
+          <tr><td>Pending inbound events</td><td>Yes (lost with the process)</td><td>Yes (delivered again after a restart)</td></tr>
           <tr><td>Use for</td><td>Tests and throwaway demos</td><td>Single-host deployments and serious local development</td></tr>
         </tbody>
       </table>
@@ -543,6 +544,7 @@ export function claimTicket(ctx: AgentAssemblyContext): GloveFoldArgs<z.infer<ty
           <tr><td>Schedules and sleeps</td><td>Re-armed from persisted activations at startup. Paused, completed and cancelled ones stay disarmed.</td></tr>
           <tr><td>Transcripts and memory</td><td>Kept only with durable stores and memory adapters.</td></tr>
           <tr><td>Runs that were executing</td><td>Not resumed. The live job process is gone; send the work again.</td></tr>
+          <tr><td>Inbound events no run had finished with</td><td>Delivered again at startup, in arrival order, with a data adapter that keeps pending inbound events (<code>FileFoundryDataAdapter</code> does; a custom adapter implements the optional <code>putPendingInbound</code>, <code>deletePendingInbound</code> and <code>listPendingInbound</code>). Lost otherwise. The delivery claim still stops a retried webhook from running the event twice.</td></tr>
           <tr><td>Run list and status (<code>/api/runs</code>)</td><td>Lost. The execution queue lives in memory in the managed daemon.</td></tr>
           <tr><td>Event history (<code>/api/events</code>)</td><td>Lost by default: the built-in buffer keeps the last <code>observability.maxEvents</code> (10,000) in memory.</td></tr>
           <tr><td>Pending approvals</td><td>Lost: approval records are files in a per-runtime temporary directory (and expire after 5 minutes by default anyway).</td></tr>

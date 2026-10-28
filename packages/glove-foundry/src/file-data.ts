@@ -12,6 +12,7 @@ import {
   type FoundryActivationRecord,
   type FoundryDataAdapter,
   type FoundryWorkingEnvironmentSnapshotOwner,
+  type FoundryPendingInbound,
   type InboundDeliveryClaim,
   type ProvisionAgentOptions,
   type SharedInboxItem,
@@ -33,6 +34,7 @@ interface FileFoundryState {
   agents: AgentInstance[];
   subscriptions: PlaybookSubscription[];
   inboundDeliveries: InboundDeliveryClaim[];
+  pendingInbound: FoundryPendingInbound[];
   activations: FoundryActivationRecord[];
   conversations: Conversation[];
   workspaceEntries: WorkspaceEntry[];
@@ -63,6 +65,7 @@ function emptyState(environment: ReadonlyArray<EnvironmentValue>): FileFoundrySt
     agents: [],
     subscriptions: [],
     inboundDeliveries: [],
+    pendingInbound: [],
     activations: [],
     conversations: [],
     workspaceEntries: [],
@@ -116,7 +119,7 @@ export class FileFoundryDataAdapter implements FoundryDataAdapter {
   private readonly lockFile: string;
   private readonly lockTimeoutMs: number;
   private readonly staleLockMs: number;
-  private readonly seeds: Omit<FileFoundryState, "version" | "inboundDeliveries" | "workspaceEntries" | "workingEnvironments" | "inbox" | "tasks">;
+  private readonly seeds: Omit<FileFoundryState, "version" | "inboundDeliveries" | "pendingInbound" | "workspaceEntries" | "workingEnvironments" | "inbox" | "tasks">;
   private initialized: Promise<void> | undefined;
   private queue: Promise<unknown> = Promise.resolve();
 
@@ -188,6 +191,7 @@ export class FileFoundryDataAdapter implements FoundryDataAdapter {
         agents: parsed.agents ?? [],
         subscriptions: parsed.subscriptions ?? [],
         inboundDeliveries: parsed.inboundDeliveries ?? [],
+        pendingInbound: parsed.pendingInbound ?? [],
         activations: parsed.activations ?? [],
         conversations: parsed.conversations ?? [],
         workspaceEntries: parsed.workspaceEntries ?? [],
@@ -356,6 +360,26 @@ export class FileFoundryDataAdapter implements FoundryDataAdapter {
       });
     });
   }); }
+
+  putPendingInbound(record: FoundryPendingInbound) { return effect(async () => {
+    await this.ensureInitialized();
+    await this.mutate((state) => {
+      state.pendingInbound = [
+        ...state.pendingInbound.filter((item) => item.id !== record.id),
+        structuredClone(record),
+      ];
+    });
+  }); }
+
+  deletePendingInbound(id: string) { return effect(async () => {
+    await this.ensureInitialized();
+    await this.mutate((state) => {
+      state.pendingInbound = state.pendingInbound.filter((item) => item.id !== id);
+    });
+  }); }
+
+  listPendingInbound() { return effect(async () =>
+    structuredClone((await this.snapshot()).pendingInbound)); }
 
   releaseInboundDelivery(key: string) { return effect(async () => {
     await this.ensureInitialized();

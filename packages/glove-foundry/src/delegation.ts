@@ -9,6 +9,8 @@ import { z } from "zod";
 export const FOUNDRY_MAILBOX_DIRECTORY_ENV = "GLOVE_FOUNDRY_MAILBOX_DIRECTORY";
 /** @internal A run reports when it starts and stops listening on its conversation. */
 export const FOUNDRY_CONVERSATION_LISTEN_EVENT = "foundry.conversation.listen";
+/** @internal A run Foundry did not admit (a schedule firing) asks for its conversation. */
+export const FOUNDRY_CONVERSATION_LEASE_EVENT = "foundry.conversation.lease";
 
 const DELEGATION_ID = /^delegation_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const ROUTE = /^[a-z][a-z0-9-]*(?:\/[a-z][a-z0-9-]*)*$/;
@@ -101,7 +103,29 @@ export interface FoundryDelegationReply {
   readonly message: string;
 }
 
-export type FoundryConversationDelivery = FoundryDelegationUpdate | FoundryDelegationReply;
+/**
+ * An inbound transmission event for a conversation that already has a run:
+ * it joins that run's turn, or waits for the conversation, instead of
+ * starting a second run beside it.
+ */
+export interface FoundryTransmissionDelivery {
+  readonly kind: "transmission";
+  /** The pending-inbound record that keeps this event until a run finishes with it. */
+  readonly pendingId: string;
+  readonly routeId: string;
+  readonly eventId: string;
+  /** The event as the run reads it: the serialized `<transmission>`, or the transmission's own rendering. */
+  readonly message: string;
+}
+
+export type FoundryConversationDelivery =
+  | FoundryDelegationUpdate
+  | FoundryDelegationReply
+  | FoundryTransmissionDelivery;
+
+export function isDelegationUpdate(delivery: FoundryConversationDelivery): delivery is FoundryDelegationUpdate {
+  return delivery.kind === "result" || delivery.kind === "question" || delivery.kind === "failed";
+}
 
 export function isDelegationId(value: string): boolean {
   return DELEGATION_ID.test(value);
@@ -194,6 +218,7 @@ export function renderDelegatedTask(input: {
 
 /** How a delivery reads when it arrives as a message. */
 export function renderDelivery(delivery: FoundryConversationDelivery): string {
+  if (delivery.kind === "transmission") return delivery.message;
   if (delivery.kind === "reply") {
     return [
       `<delegation-reply id="${escapeAttribute(delivery.delegationId)}" from="${escapeAttribute(delivery.from)}">`,
@@ -472,6 +497,13 @@ const DELIVERY_SCHEMA = z.union([
     task: z.string(),
     error: z.string(),
   }),
+  z.object({
+    kind: z.literal("transmission"),
+    pendingId: z.string(),
+    routeId: z.string(),
+    eventId: z.string(),
+    message: z.string(),
+  }),
 ]);
 
 /** Take every delivery waiting for a conversation, oldest first. */
@@ -618,7 +650,7 @@ export function openRunMailbox(options: {
       for (const delivery of deliveries) {
         if (delivery.kind === "reply" && waiters.has(delivery.delegationId)) {
           replies.set(delivery.delegationId, [...(replies.get(delivery.delegationId) ?? []), delivery]);
-        } else if (delivery.kind !== "reply" && handlers.size > 0) {
+        } else if (isDelegationUpdate(delivery) && handlers.size > 0) {
           updates.push(delivery);
         } else {
           rest.push(delivery);
@@ -655,7 +687,7 @@ export function openRunMailbox(options: {
       handlers.add(handler);
       // Updates that came in before this handler did are its to take.
       const waiting = options.sink
-        .reclaim((delivery) => delivery.kind !== "reply")
+        .reclaim(isDelegationUpdate)
         .then(async (updates) => {
           if (updates.length > 0) await handler(updates as FoundryDelegationUpdate[]);
         });
@@ -687,6 +719,15 @@ export function openRunMailbox(options: {
 const DELIVERY_KEY = "foundry_delivery";
 
 export function deliveryEvent(delivery: FoundryConversationDelivery): AgentEvent {
+  if (delivery.kind === "transmission") {
+    return {
+      id: `transmission:${delivery.pendingId}:${randomUUID()}`,
+      source: `foundry:route:${delivery.routeId}`,
+      kind: "transmission",
+      content: delivery.message,
+      metadata: { [DELIVERY_KEY]: delivery },
+    };
+  }
   const from = delivery.kind === "reply" ? delivery.from : delivery.agent;
   return {
     id: `${delivery.kind}:${delivery.delegationId}:${randomUUID()}`,
@@ -753,5 +794,40 @@ export class RunEventQueue implements EventQueueAdapter {
       return false;
     });
     return taken;
+  }
+}
+
+// ── Conversation leases ────────────────────────────────────────────────────
+//
+// A run the runtime admitted holds its conversation from the start. One it
+// did not (a schedule firing inside the execution queue) asks for it and
+// waits here until the runtime writes its grant.
+
+function leaseFile(directory: string, runId: string): string {
+  return join(directory, ".leases", Buffer.from(runId, "utf8").toString("hex"));
+}
+
+export async function writeConversationLease(directory: string, runId: string): Promise<void> {
+  await mkdir(join(directory, ".leases"), { recursive: true, mode: 0o700 });
+  await writeFile(leaseFile(directory, runId), "", { mode: 0o600 });
+}
+
+/** Resolve once the runtime grants this run its conversation; reject if the run is aborted first. */
+export async function waitForConversationLease(
+  directory: string,
+  runId: string,
+  signal: AbortSignal,
+  pollMs = 25,
+): Promise<void> {
+  const file = leaseFile(directory, runId);
+  for (;;) {
+    if (signal.aborted) throw new Error("The run was cancelled while it waited for its conversation.");
+    try {
+      await unlink(file);
+      return;
+    } catch (cause) {
+      if ((cause as NodeJS.ErrnoException).code !== "ENOENT") throw cause;
+    }
+    await new Promise((resolveWait) => setTimeout(resolveWait, pollMs));
   }
 }

@@ -11,7 +11,8 @@ export interface DaemonInit {
 }
 export type DaemonCommand =
   | { method: "init"; options: DaemonInit }
-  | { method: "trigger"; name: string; input: unknown }
+  | { method: "trigger"; name: string; input: unknown; parked?: boolean }
+  | { method: "release"; id: string; input: unknown }
   | { method: "get"; id: string }
   | { method: "list"; signalName?: string }
   | { method: "cancel"; id: string }
