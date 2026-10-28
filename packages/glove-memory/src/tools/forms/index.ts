@@ -51,12 +51,28 @@ export function buildFormReaderTools(
 /** Tool mounting and runtime context injection. Proxies forward addContextProvider to Glove. */
 export interface FormEnableTarget extends RuntimeContextTarget {
   fold: <I>(args: GloveFoldArgs<I>) => unknown;
+  /** When present (glove-core >=4.4), pre-turn work runs here so event wakes get it too. */
+  addTurnPreparer?: (prepare: (signal?: AbortSignal) => void | Promise<void>) => () => void;
   getSystemPrompt(): string;
   setSystemPrompt(prompt: string): void;
   processRequest(
     request: string | ContentPart[],
     signal?: AbortSignal,
   ): Promise<ModelPromptResult | Message>;
+}
+
+/**
+ * Run `prepare` before every turn. A Glove with turn preparers runs it for
+ * requests and event wakes alike; older runnables and proxies fall back to
+ * wrapping `processRequest`, which covers requests only.
+ */
+export function beforeEveryTurn(glove: FormEnableTarget, prepare: () => Promise<void>): void {
+  if (typeof glove.addTurnPreparer === "function") {
+    glove.addTurnPreparer(prepare);
+    return;
+  }
+  const original = glove.processRequest.bind(glove);
+  glove.processRequest = async (request, signal) => { await prepare(); return original(request, signal); };
 }
 
 export interface UseFormRunnerConfig {
@@ -123,10 +139,7 @@ export function useFormRunner<G extends FormEnableTarget>(
     if (config.preparation) return runner.tier0();
     try { return await runner.tier0(); } catch { return ""; }
   }, { delivery: config.delivery ?? "iteration", key: "glove.forms" });
-  if (config.preparation) {
-    const original = glove.processRequest.bind(glove);
-    glove.processRequest = async (request, signal) => { await synchronize(); return original(request, signal); };
-  }
+  if (config.preparation) beforeEveryTurn(glove, async () => { await synchronize(); });
 
   return { glove, runner };
 }

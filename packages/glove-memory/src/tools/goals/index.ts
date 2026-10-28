@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { equalGoalData } from "../../goals/equal";
 import type { GloveFoldArgs } from "glove-core";
-import type { FormEnableTarget } from "../forms";
+import { beforeEveryTurn, type FormEnableTarget } from "../forms";
 import { assertRuntimeContext, attachRuntimeContext, type MemoryContextDelivery } from "../runtime-context";
 import { selectFoldArgs, type ToolSelection } from "../selection";
 import {
@@ -135,7 +135,6 @@ export function useGoalRunner<G extends GoalEnableTarget>(glove: G, adapter: Goa
   if (config.injectStatus !== false) attachRuntimeContext(glove, async () => {
     return renderGoalStatus(selectStatus(await runner.status()));
   }, { delivery: config.delivery ?? "iteration", key: GOAL_CONTEXT_KEY });
-  const original = glove.processRequest.bind(glove);
-  glove.processRequest = async (request, signal) => { await synchronize(); return original(request, signal); };
+  beforeEveryTurn(glove, async () => { await synchronize(); });
   return { glove, runner, refresh: async () => { await synchronize(); } };
 }

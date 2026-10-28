@@ -13,7 +13,7 @@ import type {
   PromptCacheConfig,
   ResolvedPromptCache,
 } from "../core";
-import { getToolJsonSchema, resolvePromptCache } from "../core";
+import { getToolJsonSchema, latestTurnIsPersisted, resolvePromptCache } from "../core";
 
 // ─── Reasoning config ─────────────────────────────────────────────────────────
 
@@ -191,9 +191,9 @@ const CACHE_CONTROL_PROVIDERS: ReadonlyMap<string, "part" | "message"> = new Map
  * automatically and ignore the field, so we don't risk a 400 by only emitting
  * it for known-good providers.
  *
- * Pass `latestTurn: false` when the last message is transient runtime context:
- * a breakpoint there caches a prefix no later request repeats, so it would
- * only pay the cache-write premium.
+ * Pass `latestTurn: false` when the latest user turn carries transient runtime
+ * context (see `latestTurnIsPersisted`): a breakpoint there caches a prefix no
+ * later request repeats, so it would only pay the cache-write premium.
  */
 export function applyOpenAICacheControl(
   messages: Array<OpenAIMessage>,
@@ -628,7 +628,7 @@ export class OpenAICompatAdapter implements ModelAdapter {
       messages.push({ role: "system", content: this.systemPrompt });
     }
     messages.push(...formatMessages(request.messages, this.reasoning.echo, this.provider));
-    messages = applyOpenAICacheControl(messages, this.cache, this.provider, !request.messages.at(-1)?.transient);
+    messages = applyOpenAICacheControl(messages, this.cache, this.provider, latestTurnIsPersisted(request.messages));
 
     const tools =
       request.tools?.length ? formatTools(request.tools) : undefined;

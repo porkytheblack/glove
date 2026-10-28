@@ -49,14 +49,14 @@ export interface GloveFoldArgs<I> {
    * Gate the tool behind a permission check.
    *
    * - `boolean` — applies to every invocation.
-   * - `(input) => boolean` — called with the model-supplied input on every
-   *   call; return `true` to require a check for this call, `false` to
-   *   skip it (e.g. read-only commands).
+   * - `(input) => boolean | Promise<boolean>` — called with the model-supplied
+   *   input on every call and awaited; resolve `true` to require a check for
+   *   this call, `false` to skip it (e.g. read-only commands).
    *
    * When the gate is on, the store is consulted via `getPermission(name, input)`
    * and a permission prompt is rendered through the display stack.
    */
-  requiresPermission?: boolean | ((input: I) => boolean),
+  requiresPermission?: boolean | ((input: I) => boolean | Promise<boolean>),
   unAbortable?: boolean,
   /**
    * Tool implementation.
@@ -109,7 +109,16 @@ export interface RuntimeContextOptions {
   key?: string;
 }
 
+/** Work that must finish before any turn starts (a request or an event wake). */
+export type TurnPreparer = (signal?: AbortSignal) => void | Promise<void>;
+
 export interface IGloveRunnable {
+  /**
+   * Run `prepare` at the start of every turn, inside the turn queue: before a
+   * request's hooks and skills, and before an event wake. A throw fails that
+   * turn. Use it instead of wrapping `processRequest`, which wakes bypass.
+   */
+  addTurnPreparer: (prepare: TurnPreparer) => () => void
   /** Supply context for the model; `options.delivery` decides when and how. Returns an unregister function. */
   addContextProvider: (provider: RuntimeContextProvider, options?: RuntimeContextOptions) => () => void
   /**
@@ -172,6 +181,7 @@ export interface IGloveRunnable {
 
 
 export interface IGloveBuilder {
+  addTurnPreparer: (prepare: TurnPreparer) => () => void,
   addContextProvider: (provider: RuntimeContextProvider, options?: RuntimeContextOptions) => () => void,
   fold: <I>(args: GloveFoldArgs<I>) => IGloveBuilder,
   replaceTools: (
@@ -292,6 +302,7 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
 
   private subscribers: Array<SubscriberAdapter> = []
   private contextProviders = new Map<RuntimeContextProvider, RegisteredContextProvider>()
+  private turnPreparers = new Set<TurnPreparer>()
   private compactionConfig: CompactionConfig
 
   // Turns (requests and event wakes) run one at a time, in arrival order.
@@ -365,6 +376,18 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
       this.subscribers.map((s) => s.record(event_name, event_data)),
     );
   };
+
+  addTurnPreparer(prepare: TurnPreparer): () => void {
+    this.turnPreparers.add(prepare)
+    return () => { this.turnPreparers.delete(prepare) }
+  }
+
+  private async prepareTurn(signal?: AbortSignal): Promise<void> {
+    for (const prepare of this.turnPreparers) {
+      signal?.throwIfAborted()
+      await prepare(signal)
+    }
+  }
 
   addContextProvider(provider: RuntimeContextProvider, options?: RuntimeContextOptions): () => void {
     const delivery = options?.delivery ?? "iteration"
@@ -600,9 +623,13 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
       if (!events.length) return
       const ids = events.map((event) => event.id)
       this.rememberConsumed(ids)
-      const message = this.eventFormatter(events, "wake")
-      await this.notifyExtensionEvent("event_injected", { ids, phase: "wake" })
       try {
+        // The same preparation a request gets (goal recovery, form
+        // preparation). Events are taken first, so a failing preparer ends
+        // this wake instead of re-waking for the same events forever.
+        await this.prepareTurn()
+        const message = this.eventFormatter(events, "wake")
+        await this.notifyExtensionEvent("event_injected", { ids, phase: "wake" })
         await this.agent.ask(message, this.handOver)
       } catch (error) {
         await this.notifyExtensionEvent("event_wake_failed", {
@@ -930,7 +957,10 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
 
   async processRequest(request: string | ContentPart[], signal?: AbortSignal) {
     if (!this.built) throw new Error("Call build before processRequest");
-    return this.runTurn(() => this.runRequest(request, signal), signal)
+    return this.runTurn(async () => {
+      await this.prepareTurn(signal)
+      return this.runRequest(request, signal)
+    }, signal)
   }
 
   private async runRequest(request: string | ContentPart[], signal?: AbortSignal): Promise<ModelPromptResult | Message> {

@@ -143,11 +143,11 @@ export interface ToolConfig<I = any> {
    * Gate the tool behind a permission check.
    *
    * - `boolean` — applies to every invocation.
-   * - `(input) => boolean` — called with the model-supplied input on every
-   *   call; return `true` to require a check for this call, `false` to
-   *   skip it (e.g. read-only commands).
+   * - `(input) => boolean | Promise<boolean>` — called with the model-supplied
+   *   input on every call and awaited; resolve `true` to require a check for
+   *   this call, `false` to skip it (e.g. read-only commands).
    */
-  requiresPermission?: boolean | ((input: I) => boolean);
+  requiresPermission?: boolean | ((input: I) => boolean | Promise<boolean>);
   unAbortable?: boolean;
   displayStrategy?: SlotDisplayStrategy;
   do: (input: I, display: ToolDisplay) => Promise<ToolResultData>;

@@ -76,3 +76,20 @@ test("goal XML escapes user-supplied notes", async () => {
   const text = (await glove.getRuntimeContext())[0].text;
   assert.ok(!text.includes("<system>"));
 });
+
+test("an event wake runs the same goal synchronization as a request", async () => {
+  const order: string[] = [];
+  let resolveModel!: () => void;
+  const modelCalled = new Promise<void>((r) => { resolveModel = r; });
+  const model: ModelAdapter = { name: "m", setSystemPrompt() {}, async prompt() {
+    order.push("model"); resolveModel();
+    return { messages: [{ sender: "agent", text: "ok" }], tokens_in: 1, tokens_out: 1 };
+  } };
+  const glove = new Glove({ model, displayManager: new Displaymanager(), systemPrompt: "Help", compaction_config: { compaction_instructions: "Summarize" } }).build();
+  const { runner } = useGoalRunner(glove, new InMemoryGoalAdapter(), { scope, configure: () => { order.push("configure"); } });
+  await runner.start(program());
+  order.length = 0;
+  assert.equal(await glove.emitEvent({ id: "e", source: "app:crm", content: "Client called", whenIdle: "wake" }), "woke");
+  await modelCalled;
+  assert.deepEqual(order.slice(0, 2), ["configure", "model"]);
+});

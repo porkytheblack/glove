@@ -277,12 +277,12 @@ export function createInstalledApplicationTransmissionTools(
         jsonSchema: outboundToolSchema(transmission, routeIds),
         ...(requiresPermission !== undefined
           ? {
-              requiresPermission: (input: { readonly routeId: string; readonly payload: unknown }) => {
+              requiresPermission: async (input: { readonly routeId: string; readonly payload: unknown }) => {
                 if (routeIds.length > 0 && !routeIds.includes(input.routeId)) return false;
                 try {
                   const payload = Schema.decodeUnknownSync(transmission.outbound!.input)(input.payload);
                   return typeof requiresPermission === "function"
-                    ? requiresPermission(payload)
+                    ? await requiresPermission(payload)
                     : requiresPermission;
                 } catch {
                   // Malformed input is rejected by do(); it must not create an approval request first.

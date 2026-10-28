@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { z } from "zod";
 import {
-  Glove, MemoryStore, Displaymanager, defaultEventFormatter,
+  Glove, MemoryStore, MemoryEventQueue, Displaymanager, defaultEventFormatter,
   type GloveEventsConfig, type Message, type ModelAdapter, type ModelPromptResult, type SubscriberEventDataMap,
 } from "../src/index";
 
@@ -164,4 +164,56 @@ test("emitEvent validates its input", async () => {
   await assert.rejects(agent.emitEvent({ id: "", source: "s", content: "c" }), /id/);
   await assert.rejects(agent.emitEvent({ id: "i", source: "", content: "c" }), /source/);
   await assert.rejects(agent.emitEvent({ id: "i", source: "s", content: "  " }), /content/);
+});
+
+test("events drained at request start are saved even when the request aborts right after", async () => {
+  const controller = new AbortController();
+  class AbortingQueue extends MemoryEventQueue {
+    async take() { const taken = await super.take(); if (taken.length) controller.abort(new Error("gone")); return taken; }
+  }
+  const store = new MemoryStore("abort-after-drain");
+  const agent = make({ name: "test", setSystemPrompt() {}, async prompt() { return answer(); } }, { queue: new AbortingQueue() }).build(store);
+  agent.notifyUserActivity();
+  assert.equal(await agent.emitEvent({ id: "keep", source: "s", content: "Keep me" }), "deferred");
+  await assert.rejects(agent.processRequest("hi", controller.signal));
+  assert.ok((await store.getMessages()).some((m) => m.framework_context === "event" && m.text.includes("Keep me")));
+});
+
+test("turn preparers run before every request and every wake; a failing preparer ends the wake once", async () => {
+  const counter = callCounter(); const log: Recorded[] = []; const order: string[] = [];
+  let fail = false;
+  const builder = make({ name: "test", setSystemPrompt() {}, async prompt(request) {
+    order.push(`model:${request.messages.at(-1)!.framework_context ?? "user"}`); counter.hit(); return answer();
+  } });
+  builder.addSubscriber(recorder(log));
+  const agent = builder.build();
+  agent.addTurnPreparer(async () => { order.push("prepare"); if (fail) throw new Error("not ready"); });
+  await agent.processRequest("hello");
+  assert.equal(await agent.emitEvent({ id: "w", source: "s", content: "wake", whenIdle: "wake" }), "woke");
+  await counter.until(2);
+  assert.deepEqual(order, ["prepare", "model:user", "prepare", "model:event"]);
+  await new Promise((r) => setTimeout(r, 10)); // let the woken turn finish
+
+  fail = true;
+  assert.equal(await agent.emitEvent({ id: "w2", source: "s", content: "wake again", whenIdle: "wake" }), "woke");
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(counter.calls, 2, "no model call when preparation fails");
+  assert.deepEqual(log.filter((e) => e.type === "event_wake_failed").map((e) => e.data), [{ ids: ["w2"], message: "not ready" }]);
+  assert.equal(order.filter((o) => o === "prepare").length, 3, "the failed wake is not retried in a loop");
+  await assert.rejects(agent.processRequest("again"), /not ready/);
+});
+
+test("the default formatter keeps each event's media next to its own event", () => {
+  const image = (url: string) => ({ type: "image" as const, source: { type: "url" as const, media_type: "image/png", url } });
+  const message = defaultEventFormatter([
+    { id: "a", source: "one", content: [{ type: "text", text: "first" }, image("https://example.com/a.png")] },
+    { id: "b", source: "two", content: [{ type: "text", text: "second" }, image("https://example.com/b.png")] },
+  ], "loop");
+  const parts = message.content!;
+  assert.deepEqual(parts.map((p) => p.type), ["text", "image", "text", "image", "text"]);
+  assert.match(parts[0].text!, /<event id="a"[\s\S]*first/);
+  assert.equal(parts[1].source?.url, "https://example.com/a.png");
+  assert.match(parts[2].text!, /^<event id="b"[\s\S]*second\n<\/event>$/);
+  assert.equal(parts[3].source?.url, "https://example.com/b.png");
+  assert.equal(parts[4].text, "</events>");
 });

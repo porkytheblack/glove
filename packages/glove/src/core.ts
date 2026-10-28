@@ -228,14 +228,15 @@ export interface Tool<I> {
    * Gate the tool behind a permission check.
    *
    * - `boolean` — applies to every invocation regardless of input.
-   * - `(input) => boolean` — called with the model-supplied input on every
-   *   call; return `true` to require a permission check for THIS call,
-   *   `false` to skip the check entirely (e.g. read-only bash commands).
+   * - `(input) => boolean | Promise<boolean>` — called with the model-supplied
+   *   input on every call and awaited; resolve `true` to require a permission
+   *   check for THIS call, `false` to skip the check entirely (e.g. read-only
+   *   bash commands, or a policy looked up asynchronously).
    *
    * When the gate is on, the store is consulted via `getPermission(name, input)`
    * and a permission prompt is rendered via `handOver({ renderer: "permission_request", toolName, toolInput })`.
    */
-  requiresPermission?: boolean | ((input: I) => boolean);
+  requiresPermission?: boolean | ((input: I) => boolean | Promise<boolean>);
   unAbortable?: boolean;
   /**
    * Tool implementation.
@@ -445,6 +446,20 @@ export function promptCacheAnchors(messages: ReadonlyArray<Message>): number[] {
     if (!messages[i].transient) return [i, last];
   }
   return [last];
+}
+
+/**
+ * True when the user turn an OpenAI-style adapter will end on carries no
+ * transient context. Consecutive user messages merge into that one turn, so
+ * request-frozen context before the request's message counts too.
+ */
+export function latestTurnIsPersisted(messages: ReadonlyArray<Message>): boolean {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m.sender !== "user" || m.tool_results?.length) return true;
+    if (m.transient) return false;
+  }
+  return true;
 }
 
 export interface ModelAdapter {
@@ -691,7 +706,7 @@ export class Executor {
     // lets a single tool gate writes but not reads (e.g. bash) without
     // store-side rules.
     const gate = typeof tool.requiresPermission === "function"
-      ? Boolean(tool.requiresPermission(input))
+      ? Boolean(await tool.requiresPermission(input))
       : Boolean(tool.requiresPermission);
     if (!gate) return true;
     if (!this.store?.getPermission || !this.store?.setPermission) return true;
@@ -1239,8 +1254,10 @@ export class Agent {
     await this.injectResolvedInboxItems();
     if (this.framework?.beforeRequest) {
       const preamble = await this.framework.beforeRequest(await this.context.getMessages(), signal);
-      if (signal?.aborted) throw new AbortError();
+      // Save before honouring an abort: drained events have left the queue,
+      // so history is now the only place they exist.
       if (preamble.length) await this.context.appendMessages(preamble);
+      if (signal?.aborted) throw new AbortError();
     }
     let pendingBlockingMessage = await this.buildPendingBlockingMessage();
     const frozen = this.framework?.frozenContext ? await this.framework.frozenContext(signal) : [];

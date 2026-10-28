@@ -60,6 +60,7 @@ agent.addContextProvider(provider, { delivery?, key? }); // "iteration" (default
 await agent.getRuntimeContext(signal?, delivery?);       // resolve snapshots without saving (voice, tracing)
 await agent.emitEvent({ id, source, kind?, content, whenIdle?, expiresAt?, metadata? }); // → "queued" | "woke" | "deferred" | "dropped" | "duplicate"
 agent.notifyUserActivity();                              // the user is present; the default policy defers instead of waking
+agent.addTurnPreparer(async (signal) => { … });          // runs inside the turn queue before every request AND event wake; a throw fails that turn
 agent.setModel(newModelAdapter);  // Hot-swap model at runtime
 agent.fold({ ... });              // Legal post-build — adds tools mid-session (used by the MCP discovery subagent)
 agent.rebuild(store?);            // Alias for build(store?) when re-binding to a new store post-construction
@@ -75,7 +76,7 @@ The runnable returned by `build()` exposes `model`, `displayManager`, and `serve
   description: string,
   inputSchema?: z.ZodType<I>,             // Optional. Provide either inputSchema (Zod, validated locally) or jsonSchema (raw, passthrough).
   jsonSchema?: Record<string, unknown>,   // Raw JSON Schema. When set, executor skips local Zod validation. Used by bridgeMcpTool.
-  requiresPermission?: boolean | ((input: I) => boolean),  // boolean gates every call; function form gates per-input (return true to require check, false to skip)
+  requiresPermission?: boolean | ((input: I) => boolean | Promise<boolean>),  // boolean gates every call; function form gates per-input (return true to require check, false to skip)
   unAbortable?: boolean,                  // When true, tool runs to completion even if abort signal fires (e.g. voice barge-in)
   do: (
     input: I,
@@ -737,7 +738,7 @@ interface ToolConfig<I = any> {
   render?: (props: SlotRenderProps) => ReactNode;
   renderResult?: (props: ToolResultRenderProps) => ReactNode;
   displayStrategy?: SlotDisplayStrategy;
-  requiresPermission?: boolean | ((input: I) => boolean);  // function form gates per-input
+  requiresPermission?: boolean | ((input: I) => boolean | Promise<boolean>);  // function form gates per-input
   unAbortable?: boolean;
 }
 ```
@@ -758,7 +759,7 @@ const tool = defineTool<I, D, R>({
   displayPropsSchema?: D,                  // z.ZodType — display props schema (recommended for tools with UI)
   resolveSchema?: R,                       // z.ZodType — resolve value schema (default: z.ZodVoid)
   displayStrategy?: SlotDisplayStrategy,
-  requiresPermission?: boolean | ((input: z.infer<I>) => boolean),  // function form gates per-input
+  requiresPermission?: boolean | ((input: z.infer<I>) => boolean | Promise<boolean>),  // function form gates per-input
   unAbortable?: boolean,                   // Tool runs to completion even if abort signal fires
   do(input: z.infer<I>, display: TypedDisplay<z.infer<D>, z.infer<R>>): Promise<ToolResultData>,
   render?({ props, resolve, reject }): ReactNode,
@@ -1824,7 +1825,7 @@ interface Tool<I> {
    * per-call to decide whether THIS input needs a check. When the gate is
    * on, the Executor consults the store via getPermission(name, input).
    */
-  requiresPermission?: boolean | ((input: I) => boolean);
+  requiresPermission?: boolean | ((input: I) => boolean | Promise<boolean>);
   unAbortable?: boolean;
   run(
     input: I,
@@ -1839,7 +1840,7 @@ interface GloveFoldArgs<I> {
   description: string;
   inputSchema?: z.ZodType<I>;
   jsonSchema?: Record<string, unknown>;
-  requiresPermission?: boolean | ((input: I) => boolean);  // see Tool<I> for semantics
+  requiresPermission?: boolean | ((input: I) => boolean | Promise<boolean>);  // see Tool<I> for semantics
   unAbortable?: boolean;
   do: (
     input: I,

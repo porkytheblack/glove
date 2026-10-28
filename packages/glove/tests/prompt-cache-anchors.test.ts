@@ -6,6 +6,7 @@ import {
   formatAnthropicMessages,
   formatBedrockMessages,
   promptCacheAnchors,
+  latestTurnIsPersisted,
   type Message,
 } from "../src/index";
 
@@ -66,4 +67,11 @@ test("OpenAI-style latest-turn breakpoint is skipped when that turn is transient
   assert.equal(typeof skipped[1].content, "string");
   const placed = applyOpenAICacheControl(formatted, cache, "openrouter");
   assert.ok(Array.isArray(placed[1].content));
+});
+
+test("the latest user turn counts as transient when request-frozen context merges into it", () => {
+  assert.equal(latestTurnIsPersisted([user("a"), runtime("frozen"), user("now")]), false);
+  assert.equal(latestTurnIsPersisted([user("a"), runtime("frozen"), user("now"), ...toolTurn]), true);
+  assert.equal(latestTurnIsPersisted([user("a"), ...toolTurn, runtime("tail")]), false);
+  assert.equal(latestTurnIsPersisted([user("a"), { sender: "agent", text: "ok" }, user("b")]), true);
 });
