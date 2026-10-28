@@ -10,9 +10,10 @@ export default async function MeshPage() {
 
       <p>
         <code>glove-mesh</code> lets multiple Glove agents talk to each other —
-        direct messages, broadcasts, acknowledgements — on top of the existing{" "}
-        <a href="/docs/inbox">inbox</a> primitive. The package is strictly
-        additive (no <code>glove-core</code> changes) and ships{" "}
+        direct messages, broadcasts, acknowledgements. Incoming messages are{" "}
+        <a href="/docs/inbox">inbox</a> items by default, or{" "}
+        <a href="/docs/runtime-context#events">events</a> when you ask for them. The package
+        is strictly additive (no <code>glove-core</code> changes) and ships{" "}
         <strong>no authentication</strong>; the consumer&apos;s{" "}
         <code>MeshAdapter</code> owns transport and any signing or verification.
       </p>
@@ -51,20 +52,49 @@ export default async function MeshPage() {
       <h2>Mental model</h2>
 
       <p>
-        Each agent owns its own <code>StoreAdapter</code>+inbox. The{" "}
-        <code>MeshAdapter</code> is a per-agent view of the network (matches{" "}
-        <code>McpAdapter</code>&apos;s per-conversation pattern). When agent
-        A calls <code>glove_mesh_send_message({"{ to: \"b\", ... }"})</code>, the
-        framework drops a <code>status: &quot;resolved&quot;</code>{" "}
-        <code>InboxItem</code> with tag <code>mesh:from:a</code> into B&apos;s
-        store. B&apos;s existing inbox-injection path surfaces it as a
-        synthetic user message on B&apos;s next <code>ask()</code> — exactly
-        like an externally-resolved inbox item.
+        The <code>MeshAdapter</code> is a per-agent view of the network (matches{" "}
+        <code>McpAdapter</code>&apos;s per-conversation pattern). When agent A
+        calls <code>glove_mesh_send_message({"{ to: \"b\", ... }"})</code>, the
+        adapter delivers it to B, and <code>mountMesh</code> hands it to B&apos;s
+        Glove in one of two ways.
       </p>
 
+      <h3 id="delivery">Delivery: events or inbox</h3>
+
+      <table className="pattern-table">
+        <thead>
+          <tr>
+            <th></th>
+            <th><code>delivery: &quot;events&quot;</code> (glove-core ≥ 4.4)</th>
+            <th><code>delivery: &quot;inbox&quot;</code> (default)</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>B is working</td><td>joins at the next tool step</td><td>joins at the next tool step</td></tr>
+          <tr><td>B is idle</td><td>wakes B, or waits for its user&apos;s next message (B&apos;s event policy and <code>whenIdle</code>)</td><td>waits for B&apos;s next request</td></tr>
+          <tr><td>What B&apos;s model sees</td><td>escaped <code>&lt;event source=&quot;mesh:a&quot;&gt;</code> XML, marked as outside information</td><td>an <code>[Inbox: … resolved]</code> summary</td></tr>
+          <tr><td>Duplicate deliveries</td><td>dropped by message id</td><td>stored again</td></tr>
+          <tr><td>Blocking sends</td><td>an in-memory wait shown as <code>&lt;mesh_waiting&gt;</code> runtime context</td><td>a pending blocking inbox item</td></tr>
+          <tr><td>Store</td><td>no requirements</td><td>the four inbox methods</td></tr>
+          <tr><td>Outlives the runnable</td><td>only with a durable <code>events.queue</code></td><td>yes, with a durable store</td></tr>
+        </tbody>
+      </table>
+
+      <CodeBlock
+        language="typescript"
+        code={`await mountMesh(glove, { adapter, identity });                                        // inbox (default)
+await mountMesh(glove, { adapter, identity, delivery: "events" });                    // wake on messages
+await mountMesh(glove, { adapter, identity, delivery: "events", whenIdle: "defer" }); // wait for the user instead`}
+      />
+
       <p>
-        The &quot;shared inbox&quot; is conceptual: the mesh is shared; the
-        inbox stays per-agent.
+        Keep inbox delivery when a short-lived runnable must leave messages in a
+        store for the next one (Glove Foundry builds one per run), or when your
+        code reads mesh traffic from the inbox.
+        With events, agents react to each other without anyone prompting them,
+        so watch for two that politely answer each other forever: a Glove{" "}
+        <code>events.policy</code> can defer or drop mesh events by{" "}
+        <code>source</code>.
       </p>
 
       {/* ------------------------------------------------------------------ */}
@@ -109,13 +139,15 @@ await planner.processRequest(
   "Find an agent that can execute tasks and ask them to do something. Block until they respond.",
 );
 await worker.processRequest("Check your inbox and acknowledge anything you see.");
-await planner.processRequest("Continue.");`}
+await planner.processRequest("Continue.");
+// With delivery: "events" neither prompt is needed: the message wakes the
+// worker, and the worker's ack wakes the planner.`}
       />
 
       <p>
         For distributed setups — multiple processes, multiple hosts —
         implement <code>MeshAdapter</code> directly over your transport of
-        choice. The four mesh tools and the inbox routing don&apos;t change.
+        choice. The four mesh tools and the delivery modes don&apos;t change.
       </p>
 
       {/* ------------------------------------------------------------------ */}
@@ -236,18 +268,20 @@ interface IncomingMeshMessage extends MeshMessage {
       <p>
         Set <code>blocking: true</code> on <code>glove_mesh_send_message</code>{" "}
         or <code>glove_mesh_broadcast</code> when the agent should not proceed
-        until a response arrives. The framework inserts a pending blocking{" "}
-        <code>InboxItem</code> tagged <code>mesh:waiting:{"<msg_id>"}</code>;
-        when the ack/reply lands, that item flips to <code>resolved</code> and
-        shows up via the standard{" "}
-        <code>[Inbox: N item(s) resolved]</code> injection on the next turn.
+        until a response arrives. In event mode the wait is shown to the model
+        as <code>&lt;mesh_waiting&gt;</code> runtime context on every model call,
+        and the ack or reply that ends it arrives as an event. In inbox mode the
+        framework inserts a pending blocking <code>InboxItem</code> tagged{" "}
+        <code>mesh:waiting:{"<msg_id>"}</code>; when the ack/reply lands, that
+        item flips to <code>resolved</code> and shows up via the standard{" "}
+        <code>[Inbox: N item(s) resolved]</code> injection.
       </p>
 
       <table className="pattern-table">
         <thead>
           <tr>
             <th>Tool call</th>
-            <th>Pending item</th>
+            <th>Wait recorded</th>
             <th>Resolves on</th>
           </tr>
         </thead>
@@ -265,7 +299,7 @@ interface IncomingMeshMessage extends MeshMessage {
           <tr>
             <td><code>{"glove_mesh_broadcast({ blocking: true })"}</code></td>
             <td>Yes</td>
-            <td>The first ack received from any peer. Later acks arrive as ordinary inbox items.</td>
+            <td>The first ack received from any peer. Later acks are not delivered.</td>
           </tr>
           <tr>
             <td><code>glove_mesh_acknowledge</code></td>
@@ -277,8 +311,8 @@ interface IncomingMeshMessage extends MeshMessage {
 
       <p>
         <strong>Reply implies ack.</strong> A direct incoming message with{" "}
-        <code>in_reply_to: X</code> does both: surfaces the reply body as a
-        new resolved inbox item AND resolves the pending blocking item for{" "}
+        <code>in_reply_to: X</code> does both: delivers the reply body (an
+        event, or a resolved inbox item) AND ends the wait for{" "}
         <code>X</code>. The recipient doesn&apos;t need to call{" "}
         <code>glove_mesh_acknowledge</code> separately when replying.
       </p>
@@ -287,7 +321,7 @@ interface IncomingMeshMessage extends MeshMessage {
       <h2>Inbox tag convention</h2>
 
       <p>
-        Mesh-originated inbox items use namespaced tags so consumers can filter
+        In inbox mode, mesh-originated inbox items use namespaced tags so consumers can filter
         mesh traffic out of inbox histories:
       </p>
 

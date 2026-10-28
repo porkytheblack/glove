@@ -1,9 +1,8 @@
 import z from "zod";
-import type { GloveFoldArgs, ToolResultData, InboxItem } from "glove-core";
+import type { GloveFoldArgs, ToolResultData } from "glove-core";
 import type { MeshMessage } from "../core/types";
 import {
   generateMessageId,
-  generateInboxItemId,
   nowIso,
   type ToolContext,
 } from "./common";
@@ -19,7 +18,7 @@ const BroadcastSchema = z.object({
     .boolean()
     .default(false)
     .describe(
-      "If true, wait for at least one acknowledgement before continuing. The first ack received resolves the wait; later acks arrive as ordinary inbox items.",
+      "If true, wait for at least one acknowledgement before continuing. The first ack received resolves the wait.",
     ),
 });
 
@@ -33,7 +32,7 @@ export function buildMeshBroadcastTool(
     description:
       "Broadcast a message to every other agent on the mesh network. " +
       "Set blocking=true to wait for at least one acknowledgement before continuing. " +
-      "Acknowledgements and replies are surfaced in your inbox.",
+      "Acknowledgements and replies are delivered to you automatically.",
     inputSchema: BroadcastSchema,
     async do(input: BroadcastInput): Promise<ToolResultData> {
       const msg: Omit<MeshMessage, "to"> = {
@@ -44,22 +43,11 @@ export function buildMeshBroadcastTool(
         created_at: nowIso(),
       };
 
-      let pendingInboxId: string | null = null;
+      let waiting = false;
       if (input.blocking) {
-        const item: InboxItem = {
-          id: generateInboxItemId(),
-          tag: `mesh:waiting:${msg.id}`,
-          request: `Broadcast ${msg.id}: waiting for at least one acknowledgement`,
-          response: null,
-          status: "pending",
-          blocking: true,
-          created_at: msg.created_at,
-          resolved_at: null,
-        };
         try {
-          await ctx.store.addInboxItem(item);
-          pendingInboxId = item.id;
-          ctx.pending.set(msg.id, item.id);
+          await ctx.waits.begin(msg.id, `Broadcast ${msg.id}: waiting for at least one acknowledgement`, msg.created_at);
+          waiting = true;
         } catch (err) {
           return {
             status: "error",
@@ -72,25 +60,7 @@ export function buildMeshBroadcastTool(
       try {
         await ctx.adapter.broadcast(msg);
       } catch (err) {
-        if (pendingInboxId) {
-          // Roll back the pending entry no matter what — even if the inbox
-          // update fails, the in-memory pending map must not leak.
-          try {
-            await ctx.store.updateInboxItem(pendingInboxId, {
-              status: "consumed",
-              response: `Broadcast failed: ${(err as Error)?.message ?? String(err)}`,
-              resolved_at: nowIso(),
-            });
-          } catch (rollbackErr) {
-            // eslint-disable-next-line no-console
-            console.warn(
-              `[glove-mesh] failed to roll back pending inbox item ${pendingInboxId}:`,
-              rollbackErr,
-            );
-          } finally {
-            ctx.pending.delete(msg.id);
-          }
-        }
+        if (waiting) await ctx.waits.cancel(msg.id, `Broadcast failed: ${(err as Error)?.message ?? String(err)}`);
         return {
           status: "error",
           data: null,
