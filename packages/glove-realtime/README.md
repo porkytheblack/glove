@@ -140,11 +140,13 @@ createRealtimeAdapter({ provider: "openai-live", backendModel: "gpt-5.6-luna" })
 - **Skills and subagents** the agent invokes (`glove_invoke_skill`,
   `glove_invoke_subagent`) run as tools. Their events (`skill_invoked`,
   the subagent's own stream between its brackets) reach session subscribers.
-- **Subscribers** added with `session.addSubscriber()` receive the
-  `SubscriberEvent`s a text turn produces: `text_delta`, `tool_use`,
-  `tool_use_result`, `model_response_complete`, `token_consumption`,
-  `compaction_start` / `compaction_end`, `runtime_context`. Existing UIs and
-  tracers work without changes.
+- **Subscribers** receive the `SubscriberEvent`s a text turn produces:
+  `text_delta`, `tool_use`, `tool_use_result`, `model_response_complete`,
+  `token_consumption`, `compaction_start` / `compaction_end`,
+  `runtime_context`. That includes the agent's own subscribers
+  (`agent.addSubscriber`, through glove-core's `notifySubscribers`), so
+  existing UIs, tracers and modules that listen on the agent work without
+  changes. `session.addSubscriber()` adds one that only hears this session.
 - **Compaction.** With `compaction.contextLimit` set, the session compacts
   when the provider reports a larger context, after pending tools finish.
   The summary comes from the adapter's `summarize()` if it has one (OpenAI:
@@ -153,17 +155,21 @@ createRealtimeAdapter({ provider: "openai-live", backendModel: "gpt-5.6-luna" })
   transcript itself. The adapter applies it. Without a limit, compaction is
   left to the provider. `session.compact()` compacts on demand.
 
-- **Goals and forms** (glove-memory): their tools and status snapshots work
-  as they are. Their per-turn preparation (preparation, resuming interrupted
-  lifecycle hooks, re-applying `configure`) wraps `processRequest`, which a
-  session never calls. Hand it over as `beforeTurn`. It runs before the
-  session opens and when each user turn starts, and any prompt or tool change
-  it makes is sent to the provider:
+- **Goals, forms and other per-turn preparation** (glove-memory): tools and
+  status snapshots work as they are. Their per-turn work is preparation,
+  resuming interrupted lifecycle hooks and re-applying `configure`. It is
+  registered with glove-core's `addTurnPreparer`, and the session runs it
+  (`agent.prepareTurn()`) before it opens and when each user turn starts. A
+  text turn runs it at the start of `processRequest`. Prompt or tool changes
+  it makes are sent to the provider. Nothing to wire:
 
   ```ts
-  const goals = useGoalRunner(agent, goalAdapter, { scope, configure });
-  const session = new RealtimeSession({ agent, beforeTurn: goals.refresh });
+  useGoalRunner(agent, goalAdapter, { scope, configure });
+  const session = new RealtimeSession({ agent });   // goals prepare on every turn
   ```
+
+  `beforeTurn` adds per-turn work that isn't registered on the agent. It
+  runs after the agent's preparers.
 
 Not translated: `/hook` and `/skill` directives in typed text. `say()` sends
 text as a user turn, and the directive parsing belongs to the text loop.

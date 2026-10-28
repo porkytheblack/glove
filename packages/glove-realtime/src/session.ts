@@ -145,12 +145,12 @@ export interface RealtimeSessionConfig {
   /** End the session after this long. */
   maxDurationMs?: number;
   /**
-   * Runs before the session opens and at the start of every user turn — the
-   * realtime counterpart of work a text agent does before `processRequest`.
-   * Modules that prepare state per turn expose it as a function (glove-memory
-   * goals: `useGoalRunner(...).refresh`). Prompt or tool changes it makes are
-   * sent to the provider. An error fails `start()`; mid-call it is reported
-   * and the turn goes ahead.
+   * Runs before the session opens and at the start of every user turn, after
+   * the agent's own turn preparers (`addTurnPreparer`, which glove-memory's
+   * goals and forms register themselves). For per-turn work that isn't
+   * registered on the agent. Prompt or tool changes either makes are sent to
+   * the provider. An error fails `start()`; mid-call it is reported and the
+   * turn goes ahead.
    */
   beforeTurn?: () => void | Promise<void>;
   /** Resume a provider session from a stored handle. */
@@ -262,9 +262,13 @@ export class RealtimeSession extends EventEmitter<RealtimeSessionEvents> {
       // one of our tool calls (the dispatcher fans the parent's subscribers
       // out to the child). Outside one, they are a concurrent TEXT turn on
       // the same agent and not this session's business.
-      if (EXTENSION_EVENTS.has(type) || this.subagentDepth > 0) await this.notify(type, data);
+      // Events this session forwarded to the agent come back through here:
+      // they already reached the session's own subscribers.
+      if (this.forwarded.has(data as object)) return;
+      if (EXTENSION_EVENTS.has(type) || this.subagentDepth > 0) await this.notifySession(type, data);
     },
   };
+  private readonly forwarded = new WeakSet<object>();
 
   /** Our Executors report here: subagent brackets are tracked, everything is forwarded. */
   private readonly executorBridge: SubscriberAdapter = {
@@ -327,7 +331,19 @@ export class RealtimeSession extends EventEmitter<RealtimeSessionEvents> {
     if (index !== -1) this.subscribers.splice(index, 1);
   }
 
+  /**
+   * Everything the call produces goes to the session's subscribers and to the
+   * agent's own (`addSubscriber` on the Glove), so modules and UIs listening
+   * on the agent see a call as they see a text turn.
+   */
   private notify: NotifySubscribersFunction = async (type, data) => {
+    const agentSide = typeof this.agent.notifySubscribers === "function"
+      ? (this.forwarded.add(data as object), this.agent.notifySubscribers(type, data).catch((error) => { this.emit("error", asError(error)); }))
+      : undefined;
+    await Promise.all([this.notifySession(type, data), agentSide]);
+  };
+
+  private notifySession: NotifySubscribersFunction = async (type, data) => {
     await Promise.all(this.subscribers.map(async (subscriber) => {
       try {
         await subscriber.record(type, data);
@@ -358,7 +374,7 @@ export class RealtimeSession extends EventEmitter<RealtimeSessionEvents> {
     this.unsubscribe = this.adapter.subscribe((event) => this.onEvent(event));
     this.agent.addSubscriber(this.gloveBridge);
     try {
-      await this.cfg.beforeTurn?.();
+      await this.prepareTurn();
       await this.adapter.open(await this.buildSpec(true));
     } catch (error) {
       // stop() ran while this was starting and cleans up itself.
@@ -847,14 +863,18 @@ export class RealtimeSession extends EventEmitter<RealtimeSessionEvents> {
     for (const { epoch, send } of this.deferred.splice(0)) this.deliver(epoch, send);
   }
 
+  /** The agent's turn preparers (goals, forms), then `beforeTurn`. */
+  private async prepareTurn(): Promise<void> {
+    if (typeof this.agent.prepareTurn === "function") await this.agent.prepareTurn();
+    await this.cfg.beforeTurn?.();
+  }
+
   private async startTurn(): Promise<void> {
-    if (this.cfg.beforeTurn) {
-      try {
-        await this.cfg.beforeTurn();
-        await this.syncSession();
-      } catch (error) {
-        this.emit("error", asError(error));
-      }
+    try {
+      await this.prepareTurn();
+      await this.syncSession();
+    } catch (error) {
+      this.emit("error", asError(error));
     }
     try { await this.refreshContext(); } catch (error) { this.emit("error", asError(error)); }
   }

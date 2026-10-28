@@ -188,7 +188,7 @@ export default function Page() {
           <tr><td>Terminal or backend</td><td>Subscribers for streaming; <code>displayManager.subscribe()</code> to see slots and <code>resolve(slotId, value)</code> to answer them. See <Link href="/docs/server-side">server-side agents</Link>.</td></tr>
           <tr><td>WebSocket app</td><td>Forward subscriber events and slots over the socket; the <Link href="/docs/showcase/coding-agent">coding agent</Link> does exactly this.</td></tr>
           <tr><td>Voice</td><td><code>GloveVoice</code> wraps the same Glove: speech in, speech out, barge-in. <Link href="/docs/voice">Voice pipeline</Link>.</td></tr>
-          <tr><td>Realtime speech or an avatar</td><td><code>RealtimeAgent</code> runs the same tools on OpenAI Realtime, Gemini Live or GPT-Live. <Link href="/docs/realtime-voice">Realtime voice</Link>.</td></tr>
+          <tr><td>Realtime speech or an avatar</td><td><code>RealtimeAgent</code> runs the same tools on OpenAI Realtime, Gemini Live or GPT-Live. <Link href="/docs/realtime-voice">Realtime voice</Link>. For the whole agent on the call, with permissions, the store, goals, and camera or screen input, <code>RealtimeSession</code>. <Link href="/docs/realtime">Realtime agents</Link>.</td></tr>
           <tr><td>Any OpenAI SDK, Slack, email</td><td>Foundry&apos;s APIs and transmissions, in <Link href="/docs/build/system">step 7</Link>.</td></tr>
         </tbody>
       </table>

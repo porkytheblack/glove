@@ -79,8 +79,9 @@ export default function InstallationPage() {
           <tr>
             <td>Voice</td>
             <td>
-              add <code>glove-voice</code>, or <code>glove-voice-s2s</code> for
-              realtime speech-to-speech
+              add <code>glove-voice</code>, <code>glove-voice-s2s</code> for
+              realtime speech-to-speech, or <code>glove-realtime</code> for the
+              whole agent on a realtime multimodal model
             </td>
           </tr>
         </tbody>
@@ -226,6 +227,15 @@ npm install glove-react glove-next zod`}
             </td>
             <td>
               <a href="/docs/realtime-voice">Realtime Voice</a>
+            </td>
+          </tr>
+          <tr>
+            <td>Realtime agents: audio, text, images and video on a live session</td>
+            <td>
+              <code>glove-realtime</code>
+            </td>
+            <td>
+              <a href="/docs/realtime">Realtime Agents</a>
             </td>
           </tr>
         </tbody>

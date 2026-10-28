@@ -52,6 +52,8 @@ const agent = new Glove({
   .defineSubAgent(args)         // Register a subagent the model routes to via glove_invoke_subagent
   .setDisplayManager(dm)        // Swap the display manager (chainable, also callable post-build)
   .addSubscriber(subscriber)    // Add event subscriber (chainable)
+  .addContextProvider(fn)       // Transient live state at the model-input tail; returns an unregister function
+  .addTurnPreparer(fn)          // Work before every turn (processRequest runs it first); returns an unregister function
   .build(store?);               // Returns IGloveRunnable. Optional store argument supersedes the constructor's store
                                 // (used by subagent factories that derive a store via parentStore.createSubAgentStore).
 
@@ -64,6 +66,11 @@ agent.addTurnPreparer(async (signal) => { … });          // runs inside the tu
 agent.setModel(newModelAdapter);  // Hot-swap model at runtime
 agent.fold({ ... });              // Legal post-build — adds tools mid-session (used by the MCP discovery subagent)
 agent.rebuild(store?);            // Alias for build(store?) when re-binding to a new store post-construction
+
+// For runtimes that drive the agent without processRequest (realtime sessions):
+await agent.prepareTurn(signal?);                 // run the turn preparers at your own turn boundary
+await agent.getRuntimeContext(signal?);           // resolve the context providers
+await agent.notifySubscribers("text_delta", { text });   // deliver an event to the agent's subscribers
 ```
 
 The runnable returned by `build()` exposes `model`, `displayManager`, and `serverMode` as read-only fields so subagents and dynamically-folded tools (e.g. MCP discovery) can inherit them.
@@ -1428,7 +1435,7 @@ new RealtimeSession({
   reconnect?: { attempts?, backoffMs?, maxBackoffMs? } | false,
   maxDurationMs?: number,
   resumeHandle?: string,
-  beforeTurn?: () => void | Promise<void>,
+  beforeTurn?: () => void | Promise<void>,   // after agent.prepareTurn(); for work not registered on the agent
 })
 
 session.start({ resumeHandle? }) / stop(reason?)
@@ -1929,6 +1936,15 @@ interface IGloveRunnable {
   setDisplayManager(displayManager: DisplayManagerAdapter): void;
   addSubscriber(subscriber: SubscriberAdapter): void;
   removeSubscriber(subscriber: SubscriberAdapter): void;
+  /** Transient live state appended at the model-input tail; returns an unregister function. */
+  addContextProvider(provider: RuntimeContextProvider): () => void;
+  getRuntimeContext(signal?: AbortSignal): Promise<Message[]>;
+  /** Work before every turn (goals, forms register here). processRequest runs preparers first; a throw stops the turn. */
+  addTurnPreparer(preparer: (signal?: AbortSignal) => void | Promise<void>): () => void;
+  /** Run the turn preparers. For runtimes that don't call processRequest. */
+  prepareTurn(signal?: AbortSignal): Promise<void>;
+  /** Deliver an event to the subscribers added with addSubscriber. For runtimes that run the agent outside processRequest. */
+  notifySubscribers: NotifySubscribersFunction;
   fold<I>(args: GloveFoldArgs<I>): IGloveRunnable;
   defineHook(name: string, handler: HookHandler): IGloveRunnable;
   defineSkill(args: DefineSkillArgs): IGloveRunnable;

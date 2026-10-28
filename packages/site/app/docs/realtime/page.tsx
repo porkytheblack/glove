@@ -182,31 +182,36 @@ camera.on("frame", (jpeg) => session.sendVideoFrame(jpeg));`}
           once and consumed.
         </li>
         <li>
-          <strong>Subscribers</strong> added with{" "}
-          <code>session.addSubscriber()</code> get the same events a text turn
-          emits.
+          <strong>Subscribers</strong> on the agent (<code>agent.addSubscriber</code>)
+          get the same events from the call that a text turn emits, through{" "}
+          <code>notifySubscribers</code>. <code>session.addSubscriber()</code>{" "}
+          adds one that only hears this session.
         </li>
       </ul>
 
       <h3 id="goals">Goals, forms and other per-turn state</h3>
 
       <p>
-        Goal and form tools work on a call, and their status snapshots reach
-        the model through runtime context. One step doesn&apos;t carry over on
-        its own: <code>useGoalRunner</code> prepares state before each{" "}
-        <code>processRequest</code>. That covers preparation, resuming
-        interrupted lifecycle hooks and re-applying <code>configure</code>. A
-        realtime session never calls <code>processRequest</code>, so pass the
-        runner&apos;s <code>refresh</code> as <code>beforeTurn</code>. It runs
-        before the session opens and when each user turn starts. Any prompt or
-        tool change it makes is sent to the provider.
+        Goals and forms work on a call with nothing extra to wire. Their tools
+        are on the call, and their status reaches the model through runtime
+        context. Their per-turn preparation (preparing state, resuming
+        interrupted lifecycle hooks, re-applying <code>configure</code>) is
+        registered with glove-core&apos;s{" "}
+        <a href="/docs/build/context#turn-preparers">
+          <code>addTurnPreparer</code>
+        </a>
+        . The session runs it before it opens and when each user turn starts.
+        Any prompt or tool change it makes is sent to the provider.
       </p>
 
       <CodeBlock
         filename="goals.ts"
         language="typescript"
-        code={`const goals = useGoalRunner(agent, goalAdapter, { scope, configure });
-const session = new RealtimeSession({ agent, beforeTurn: goals.refresh });`}
+        code={`useGoalRunner(agent, goalAdapter, { scope, configure });
+const session = new RealtimeSession({ agent });   // goals prepare on every turn
+
+// Per-turn work that isn't registered on the agent:
+new RealtimeSession({ agent, beforeTurn: () => syncCrm(callerId) });`}
       />
 
       {/* ============================================================ */}

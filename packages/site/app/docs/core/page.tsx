@@ -415,6 +415,31 @@ const result = await agent.processRequest("What is the weather in Tokyo?");`}
             "Detach a previously attached SubscriberAdapter.",
           ],
           [
+            "addContextProvider(fn)",
+            "(fn: RuntimeContextProvider) => () => void",
+            "Append transient live state at the model-input tail before every model call. Returns an unregister function.",
+          ],
+          [
+            "getRuntimeContext(signal?)",
+            "(signal?: AbortSignal) => Promise<Message[]>",
+            "Resolve the context providers, for runtimes that build their own model input (realtime sessions).",
+          ],
+          [
+            "addTurnPreparer(fn)",
+            "(fn: TurnPreparer) => () => void",
+            "Register work to run before every turn, inside the turn queue: requests and event wakes run preparers first, in order; a throw fails that turn. Returns an unregister function.",
+          ],
+          [
+            "prepareTurn(signal?)",
+            "(signal?: AbortSignal) => Promise<void>",
+            "Run the turn preparers. For runtimes that drive the agent without processRequest.",
+          ],
+          [
+            "notifySubscribers(type, data)",
+            "NotifySubscribersFunction",
+            "Deliver an event to the subscribers added with addSubscriber, so activity from another runtime reaches them like a text turn's.",
+          ],
+          [
             "displayManager",
             "DisplayManagerAdapter",
             "Read-only reference to the active display manager.",

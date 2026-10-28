@@ -716,11 +716,17 @@ email: confirmation — Confirm the unverified evidence before completion.; valu
       <p>
         Ask for one field at a time. The status line names what is pending, so the
         agent needs no extra tool call to decide what to ask next.{" "}
-        <Link href="/docs/realtime-voice">RealtimeAgent</Link> reads the same runtime
-        context and refreshes it after every tool call it runs. When something
-        outside the call changes state, such as host code resolving a checkpoint,
-        call <code>await realtime.refreshContext()</code>. It injects the new
-        snapshot without prompting a spoken reply.
+        <Link href="/docs/realtime">RealtimeSession</Link> (<code>glove-realtime</code>)
+        runs goals on a call with nothing extra to wire. Goals register their
+        per-turn preparation with <code>addTurnPreparer</code>, and the session
+        runs it before opening and at each user turn. It refreshes the status
+        snapshot after each tool and at each turn, and sends prompt changes made
+        by <code>configure</code> to the provider.{" "}
+        <Link href="/docs/realtime-voice">RealtimeAgent</Link> (<code>glove-voice-s2s</code>)
+        reads the same runtime context and refreshes it after every tool call it
+        runs. When something outside the call changes state, such as host code
+        resolving a checkpoint, call <code>await realtime.refreshContext()</code>.
+        It injects the new snapshot without prompting a spoken reply.
       </p>
 
       <h3 id="interface-background">Background jobs and APIs</h3>

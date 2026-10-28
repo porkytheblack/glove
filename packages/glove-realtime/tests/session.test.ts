@@ -480,3 +480,47 @@ test("beforeTurn runs before opening and at each user turn, and its changes are 
   await assert.rejects(failing.start(), /goal transition blocked/);
   assert.equal(failing.state, "closed");
 });
+
+test("glove-memory goals prepare on a call with no wiring: start and every user turn", async () => {
+  const { useGoalRunner } = await import("glove-memory/tools");
+  const { InMemoryGoalAdapter } = await import("glove-memory/in-memory");
+  const { agent } = buildAgent();
+  let configured = 0;
+  useGoalRunner(agent, new InMemoryGoalAdapter(), {
+    scope: { subject: "caller-1", key: "intake" },
+    configure: ({ glove }) => {
+      configured++;
+      if (configured === 2) glove.setSystemPrompt("You are Nova. Goal: verify the caller.");
+    },
+  });
+  const adapter = new FakeAdapter();
+  const session = new RealtimeSession({ agent, adapter });
+  await session.start();
+  assert.equal(configured, 1, "prepared before the session opened");
+  assert.ok(adapter.opens[0].tools!.some((t) => t.name === "glove_goal_status"), "goal tools are on the call");
+  adapter.fire({ type: "input.speech_started" });
+  await settle();
+  assert.equal(configured, 2, "prepared again when the user started speaking");
+  assert.deepEqual(adapter.instructionUpdates, ["You are Nova. Goal: verify the caller."]);
+  await session.stop();
+});
+
+test("subscribers on the agent see the call; the session doesn't echo its own events back", async () => {
+  const { agent } = buildAgent();
+  const onAgent: string[] = [];
+  const onSession: string[] = [];
+  agent.addSubscriber({ async record(type) { onAgent.push(type); } });
+  const adapter = new FakeAdapter();
+  const session = new RealtimeSession({ agent, adapter }).addSubscriber({ async record(type) { onSession.push(type); } });
+  await session.start();
+  adapter.fire({ type: "output.transcript", text: "Hi", final: false });
+  adapter.fire({ type: "tool.call", callId: "c1", name: "lookup_order", arguments: '{"id":"1"}' });
+  await settle();
+  adapter.fire({ type: "usage", usage: { tokensIn: 10, tokensOut: 2 } });
+  await settle();
+  for (const type of ["text_delta", "tool_use", "tool_use_result", "token_consumption"]) {
+    assert.equal(onAgent.filter((t) => t === type).length, 1, `agent subscriber sees ${type} once`);
+    assert.equal(onSession.filter((t) => t === type).length, 1, `session subscriber sees ${type} once`);
+  }
+  await session.stop();
+});

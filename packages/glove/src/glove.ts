@@ -119,6 +119,20 @@ export interface IGloveRunnable {
    * turn. Use it instead of wrapping `processRequest`, which wakes bypass.
    */
   addTurnPreparer: (prepare: TurnPreparer) => () => void
+  /**
+   * Run the turn preparers, in registration order. Requests and event wakes
+   * run them inside the turn queue on their own; runtimes that drive the
+   * agent without `processRequest` (a realtime session) call this at their
+   * own turn boundaries.
+   */
+  prepareTurn: (signal?: AbortSignal) => Promise<void>
+  /**
+   * Deliver an event to the subscribers added with `addSubscriber`. For
+   * runtimes that run the agent outside `processRequest` (a realtime session
+   * executing tools and transcribing speech), so modules and UIs listening on
+   * the agent see that activity as they would a text turn's.
+   */
+  notifySubscribers: NotifySubscribersFunction
   /** Supply context for the model; `options.delivery` decides when and how. Returns an unregister function. */
   addContextProvider: (provider: RuntimeContextProvider, options?: RuntimeContextOptions) => () => void
   /**
@@ -382,12 +396,15 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
     return () => { this.turnPreparers.delete(prepare) }
   }
 
-  private async prepareTurn(signal?: AbortSignal): Promise<void> {
-    for (const prepare of this.turnPreparers) {
+  async prepareTurn(signal?: AbortSignal): Promise<void> {
+    for (const prepare of [...this.turnPreparers]) {
       signal?.throwIfAborted()
       await prepare(signal)
     }
   }
+
+  notifySubscribers: NotifySubscribersFunction = (event_name, event_data) =>
+    this.notifyExtensionEvent(event_name, event_data)
 
   addContextProvider(provider: RuntimeContextProvider, options?: RuntimeContextOptions): () => void {
     const delivery = options?.delivery ?? "iteration"

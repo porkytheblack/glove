@@ -325,11 +325,10 @@ const session = new RealtimeSession({
   excludeTools: ["render_chart"],
   nonBlockingTools: ["research"],         // Gemini: conversation continues while it runs
   compaction: { contextLimit: 24_000 },   // Glove decides when; the adapter decides how
-  beforeTurn: goals.refresh,              // glove-memory goals: see below
 });
 session.on("audio", (pcm, format) => play(pcm, format.sampleRate));
 session.on("interrupted", flushPlayback);
-session.addSubscriber(uiSubscriber);      // same SubscriberEvents as a text turn
+agent.addSubscriber(uiSubscriber);        // same SubscriberEvents as a text turn, from the call too
 await session.start();                    // or start({ resumeHandle })
 
 session.sendAudio(pcm);                   // session.adapter.inputFormat (Gemini 16 kHz, OpenAI 24 kHz)
@@ -343,7 +342,8 @@ How primitives translate:
 - `requiresPermission` is enforced: the store's decision first, then the `permissions` policy.
 - The store gets turns, tool call/result pairs and `is_compaction` summaries. Fresh provider sessions are seeded from it.
 - Runtime context providers and the inbox are injected on open, after tools, and at the start of each user turn. On OpenAI a snapshot replaces the previous one. Image parts go in as media.
-- Goals and forms: tools and status snapshots work. Their per-turn preparation wraps `processRequest`, which a session never calls, so pass `beforeTurn: useGoalRunner(...).refresh`.
-- Not translated: `/hook` and `/skill` directives in `say()` text. Glove-level subscribers only see events the Glove itself emits; add subscribers to the session.
+- Goals and forms work with no wiring. They register their per-turn preparation with `addTurnPreparer`, and the session runs `agent.prepareTurn()` before opening and at each user turn. `beforeTurn` adds per-turn work that isn't registered on the agent.
+- Subscribers on the agent (`agent.addSubscriber`) see the call's events through `notifySubscribers`. `session.addSubscriber` adds one that only hears this session.
+- Not translated: `/hook` and `/skill` directives in `say()` text.
 
 Providers: `openai` (audio/text/image in, audio or text out, compacts in place and summarises itself), `gemini` (audio/text/image/video in, resumption handles and `goAway`, reconnects to change tools, `NON_BLOCKING` tools), `openai-live` (audio only, provider-managed context, server only). `createRealtimeAdapter` reads `REALTIME_PROVIDER`, `REALTIME_MODEL`, `REALTIME_VOICE` and the provider key. Avatars, LiveKit and Foundry `voiceCall` are built on `glove-voice-s2s` and still use `RealtimeAgent`. API in [api-reference.md](api-reference.md#glove-realtime).

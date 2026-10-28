@@ -270,6 +270,7 @@ const groups: Group[] = [
       { name: "Display stack", href: "/docs/display-stack" },
       { name: "Voice pipeline", href: "/docs/voice" },
       { name: "Realtime voice & avatars", href: "/docs/realtime-voice" },
+      { name: "Realtime agents", href: "/docs/realtime", badge: "new" },
       { name: "Voice architectures", href: "/docs/voice-architectures", badge: "new" },
     ],
   },

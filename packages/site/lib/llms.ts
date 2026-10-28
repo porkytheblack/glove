@@ -1056,8 +1056,10 @@ written to the store, fresh sessions are seeded from it, runtime context and the
 inbox are injected, and session subscribers get the usual SubscriberEvents.
 Providers: "openai" (audio/text/image in; compacts in place), "gemini"
 (audio/text/image/video in; resumption handles, goAway, reconnect to change
-tools), "openai-live" (audio only, provider-managed context). For goals, pass
-\`beforeTurn: useGoalRunner(...).refresh\`.
+tools), "openai-live" (audio only, provider-managed context). Goals and forms
+register per-turn preparation with \`addTurnPreparer\`; the session runs
+\`agent.prepareTurn()\` before opening and at each user turn, and forwards its
+events to the agent's own subscribers via \`notifySubscribers\`.
 
 \`\`\`ts
 import { RealtimeSession, realtimeModel } from "glove-realtime";

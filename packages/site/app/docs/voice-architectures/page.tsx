@@ -25,7 +25,7 @@ export default function VoiceArchitecturesPage() {
 
       <ol>
         <li><strong>Single-agent pipeline.</strong> VAD → STT → agent → TTS. <code>GloveVoice</code> (<code>glove-voice</code>) or <code>useGloveVoice</code> (<code>glove-react/voice</code>). See <Link href="/docs/voice">Voice pipeline</Link>.</li>
-        <li><strong>Single-agent realtime.</strong> A speech-to-speech (S2S) model hears the caller, speaks, and calls the agent&apos;s tools. <code>RealtimeAgent</code> + <code>s2sDrivenModel</code> (<code>glove-voice-s2s</code>). See <Link href="/docs/realtime-voice">Realtime voice</Link>.</li>
+        <li><strong>Single-agent realtime.</strong> A speech-to-speech (S2S) model hears the caller, speaks, and calls the agent&apos;s tools. <code>RealtimeAgent</code> + <code>s2sDrivenModel</code> (<code>glove-voice-s2s</code>), or <code>RealtimeSession</code> + <code>realtimeModel</code> (<code>glove-realtime</code>) when the call should keep the agent&apos;s permissions, store, goals and context, or take camera and screen input. See <Link href="/docs/realtime-voice#which-package">Realtime voice</Link> and <Link href="/docs/realtime">Realtime agents</Link>.</li>
         <li><strong>Layered, realtime front.</strong> An S2S front agent stays in the conversation and delegates real work to a text worker.</li>
         <li><strong>Layered, pipeline front.</strong> STT → a fast text front agent → TTS. The front delegates to a heavy worker over <Link href="/docs/mesh">glove-mesh</Link>.</li>
       </ol>
@@ -50,7 +50,7 @@ export default function VoiceArchitecturesPage() {
       <h3 id="choosing">How to choose</h3>
       <ul>
         <li><strong>Start with the single-agent pipeline</strong> when tools are quick and a second before the answer is fine. It is one hook.</li>
-        <li><strong>Use single-agent realtime</strong> when tools are fast and the provider&apos;s voice and turn-taking are good enough. You give up control of the exact words for latency.</li>
+        <li><strong>Use single-agent realtime</strong> when tools are fast and the provider&apos;s voice and turn-taking are good enough. You give up control of the exact words for latency. Run it on <code>glove-realtime</code> when gated tools must still ask, the call must land in the store, or goals and forms drive the conversation.</li>
         <li><strong>Layer</strong> as soon as a turn needs multi-step tool work such as lookups, research or bookings. The caller hears an acknowledgement at once and the answer when it is ready.</li>
         <li><strong>Pick a realtime front</strong> for the lowest latency and provider barge-in with the least code. <strong>Pick a pipeline front</strong> for your own TTS voice, control over exactly what is said, a free choice of front model, and a metric for every leg of latency.</li>
       </ul>
@@ -87,7 +87,7 @@ export default function VoiceArchitecturesPage() {
           <tr><td>Acknowledgement</td><td>A <code>&lt;speech&gt;</code> ack in the same turn; then the front&apos;s turn ends</td><td>Spoken &ldquo;in the same breath&rdquo; as the tool call</td><td>Spoken while the call is open</td></tr>
           <tr><td>Worker run</td><td>The orchestrator runs <code>worker.processRequest(…)</code> on its own queue for new <code>mesh:from:*</code> items in the worker&apos;s inbox</td><td>A <code>research</code> station signal in its own process</td><td>The route runs <code>worker.processRequest(…)</code> and returns the worker&apos;s final message text</td></tr>
           <tr><td>Result</td><td>The reply resolves the front&apos;s pending item and lands as a resolved inbox item; a relay turn framed <code>&lt;worker-result&gt;</code> speaks it, with the findings injected as <code>[Inbox: N item(s) resolved]</code></td><td>The reply POSTs to the room&apos;s <code>/mesh</code>; the room calls <code>rt.inject(`&lt;worker-result&gt;…&lt;/worker-result&gt;`, &#123; respond: true &#125;)</code></td><td><code>adapter.sendToolResult(callId, result)</code>; the model speaks it</td></tr>
-          <tr><td>While waiting</td><td>Glove adds <code>[Inbox: N blocking item(s) still pending …]</code> to each front turn, so the front says it is still checking</td><td><code>RealtimeAgent</code> does not run Glove&apos;s loop, so there is no reminder; a prompt rule does that job</td><td>The open tool call</td></tr>
+          <tr><td>While waiting</td><td>Glove adds <code>[Inbox: N blocking item(s) still pending …]</code> to each front turn, so the front says it is still checking</td><td><code>RealtimeAgent</code> does not run Glove&apos;s loop, so there is no reminder; a prompt rule does that job. <code>RealtimeSession</code> (<code>glove-realtime</code>) puts pending blocking items in the call&apos;s context snapshot</td><td>The open tool call</td></tr>
         </tbody>
       </table>
 
@@ -821,6 +821,7 @@ export function buildAgent(id: string, model: ModelAdapter, systemPrompt: string
       <ul>
         <li><Link href="/docs/voice">Voice pipeline</Link>: <code>GloveVoice</code>, VAD, speech gating, push-to-talk</li>
         <li><Link href="/docs/realtime-voice">Realtime voice</Link>: <code>RealtimeAgent</code>, providers, live context, avatars, LiveKit</li>
+        <li><Link href="/docs/realtime">Realtime agents</Link>: <code>RealtimeSession</code>, the whole agent on a realtime model</li>
         <li><Link href="/docs/mesh">Mesh</Link>: <code>mountMesh</code>, blocking sends, replies</li>
         <li><Link href="/foundry/docs/multi-agent#voice">Foundry multi-agent</Link>: voice hosts that delegate durable work</li>
         <li><Link href="/blog/building-the-voice-stack">Building the voice stack</Link>: why the front is thin</li>

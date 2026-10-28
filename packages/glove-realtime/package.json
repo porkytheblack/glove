@@ -44,6 +44,7 @@
   "devDependencies": {
     "@types/node": "^25.2.3",
     "@types/ws": "8.18.1",
+    "glove-memory": "workspace:*",
     "tsup": "^8.0.0",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",

@@ -2246,6 +2246,9 @@ importers:
       '@types/ws':
         specifier: 8.18.1
         version: 8.18.1
+      glove-memory:
+        specifier: workspace:*
+        version: link:../glove-memory
       tsup:
         specifier: ^8.0.0
         version: 8.5.1(postcss@8.5.19)(tsx@4.21.0)(typescript@5.9.3)(yaml@2.9.0)

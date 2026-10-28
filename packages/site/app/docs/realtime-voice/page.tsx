@@ -3,7 +3,7 @@ import { CodeBlock } from "@/components/code-block";
 export const metadata = {
   title: "Realtime Voice & Avatars",
   description:
-    "Run a Glove agent on a speech-to-speech model, give it a live face, and put it in a LiveKit room.",
+    "Run a Glove agent on a speech-to-speech model, give it a live face, and put it in a LiveKit room. Compares RealtimeAgent with glove-realtime's RealtimeSession.",
 };
 
 export default function RealtimeVoicePage() {
@@ -33,16 +33,84 @@ export default function RealtimeVoicePage() {
         </p>
       </div>
 
-      <div className="docs-note">
-        <span className="docs-note-icon">◆</span>
-        <p>
-          <strong>Need the whole agent on the call?</strong>{" "}
-          <code>RealtimeAgent</code> runs tools directly, without permissions,
-          store writes or subscriber events. <a href="/docs/realtime">Realtime
-          Agents</a> (<code>glove-realtime</code>) adds all of those, plus
-          camera, screen and text output, session resumption and compaction.
-        </p>
-      </div>
+      <h2 id="which-package">Two ways to put an agent on a realtime model</h2>
+
+      <p>
+        Both run a built Glove on OpenAI Realtime, Gemini Live or GPT-Live.
+        They differ in how much of the agent comes onto the call.
+      </p>
+
+      <table>
+        <thead>
+          <tr>
+            <th></th>
+            <th>
+              <code>glove-voice-s2s</code> · <code>RealtimeAgent</code>
+            </th>
+            <th>
+              <a href="/docs/realtime">
+                <code>glove-realtime</code> · <code>RealtimeSession</code>
+              </a>
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Best for</td>
+            <td>A thin voice front, avatars, LiveKit rooms, Foundry <code>voiceCall</code></td>
+            <td>The whole agent on the call, including camera, screen or text output</td>
+          </tr>
+          <tr>
+            <td>Tools</td>
+            <td>
+              <code>Tool.run</code> directly
+            </td>
+            <td>glove-core&apos;s Executor (validation, summaries, subagent events)</td>
+          </tr>
+          <tr>
+            <td>
+              <code>requiresPermission</code>
+            </td>
+            <td>Not enforced: exclude gated tools</td>
+            <td>Enforced: display stack, a policy, or your function</td>
+          </tr>
+          <tr>
+            <td>Store</td>
+            <td>Not written: log from events</td>
+            <td>Turns, tool calls with results, summaries; fresh sessions seeded from it</td>
+          </tr>
+          <tr>
+            <td>Subscribers</td>
+            <td>
+              <code>RealtimeAgent</code>&apos;s own events
+            </td>
+            <td>The agent&apos;s subscribers get the same events as a text turn</td>
+          </tr>
+          <tr>
+            <td>Context, goals, forms</td>
+            <td>
+              Snapshots after tools; call <code>refreshContext()</code> yourself
+            </td>
+            <td>Snapshots and turn preparation at every user turn, automatically</td>
+          </tr>
+          <tr>
+            <td>Input / output</td>
+            <td>Audio</td>
+            <td>Audio, text, images, video frames in; audio or text out</td>
+          </tr>
+          <tr>
+            <td>Long calls</td>
+            <td>Provider-managed</td>
+            <td>Reconnect, resumption, Glove-driven compaction</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <p>
+        The rest of this page covers the voice stack: <code>glove-voice-s2s</code>,
+        avatars and LiveKit. For <code>glove-realtime</code>, see{" "}
+        <a href="/docs/realtime">Realtime Agents</a>.
+      </p>
 
       <p>Three packages layer on top of each other:</p>
 
@@ -258,7 +326,11 @@ rt.inject("the lookup finished: covered until 2031", { respond: true });`}
           calls and transcripts are not persisted to the store or fired as
           subscriber events (use <code>RealtimeAgent</code>&apos;s own{" "}
           <code>user_said</code> / <code>agent_said</code> /{" "}
-          <code>tool_started</code> / <code>tool_finished</code> events to log).
+          <code>tool_started</code> / <code>tool_finished</code> events to log).{" "}
+          <a href="/docs/realtime">
+            <code>glove-realtime</code>
+          </a>
+          &apos;s <code>RealtimeSession</code> does all three.
         </p>
       </div>
 
@@ -363,6 +435,15 @@ await rt.refreshSession();       // re-sends instructions + tools, then refreshe
 
 rt.inject("The courier confirmed delivery before 4pm.", { respond: true }); // spoken`}
       />
+
+      <p>
+        <a href="/docs/realtime">
+          <code>RealtimeSession</code>
+        </a>{" "}
+        does all of this on its own. It refreshes context when each user turn
+        starts, sends tool and prompt changes before a result goes back, and
+        runs the agent&apos;s turn preparers so goals and forms stay current.
+      </p>
 
       <p>
         A context failure during <code>start()</code> rejects and disconnects;
