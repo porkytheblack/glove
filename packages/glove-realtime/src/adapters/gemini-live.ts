@@ -44,6 +44,7 @@ import {
   defaultSocket,
   int16ToBase64,
   mediaBase64,
+  OpenCancelled,
   type WebSocketLike,
 } from "../wire";
 
@@ -171,6 +172,7 @@ export class GeminiLiveAdapter extends AdapterBase implements RealtimeAdapter {
   private handle: string | undefined;
   private reconfiguring: Promise<void> | null = null;
   private reconfigureQueued = false;
+  private cancelOpen: ((error: Error) => void) | null = null;
 
   // per-turn state
   private speaking = false;
@@ -215,77 +217,93 @@ export class GeminiLiveAdapter extends AdapterBase implements RealtimeAdapter {
     this.spec = { ...spec };
     this.expectClose = false;
     this.resetTurn();
-    if (spec.resumeHandle) this.handle = spec.resumeHandle;
+    // The handle a session opens with is the only one that can be current:
+    // a fresh (or compacted) session must never resume an older conversation.
+    this.handle = spec.resumeHandle;
 
-    const token = await this.cfg.getToken();
-    const version = this.cfg.apiVersion ?? "v1beta";
-    const base = this.cfg.url ??
-      `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.${version}.GenerativeService.BidiGenerateContent`;
-    const url = `${base}${base.includes("?") ? "&" : "?"}key=${encodeURIComponent(token)}`;
-    const ws = this.cfg.socketFactory ? this.cfg.socketFactory(url) : defaultSocket(url);
-    try { (ws as { binaryType?: string }).binaryType = "arraybuffer"; } catch { /* fakes */ }
-    this.ws = ws;
-
+    // close() while connecting rejects this open at once and the socket never
+    // outlives it.
+    let cancel!: (error: Error) => void;
+    const cancelled = new Promise<never>((_, reject) => { cancel = reject; });
+    cancelled.catch(() => {});
+    this.cancelOpen = cancel;
+    let ws: WebSocketLike | undefined;
     let pending = true;
-    let acknowledge!: () => void;
-    let refuse!: (error: Error) => void;
-    const accepted = new Promise<void>((resolve, reject) => {
-      acknowledge = resolve;
-      refuse = reject;
-    });
+    let timer: ReturnType<typeof setTimeout> | undefined;
 
-    ws.addEventListener("message", (ev: { data: unknown }) => {
-      if (generation !== this.generation) return;
-      decodeFrame(ev.data, (text) => {
-        if (generation !== this.generation) return;
-        let message: Wire;
-        try {
-          message = JSON.parse(text);
-        } catch {
-          return;
-        }
-        if (pending && message.setupComplete !== undefined) {
-          pending = false;
-          acknowledge();
-          return;
-        }
-        this.onMessage(message);
-      });
-    });
-    ws.addEventListener("close", (ev: { code?: number; reason?: string }) => {
-      if (generation !== this.generation) return;
-      // Gemini reports a REJECTED SETUP by closing with a reason ("Unknown
-      // name \"$schema\" at 'setup.tools[0]…'"). That reason is the only
-      // diagnosis the caller will get, so it is always surfaced.
-      const reason = `Gemini Live closed (${ev?.code ?? "?"})${ev?.reason ? `: ${ev.reason}` : ""}`;
-      if (pending) {
-        pending = false;
-        refuse(new Error(`${reason} — the session never started; check the setup frame`));
-        return;
-      }
-      this.release(reason);
-    });
-    ws.addEventListener("error", () => {
-      if (generation === this.generation && this.opened) this.fail("Gemini Live socket error");
-    });
-
-    const timeoutMs = this.cfg.connectTimeoutMs ?? 15_000;
     try {
-      await awaitOpen(ws, timeoutMs, "Gemini Live");
+      const token = await Promise.race([Promise.resolve(this.cfg.getToken()), cancelled]);
+      const version = this.cfg.apiVersion ?? "v1beta";
+      const base = this.cfg.url ??
+        `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.${version}.GenerativeService.BidiGenerateContent`;
+      const url = `${base}${base.includes("?") ? "&" : "?"}key=${encodeURIComponent(token)}`;
+      const socket = this.cfg.socketFactory ? this.cfg.socketFactory(url) : defaultSocket(url);
+      try { (socket as { binaryType?: string }).binaryType = "arraybuffer"; } catch { /* fakes */ }
+      ws = socket;
+      this.ws = socket;
+
+      let acknowledge!: () => void;
+      let refuse!: (error: Error) => void;
+      const accepted = new Promise<void>((resolve, reject) => {
+        acknowledge = resolve;
+        refuse = reject;
+      });
+
+      socket.addEventListener("message", (ev: { data: unknown }) => {
+        if (generation !== this.generation) return;
+        decodeFrame(ev.data, (text) => {
+          if (generation !== this.generation) return;
+          let message: Wire;
+          try {
+            message = JSON.parse(text);
+          } catch {
+            return;
+          }
+          if (pending && message.setupComplete !== undefined) {
+            pending = false;
+            acknowledge();
+            return;
+          }
+          this.onMessage(message);
+        });
+      });
+      socket.addEventListener("close", (ev: { code?: number; reason?: string }) => {
+        if (generation !== this.generation) return;
+        // Gemini reports a REJECTED SETUP by closing with a reason ("Unknown
+        // name \"$schema\" at 'setup.tools[0]…'"). That reason is the only
+        // diagnosis the caller will get, so it is always surfaced.
+        const reason = `Gemini Live closed (${ev?.code ?? "?"})${ev?.reason ? `: ${ev.reason}` : ""}`;
+        if (pending) {
+          pending = false;
+          refuse(new Error(`${reason} — the session never started; check the setup frame`));
+          return;
+        }
+        this.release(reason);
+      });
+      socket.addEventListener("error", () => {
+        if (generation === this.generation && this.opened) this.fail("Gemini Live socket error");
+      });
+
+      const timeoutMs = this.cfg.connectTimeoutMs ?? 15_000;
+      await Promise.race([awaitOpen(socket, timeoutMs, "Gemini Live"), cancelled]);
       // Setup MUST be the first frame.
-      ws.send(JSON.stringify({ setup: this.buildSetup(this.spec) }));
+      socket.send(JSON.stringify({ setup: this.buildSetup(this.spec) }));
       await Promise.race([
         accepted,
-        new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error("Gemini Live setup timed out")), timeoutMs),
-        ),
+        cancelled,
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error("Gemini Live setup timed out")), timeoutMs);
+        }),
       ]);
     } catch (error) {
       pending = false;
-      ++this.generation;
-      this.ws = null;
-      try { ws.close(); } catch { /* already closed */ }
+      if (generation === this.generation) ++this.generation;
+      if (this.ws === ws) this.ws = null;
+      try { ws?.close(); } catch { /* already closed */ }
       throw asError(error);
+    } finally {
+      clearTimeout(timer);
+      if (this.cancelOpen === cancel) this.cancelOpen = null;
     }
 
     this.opened = true;
@@ -295,6 +313,12 @@ export class GeminiLiveAdapter extends AdapterBase implements RealtimeAdapter {
   }
 
   async close(): Promise<void> {
+    if (this.cancelOpen) {
+      const cancel = this.cancelOpen;
+      this.cancelOpen = null;
+      ++this.generation;
+      cancel(new OpenCancelled("Gemini Live"));
+    }
     if (!this.ws) return;
     this.expectClose = true;
     const ws = this.ws;
@@ -328,6 +352,8 @@ export class GeminiLiveAdapter extends AdapterBase implements RealtimeAdapter {
     try {
       await this.open(spec);
     } catch (error) {
+      // close() cancelled it: the session is ending on purpose.
+      if (error instanceof OpenCancelled) throw error;
       this.emit({ type: "error", error: asError(error), fatal: false });
       this.emit({ type: "session.closed", expected: false, reason: asError(error).message });
       throw error;
@@ -407,30 +433,31 @@ export class GeminiLiveAdapter extends AdapterBase implements RealtimeAdapter {
 
   // ── provider-owned agent concerns ─────────────────────────────────────────
 
-  setTools(tools: RealtimeToolSpec[]): void {
+  /** Resolves once the reconnected session is open (or the change is deferred). */
+  setTools(tools: RealtimeToolSpec[]): Promise<void> {
     this.spec = { ...this.spec, tools };
-    this.reconfigure("tools");
+    return this.reconfigure("tools");
   }
 
-  setInstructions(instructions: string): void {
+  setInstructions(instructions: string): Promise<void> {
     this.spec = { ...this.spec, instructions };
     if (this.opened && !this.handle) {
       // No handle to carry the conversation across a new setup: the best
       // left is saying it, with system framing, as context.
       this.silent(`[system] Updated instructions — these replace earlier ones:\n${instructions}`);
-      return;
+      return Promise.resolve();
     }
-    this.reconfigure("instructions");
+    return this.reconfigure("instructions");
   }
 
   /** Coalesce setTools + setInstructions into one reconnect. */
-  private reconfigure(what: string): void {
-    if (!this.opened) return;
+  private reconfigure(what: string): Promise<void> {
+    if (!this.opened) return Promise.resolve();
     if (!this.handle) {
       this.fail(`Gemini Live can't change ${what} mid-session without a resumption handle; the change applies to the next session.`);
-      return;
+      return Promise.resolve();
     }
-    if (this.reconfigureQueued) return;
+    if (this.reconfigureQueued && this.reconfiguring) return this.reconfiguring;
     this.reconfigureQueued = true;
     const previous = this.reconfiguring ?? Promise.resolve();
     const run = previous.then(() => new Promise<void>((resolve) => queueMicrotask(resolve))).then(async () => {
@@ -441,6 +468,7 @@ export class GeminiLiveAdapter extends AdapterBase implements RealtimeAdapter {
       if (this.reconfiguring === run) this.reconfiguring = null;
     });
     this.reconfiguring = run;
+    return run;
   }
 
   inject(injection: RealtimeInjection): void {
@@ -487,8 +515,10 @@ export class GeminiLiveAdapter extends AdapterBase implements RealtimeAdapter {
   }
 
   interrupt(): void {
-    // No cancel on this protocol. Mute the rest of the current turn so its
-    // remaining audio never reaches the host, and tell the host to flush.
+    // No cancel on this protocol. An empty completed client turn is what
+    // stops the in-flight response; the rest of the current turn is muted in
+    // case audio is already on the wire, and the host is told to flush.
+    this.send({ clientContent: { turns: [], turnComplete: true } });
     if (this.responding) this.muted = true;
     const wasSpeaking = this.speaking;
     this.speaking = false;

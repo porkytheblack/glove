@@ -292,8 +292,13 @@ export interface RealtimeAdapter {
   sendMedia(media: RealtimeMedia): void;
 
   // ── provider-owned agent concerns ─────────────────────────────────────────
-  setTools(tools: RealtimeToolSpec[]): void;
-  setInstructions(instructions: string): void;
+  /**
+   * Register a new tool set. Adapters that apply it by reconnecting return a
+   * promise that settles once the new session is open, so a caller can hold
+   * a tool result until there is a session to deliver it to.
+   */
+  setTools(tools: RealtimeToolSpec[]): void | Promise<void>;
+  setInstructions(instructions: string): void | Promise<void>;
   inject(injection: RealtimeInjection): void;
   sendToolResult(result: RealtimeToolResult): void;
   /** Ask the model to speak now (after silent injections, a greeting). */

@@ -182,11 +182,22 @@ await session.start({ resumeHandle: loadHandle(callId) });   // resume after a p
   every attempt. When every attempt fails the session emits `ended`.
 - **`goAway`** (Gemini) moves the session to a resumed connection before the
   provider ends this one.
-- **Fresh conversations.** When a reconnect or compaction replaces the
-  provider's conversation, results for calls the old one made are dropped,
-  and the context snapshot is sent again.
+- **Reconnect windows.** A tool result or inbox item that is ready while the
+  provider session is reconnecting waits for it. If the session resumes, it
+  is delivered there; inbox items are only marked consumed once they have
+  actually been sent. When a reconnect or compaction replaces the provider's
+  conversation with a fresh one, results for calls the old one made are
+  dropped, and the context snapshot is sent again.
+- **Store order.** After the user stops speaking, store writes wait (up to
+  4 s) for the transcript of what they said. Transcription arrives
+  asynchronously, and the reply must not be stored ahead of the question.
+  While compaction runs, writes wait for the summary, so turns said in the
+  meantime follow it instead of being hidden behind it.
 - `maxDurationMs` ends the session. `stop()` waits for the adapter to close
-  (GPT-Live: until final usage arrives) and for pending store writes.
+  (GPT-Live: until final usage arrives) and for pending store writes. A
+  `stop()` while `start()` is still connecting cancels the open: `start()`
+  rejects with an `OpenCancelled` error and no provider session is left
+  running.
 
 ## Synthetic prompts, media, and output
 
@@ -209,9 +220,27 @@ set). Declare `capabilities` truthfully: the session chooses strategies from
 them and refuses mismatched requests at construction. Emit only
 `RealtimeEvent`s. `interrupt()` must always emit `interrupted`, because the
 host's playback queue often still holds audio after the provider has
-finished generating it. The tests in `tests/` drive each adapter against a
+finished generating it. In addition:
+
+- `close()` must cancel an `open()` that is still connecting.
+- `isOpen` must be false while you reconnect, so the session holds results
+  until you're back.
+- An adapter that applies `setTools` / `setInstructions` by reconnecting
+  should return a promise that settles once the new session is open.
+- Continuous providers emit `output.transcript` deltas, which drive captions
+  and `text_delta`, alongside `transcript.fragment`, which marks turns for
+  the store. The tests in `tests/` drive each adapter against a
 fake socket, and are a template for a new one.
 
 Passing those tests shows the adapter matches its own understanding of the
 protocol. Only a live session shows the provider accepts the frames. Check
-with real credentials before shipping.
+with real credentials before shipping. For the adapters here, these frames
+are not yet checked against a live session:
+
+- **Gemini.** Silent context goes in as an open `clientContent` turn mid-session,
+  as in `glove-voice-s2s`. Google documents `clientContent` for seeding
+  history, so check that runtime snapshots and inbox items reach the model.
+  Also check `NON_BLOCKING` scheduling, `toolCallCancellation` and the
+  `usageMetadata` totals.
+- **OpenAI.** Check out-of-band `conversation: "none"` summaries and
+  client-chosen item ids.

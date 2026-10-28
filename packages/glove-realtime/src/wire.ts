@@ -147,3 +147,11 @@ export function defaultSocket(url: string, protocols?: string[]): WebSocketLike 
   }
   return new WebSocket(url, protocols) as unknown as WebSocketLike;
 }
+
+/** `close()` was called while `open()` was still connecting. */
+export class OpenCancelled extends Error {
+  constructor(provider: string) {
+    super(`${provider} open cancelled: the session was closed while connecting`);
+    this.name = "OpenCancelled";
+  }
+}

@@ -28,7 +28,7 @@ import type {
   RealtimeToolResult,
   RealtimeToolSpec,
 } from "../types";
-import { AdapterBase, asError, base64ToInt16, int16ToBase64, renderHistory, type WebSocketLike } from "../wire";
+import { AdapterBase, asError, base64ToInt16, int16ToBase64, OpenCancelled, renderHistory, type WebSocketLike } from "../wire";
 
 export interface OpenAILiveConfig {
   /** Project API key. Server-only: this transport sends an Authorization header. */
@@ -78,6 +78,7 @@ export class OpenAILiveAdapter extends AdapterBase implements RealtimeAdapter {
   private finishClose?: (error?: Error) => void;
   private expectClose = false;
   private generation = 0;
+  private cancelOpen: ((error: Error) => void) | null = null;
   private active = new Map<string, Batch>();
   private calls = new Map<string, Batch>();
   private muted = false;
@@ -117,7 +118,7 @@ export class OpenAILiveAdapter extends AdapterBase implements RealtimeAdapter {
       : (new (await import("ws")).default(url, { headers }) as unknown as WebSocketLike);
     if (generation !== this.generation) {
       ws.close();
-      throw new Error("GPT-Live connection cancelled");
+      throw new OpenCancelled("GPT-Live");
     }
     this.ws = ws;
 
@@ -128,16 +129,20 @@ export class OpenAILiveAdapter extends AdapterBase implements RealtimeAdapter {
         if (started || failed) return;
         failed = true;
         clearTimeout(timer);
+        if (this.cancelOpen === fail) this.cancelOpen = null;
         if (this.ws === ws) this.ws = null;
         ++this.generation;
         reject(error);
         try { ws.close(); } catch { /* already closed */ }
       };
       const timer = setTimeout(() => fail(new Error("GPT-Live session startup timed out")), this.cfg.connectTimeoutMs ?? 15_000);
+      // close() while starting rejects at once rather than at the timeout.
+      this.cancelOpen = fail;
       const start = () => {
         if (generation !== this.generation) return;
-        try { this.send({ type: "session.start", session: this.startConfig(this.spec) }); }
-        catch (error) { fail(asError(error)); }
+        try {
+          if (!this.send({ type: "session.start", session: this.startConfig(this.spec) })) fail(new Error("GPT-Live socket is not open"));
+        } catch (error) { fail(asError(error)); }
       };
       // A supplied socket may already be open by the time the factory resolves.
       if (ws.readyState === 1) queueMicrotask(start);
@@ -155,6 +160,7 @@ export class OpenAILiveAdapter extends AdapterBase implements RealtimeAdapter {
         if (!started && message.type === "session.started") {
           started = true;
           clearTimeout(timer);
+          this.cancelOpen = null;
           this.opened = true;
           resolve();
         } else if (!started && message.type === "error") {
@@ -209,8 +215,12 @@ export class OpenAILiveAdapter extends AdapterBase implements RealtimeAdapter {
   close(): Promise<void> {
     if (this.closing) return this.closing;
     if (!this.opened) {
+      // Still starting: cancel it. It never opened, so nothing is reported closed.
+      const cancel = this.cancelOpen;
+      this.cancelOpen = null;
       ++this.generation;
-      this.release();
+      cancel?.(new OpenCancelled("GPT-Live"));
+      this.ws = null;
       return Promise.resolve();
     }
     this.expectClose = true;
@@ -225,9 +235,8 @@ export class OpenAILiveAdapter extends AdapterBase implements RealtimeAdapter {
         if (error) reject(error);
         else resolve();
       };
-      try { this.send({ type: "session.close" }); }
-      catch (error) {
-        this.finishClose(asError(error));
+      if (!this.send({ type: "session.close" })) {
+        this.finishClose(new Error("GPT-Live socket is not open; final usage is unconfirmed"));
         this.release("close failed");
       }
     });
@@ -254,7 +263,7 @@ export class OpenAILiveAdapter extends AdapterBase implements RealtimeAdapter {
 
   /** Continuous, realtime-paced PCM — silence included. */
   sendAudio(pcm: Int16Array): void {
-    if (this.isOpen) this.send({ type: "session.input_audio.append", audio: int16ToBase64(pcm) });
+    if (this.isOpen) this.post({ type: "session.input_audio.append", audio: int16ToBase64(pcm) });
   }
 
   sendText(text: string, opts?: { respond?: boolean }): void {
@@ -271,7 +280,7 @@ export class OpenAILiveAdapter extends AdapterBase implements RealtimeAdapter {
   setTools(tools: RealtimeToolSpec[]): void {
     this.spec = { ...this.spec, tools };
     if (this.isOpen) {
-      this.send({ type: "session.update", session: { delegation: { type: "responses", responses: { tools: toolDefinitions(tools) } } } });
+      this.post({ type: "session.update", session: { delegation: { type: "responses", responses: { tools: toolDefinitions(tools) } } } });
     }
   }
 
@@ -280,7 +289,7 @@ export class OpenAILiveAdapter extends AdapterBase implements RealtimeAdapter {
     if (!this.isOpen) return;
     if (!this.cfg.voiceInstructions) this.append("instructions", instructions);
     if (!this.cfg.backendInstructions) {
-      this.send({ type: "session.update", session: { delegation: { type: "responses", responses: { instructions } } } });
+      this.post({ type: "session.update", session: { delegation: { type: "responses", responses: { instructions } } } });
     }
   }
 
@@ -299,7 +308,7 @@ export class OpenAILiveAdapter extends AdapterBase implements RealtimeAdapter {
       return;
     }
     if (batch.results.has(result.callId)) return;
-    this.send({
+    const sent = this.post({
       type: "response.item.create",
       event_id: crypto.randomUUID(),
       item: {
@@ -308,17 +317,20 @@ export class OpenAILiveAdapter extends AdapterBase implements RealtimeAdapter {
         output: typeof result.output === "string" ? result.output : (JSON.stringify(result.output) ?? "null"),
       },
     });
+    if (!sent) return;
     batch.results.add(result.callId);
     batch.respond ||= result.respond !== false;
     // The backend continues once, after EVERY call in its batch has a result.
     if (batch.completed && !batch.continued && batch.respond && batch.results.size === batch.calls.size) {
       batch.continued = true;
-      this.send({ type: "response.create", event_id: crypto.randomUUID() });
+      this.post({ type: "response.create", event_id: crypto.randomUUID() });
     }
   }
 
   respond(opts?: { instructions?: string }): void {
-    if (this.isOpen && opts?.instructions) this.append("commentary", opts.instructions);
+    // Commentary is what the voice model speaks from; there is no bare
+    // "respond now" event.
+    if (this.isOpen) this.append("commentary", opts?.instructions ?? "Respond to the user now.");
   }
 
   /** Drops further output until the user speaks again or resumeOutput(). */
@@ -345,15 +357,24 @@ export class OpenAILiveAdapter extends AdapterBase implements RealtimeAdapter {
 
   // ── internals ─────────────────────────────────────────────────────────────
 
-  private send(event: Record<string, unknown>): void {
-    if (!this.ws || this.ws.readyState !== 1) throw new Error("GPT-Live socket is not open");
+  /** False when the socket isn't open (it may be closing before its close event). */
+  private send(event: Record<string, unknown>): boolean {
+    if (!this.ws || this.ws.readyState !== 1) return false;
     this.ws.send(JSON.stringify(event));
+    return true;
+  }
+
+  /** Public-method sends: a closed socket is reported, never thrown at the caller. */
+  private post(event: Record<string, unknown>): boolean {
+    const sent = this.send(event);
+    if (!sent) this.fail(`GPT-Live socket is not open; ${String(event.type)} was not sent`);
+    return sent;
   }
 
   /** Appends are capped near 500 tokens; byte-sized chunks stay under it for any script. */
   private append(kind: "instructions" | "thinking" | "commentary", content: string): void {
     for (const chunk of splitContext(content)) {
-      this.send({ type: `session.${kind}.append`, event_id: crypto.randomUUID(), delegation_id: null, content: chunk });
+      if (!this.post({ type: `session.${kind}.append`, event_id: crypto.randomUUID(), delegation_id: null, content: chunk })) return;
     }
   }
 
@@ -368,12 +389,14 @@ export class OpenAILiveAdapter extends AdapterBase implements RealtimeAdapter {
       case "session.output_transcript.delta": {
         if (typeof event.delta !== "string" || typeof event.start_ms !== "number" || typeof event.end_ms !== "number") break;
         const role = event.type === "session.input_transcript.delta" ? "user" : "assistant";
+        // Speech dropped after interrupt() was never heard: not a fragment of the conversation.
+        if (role === "assistant" && this.muted) break;
         this.emit({ type: "transcript.fragment", role, text: event.delta, startMs: event.start_ms, endMs: event.end_ms });
         if (role === "user") {
           // The user is talking again: whatever comes next answers them.
           this.muted = false;
           this.emit({ type: "input.transcript", text: event.delta, final: false });
-        } else if (!this.muted) {
+        } else {
           this.emit({ type: "output.transcript", text: event.delta, final: false });
         }
         break;

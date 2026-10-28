@@ -36,6 +36,7 @@
 
 import { EventEmitter } from "eventemitter3";
 import {
+  AbortError,
   Context,
   Executor,
   type IGloveRunnable,
@@ -80,6 +81,8 @@ export type RealtimeSessionState = "idle" | "connecting" | "open" | "reconnectin
 export interface PermissionRequest {
   tool: string;
   input: unknown;
+  /** Aborts when the call is cancelled or the session stops: withdraw the question. */
+  signal: AbortSignal;
 }
 
 /**
@@ -238,6 +241,19 @@ export class RealtimeSession extends EventEmitter<RealtimeSessionEvents> {
   private log: RealtimeHistoryItem[] = [];
   /** Continuous providers: fragments since the last role switch. */
   private fragment: { role: "user" | "assistant"; text: string } | null = null;
+  /**
+   * Reasons store writes are being held back, and what they're holding.
+   * `transcript`: the user stopped speaking and the transcription of what
+   * they said comes asynchronously, often after the reply has started; the
+   * reply must not land in the store ahead of the question. `compaction`:
+   * the summary must be written before anything said while it was being
+   * made, or the split at the summary would hide those turns.
+   */
+  private holds = new Set<"transcript" | "compaction">();
+  private held: Message[][] = [];
+  private transcriptTimer: ReturnType<typeof setTimeout> | undefined;
+  /** Tool results and injections waiting for a provider session to come back. */
+  private deferred: Array<{ epoch: number; send: () => void }> = [];
 
   /** Forwards the Glove's own subscriber events (skills, subagent runs) into this session's subscribers. */
   private readonly gloveBridge: SubscriberAdapter = {
@@ -321,6 +337,11 @@ export class RealtimeSession extends EventEmitter<RealtimeSessionEvents> {
     }));
   };
 
+  /** `_state` read without narrowing: it changes across every await. */
+  private stateNow(): RealtimeSessionState {
+    return this._state;
+  }
+
   private setState(next: RealtimeSessionState): void {
     if (next === this._state) return;
     const previous = this._state;
@@ -340,9 +361,17 @@ export class RealtimeSession extends EventEmitter<RealtimeSessionEvents> {
       await this.cfg.beforeTurn?.();
       await this.adapter.open(await this.buildSpec(true));
     } catch (error) {
+      // stop() ran while this was starting and cleans up itself.
+      if (this.stateNow() === "closing" || this.stateNow() === "closed") throw error;
       this.teardown();
       this.setState("closed");
       throw error;
+    }
+    if (this.stateNow() !== "open" && this.stateNow() !== "connecting") {
+      // stop() won the race against an adapter that couldn't cancel its
+      // open: don't leave a provider session running that nobody hears.
+      await this.adapter.close().catch(() => {});
+      return;
     }
     if (this.cfg.maxDurationMs) {
       this.durationTimer = setTimeout(() => void this.stop("time limit"), this.cfg.maxDurationMs);
@@ -353,12 +382,15 @@ export class RealtimeSession extends EventEmitter<RealtimeSessionEvents> {
     if (this._state === "idle" || this._state === "closed" || this._state === "closing") return;
     this.setState("closing");
     for (const call of this.pending.values()) call.controller.abort();
-    this.flushFragment();
     try {
       await this.adapter.close();
     } catch (error) {
       this.emit("error", asError(error));
     } finally {
+      // Continuous providers keep transcribing until the close completes.
+      this.flushFragment();
+      this.releaseHold("transcript");
+      this.releaseHold("compaction");
       await this.writes;
       this.teardown();
       this.setState("closed");
@@ -376,6 +408,11 @@ export class RealtimeSession extends EventEmitter<RealtimeSessionEvents> {
     this.lastContext = undefined;
     this.sentImages.clear();
     this.subagentDepth = 0;
+    this.fragment = null;
+    this.holds.clear();
+    this.held = [];
+    clearTimeout(this.transcriptTimer);
+    this.deferred = [];
     ++this.epoch;
   }
 
@@ -477,13 +514,20 @@ export class RealtimeSession extends EventEmitter<RealtimeSessionEvents> {
       case "session.opened":
         if (!event.resumed) {
           // A fresh provider conversation: results for calls the old one
-          // made have nowhere to go, and any earlier context snapshot is gone.
+          // made have nowhere to go, any earlier context snapshot is gone,
+          // and an older handle would resume the conversation this replaced
+          // (a compacted one, say). The new session issues its own.
           ++this.epoch;
           this.lastContext = undefined;
           this.sentImages.clear();
+          this.deferred = [];
+          this.handle = undefined;
         }
         if (this._state === "connecting" || this._state === "reconnecting") this.setState("open");
-        void this.refreshContext(true).catch((error) => this.emit("error", asError(error)));
+        if (event.resumed) this.flushDeferred();
+        // A resumed conversation still holds its last snapshot: only a change
+        // is worth sending.
+        void this.refreshContext(!event.resumed).catch((error) => this.emit("error", asError(error)));
         break;
       case "session.closed":
         if (!event.expected) this.recover(event.reason);
@@ -504,6 +548,12 @@ export class RealtimeSession extends EventEmitter<RealtimeSessionEvents> {
         break;
       case "input.speech_stopped":
         this.emit("user_speech_stopped");
+        if (this.adapter.capabilities.transcripts === "turns") {
+          this.holds.add("transcript");
+          clearTimeout(this.transcriptTimer);
+          // Transcription can be off or fail; don't hold the store hostage.
+          this.transcriptTimer = setTimeout(() => this.releaseHold("transcript"), 4_000);
+        }
         break;
       case "input.transcript":
         if (!event.final) this.emit("user_delta", event.text);
@@ -564,7 +614,13 @@ export class RealtimeSession extends EventEmitter<RealtimeSessionEvents> {
 
   private userSaid(text: string): void {
     this.remember({ role: "user", text });
-    this.persist([{ sender: "user", text }]);
+    if (this.cfg.persist !== false && this.holds.has("transcript")) {
+      // The question goes ahead of the reply that was held for it.
+      this.held.unshift([{ sender: "user", text }]);
+      this.releaseHold("transcript");
+    } else {
+      this.persist([{ sender: "user", text }]);
+    }
     this.emit("user_said", text);
   }
 
@@ -581,7 +637,8 @@ export class RealtimeSession extends EventEmitter<RealtimeSessionEvents> {
    * captions get every fragment as it arrives.
    */
   private onFragment(role: "user" | "assistant", text: string): void {
-    if (role === "assistant") void this.notify("text_delta", { text });
+    // Captions (`text_delta`) come from the adapter's `output.transcript`
+    // deltas; fragments only decide what the store records as a turn.
     if (this.fragment && this.fragment.role !== role) this.flushFragment();
     this.fragment = { role, text: (this.fragment?.text ?? "") + text };
   }
@@ -597,6 +654,17 @@ export class RealtimeSession extends EventEmitter<RealtimeSessionEvents> {
 
   private persist(messages: Message[]): void {
     if (this.cfg.persist === false) return;
+    if (this.holds.size) this.held.push(messages);
+    else this.write(messages);
+  }
+
+  private releaseHold(reason: "transcript" | "compaction"): void {
+    if (reason === "transcript") clearTimeout(this.transcriptTimer);
+    if (!this.holds.delete(reason) || this.holds.size) return;
+    for (const messages of this.held.splice(0)) this.write(messages);
+  }
+
+  private write(messages: Message[]): void {
     this.writes = this.writes
       .then(() => this.agent.store.appendMessages(messages))
       .catch((error) => { this.emit("error", asError(error)); });
@@ -658,7 +726,7 @@ export class RealtimeSession extends EventEmitter<RealtimeSessionEvents> {
       if (badJson) throw new ToolRefusal("Arguments were not valid JSON.");
       const tools = this.tools as Tool<unknown>[];
       const tool = tools.find((t) => t.name.toLowerCase() === name.toLowerCase());
-      if (tool && gated(tool, input) && !(await this.permit(tool, input))) {
+      if (tool && gated(tool, input) && !(await this.permit(tool, input, controller.signal))) {
         throw new ToolRefusal(`Permission denied for tool "${tool.name}". The user has not granted permission to run this tool.`);
       }
 
@@ -699,12 +767,13 @@ export class RealtimeSession extends EventEmitter<RealtimeSessionEvents> {
     const live = () => !pending.cancelled && epoch === this.epoch && (this._state === "open" || this._state === "reconnecting");
     if (live()) {
       // A tool may have folded new tools or changed state: register the new
-      // surface and refresh context BEFORE the result triggers the next turn.
-      // A failure here must not relabel a tool that already succeeded.
-      this.syncSession();
+      // surface (waiting out a provider that reconnects to apply it) and
+      // refresh context BEFORE the result triggers the next turn. A failure
+      // here must not relabel a tool that already succeeded.
+      await this.syncSession();
       try { await this.refreshContext(); } catch (error) { this.emit("error", asError(error)); }
       if (live()) {
-        this.adapter.sendToolResult({ callId, name, output: toWireResult(result.result) });
+        this.deliver(epoch, () => this.adapter.sendToolResult({ callId, name, output: toWireResult(result.result) }));
       }
     }
 
@@ -714,7 +783,7 @@ export class RealtimeSession extends EventEmitter<RealtimeSessionEvents> {
     }
   }
 
-  private async permit(tool: Tool<unknown>, input: unknown): Promise<boolean> {
+  private async permit(tool: Tool<unknown>, input: unknown, signal: AbortSignal): Promise<boolean> {
     const store = this.agent.store;
     if (store.getPermission) {
       const status = await store.getPermission(tool.name, input);
@@ -724,21 +793,65 @@ export class RealtimeSession extends EventEmitter<RealtimeSessionEvents> {
     const policy = this.cfg.permissions ?? (this.agent.serverMode ? "deny" : "display");
     if (policy === "allow") return true;
     if (policy === "deny") return false;
-    const allowed = policy === "display"
-      ? Boolean(await this.agent.displayManager.pushAndWait({
-          renderer: "permission_request",
-          input: { renderer: "permission_request", toolName: tool.name, toolInput: input },
-        }))
-      : Boolean(await policy({ tool: tool.name, input }));
+
+    // A cancelled call or a stopped session withdraws the question rather
+    // than leaving it on screen with nobody waiting for the answer.
+    const aborted = new Promise<never>((_, reject) => {
+      const abort = () => reject(new AbortError("The permission request was withdrawn."));
+      if (signal.aborted) abort();
+      else signal.addEventListener("abort", abort, { once: true });
+    });
+    aborted.catch(() => {});
+    let answer: Promise<unknown>;
+    let withdraw = () => {};
+    if (policy === "display") {
+      const display = this.agent.displayManager;
+      const request = { renderer: "permission_request", toolName: tool.name, toolInput: input };
+      answer = display.pushAndWait({ renderer: "permission_request", input: request });
+      const slot = display.stack.find((entry) => entry.input === request);
+      withdraw = () => {
+        if (!slot) return;
+        display.reject(slot.id, new AbortError("The permission request was withdrawn."));
+        display.removeSlot(slot.id);
+      };
+    } else {
+      answer = Promise.resolve(policy({ tool: tool.name, input, signal }));
+    }
+    answer.catch(() => {});
+    let allowed: boolean;
+    try {
+      allowed = Boolean(await Promise.race([answer, aborted]));
+    } catch (error) {
+      withdraw();
+      throw error;
+    }
     await store.setPermission?.(tool.name, allowed ? "granted" : "denied", input);
     return allowed;
+  }
+
+  /** Send now, or once the provider session is back if it's reconnecting. */
+  private deliver(epoch: number, send: () => void): void {
+    if (epoch !== this.epoch) return;
+    if (!this.adapter.isOpen) {
+      this.deferred.push({ epoch, send });
+      return;
+    }
+    try {
+      send();
+    } catch (error) {
+      this.emit("error", asError(error));
+    }
+  }
+
+  private flushDeferred(): void {
+    for (const { epoch, send } of this.deferred.splice(0)) this.deliver(epoch, send);
   }
 
   private async startTurn(): Promise<void> {
     if (this.cfg.beforeTurn) {
       try {
         await this.cfg.beforeTurn();
-        this.syncSession();
+        await this.syncSession();
       } catch (error) {
         this.emit("error", asError(error));
       }
@@ -751,23 +864,26 @@ export class RealtimeSession extends EventEmitter<RealtimeSessionEvents> {
    * new tools mid-call (discovery, MCP refresh) and modules rewrite the prompt
    * as state moves (a goal's `configure`); the provider has to hear about it.
    */
-  private syncSession(): void {
-    const instructions = this.cfg.instructions ?? this.agent.getSystemPrompt();
-    if (instructions !== this.instructions) {
-      this.instructions = instructions;
-      this.adapter.setInstructions(instructions);
+  private async syncSession(): Promise<void> {
+    const applied: Array<void | Promise<void>> = [];
+    try {
+      const instructions = this.cfg.instructions ?? this.agent.getSystemPrompt();
+      if (instructions !== this.instructions) {
+        this.instructions = instructions;
+        applied.push(this.adapter.setInstructions(instructions));
+      }
+      const tools = this.exposedTools;
+      const next = signature(tools);
+      if (next !== this.toolSignature) {
+        this.toolSignature = next;
+        applied.push(this.adapter.setTools(tools));
+      }
+      // A provider that reconnects to apply a change settles once the new
+      // session is open.
+      await Promise.all(applied);
+    } catch (error) {
+      this.emit("error", asError(error));
     }
-    this.syncTools();
-  }
-
-  /** Re-register tools with the provider if the agent's set changed. */
-  private syncTools(): boolean {
-    const tools = this.exposedTools;
-    const next = signature(tools);
-    if (next === this.toolSignature) return false;
-    this.toolSignature = next;
-    this.adapter.setTools(tools);
-    return true;
   }
 
   // ── context ───────────────────────────────────────────────────────────────
@@ -806,7 +922,9 @@ export class RealtimeSession extends EventEmitter<RealtimeSessionEvents> {
     if (store.getResolvedInboxItems && store.updateInboxItem) {
       const resolved = await store.getResolvedInboxItems();
       if (epoch !== this.epoch) return;
-      if (resolved.length) {
+      // Only consumed once it has actually reached a provider session; a
+      // reconnect in between leaves it resolved for the next refresh.
+      if (resolved.length && this.adapter.isOpen && epoch === this.epoch) {
         const inbox = resolvedInboxText(resolved);
         this.persist([{ sender: "user", framework_context: "inbox", text: inbox }]);
         this.adapter.inject({ kind: "context", text: inbox });
@@ -830,6 +948,7 @@ export class RealtimeSession extends EventEmitter<RealtimeSessionEvents> {
     }
 
     const snapshot = parts.join("\n\n");
+    if (!this.adapter.isOpen || epoch !== this.epoch) return;
     if (!force && snapshot === this.lastContext) return;
     if (!snapshot && !this.lastContext) {
       this.lastContext = snapshot;
@@ -846,7 +965,7 @@ export class RealtimeSession extends EventEmitter<RealtimeSessionEvents> {
 
   /** Re-send the prompt and tools — after changing them on the agent. */
   async refreshSession(): Promise<void> {
-    this.syncSession();
+    await this.syncSession();
     await this.refreshContext();
   }
 
@@ -876,56 +995,62 @@ export class RealtimeSession extends EventEmitter<RealtimeSessionEvents> {
     const config = this.cfg.compaction || {};
     const instructions = config.instructions ?? DEFAULT_COMPACTION_INSTRUCTIONS;
     const keep = config.keepRecent ?? 6;
-    await this.writes;
-    await this.notify("compaction_start", { current_token_consumption: this.contextTokens });
+    // Everything said from here on is written after the summary, where the
+    // split at the summary keeps it visible.
+    this.holds.add("compaction");
+    try {
+      await this.writes;
+      await this.notify("compaction_start", { current_token_consumption: this.contextTokens });
 
-    const history = await this.storedHistory({ maxItems: 400, maxChars: 200_000 });
-    let summary = "";
-    let tokensIn = 0;
-    let tokensOut = 0;
-    if (caps.summarize && this.adapter.summarize) {
-      summary = await this.adapter.summarize(instructions);
-    } else if (config.model) {
-      const messages: Message[] = this.cfg.persist === false
-        ? this.log.map((item) => ({ sender: item.role === "assistant" ? "agent" : "user", text: item.text }))
-        : await new Context(this.agent.store).getMessages();
-      config.model.setSystemPrompt(this.instructions);
-      const result = await config.model.prompt(
-        { messages: [...messages, { sender: "user", text: instructions, is_compaction_request: true }] },
-        async () => {},
-      );
-      summary = result.messages.filter((m) => m.sender === "agent").map((m) => m.text).join("\n");
-      tokensIn = result.tokens_in;
-      tokensOut = result.tokens_out;
+      const history = await this.storedHistory({ maxItems: 400, maxChars: 200_000 });
+      let summary = "";
+      let tokensIn = 0;
+      let tokensOut = 0;
+      if (caps.summarize && this.adapter.summarize) {
+        summary = await this.adapter.summarize(instructions);
+      } else if (config.model) {
+        const messages: Message[] = this.cfg.persist === false
+          ? this.log.map((item) => ({ sender: item.role === "assistant" ? "agent" : "user", text: item.text }))
+          : await new Context(this.agent.store).getMessages();
+        config.model.setSystemPrompt(this.instructions);
+        const result = await config.model.prompt(
+          { messages: [...messages, { sender: "user", text: instructions, is_compaction_request: true }] },
+          async () => {},
+        );
+        summary = result.messages.filter((m) => m.sender === "agent").map((m) => m.text).join("\n");
+        tokensIn = result.tokens_in;
+        tokensOut = result.tokens_out;
+      }
+      // No model to write it: the transcript itself. The summary covers the
+      // whole conversation — the store keeps only what follows it.
+      if (!summary.trim()) summary = renderTranscript(history) || "No earlier conversation.";
+
+      const outcome = await this.adapter.compact({ summary, recent: history.slice(-keep) });
+      if (outcome === "unsupported") return false;
+
+      const summaryMessage: Message = {
+        sender: "user",
+        text: `[Conversation summary from compaction]\n\n${summary}\n\n[End of summary - the conversation continues from here]`,
+        is_compaction: true,
+      };
+      if (this.cfg.persist !== false) this.write([summaryMessage]);
+      await this.writes;
+      if (this.cfg.persist !== false) await this.agent.store.resetCounters();
+      this.log = this.log.slice(-keep);
+      this.contextTokens = 0;
+      await this.notify("compaction_end", {
+        current_token_consumption: 0,
+        summary_message: summaryMessage,
+        consumption: { tokens_in: tokensIn, tokens_out: tokensOut },
+      });
+      this.emit("compacted", summary, outcome);
+      // In place, the snapshot item went with everything else. A reconnect
+      // re-sent it when the new session opened.
+      await this.refreshContext(outcome === "in_place");
+      return true;
+    } finally {
+      this.releaseHold("compaction");
     }
-    if (!summary.trim()) {
-      // No model to write it: the transcript itself, minus what is kept verbatim.
-      summary = renderTranscript(history.slice(0, Math.max(0, history.length - keep))) || "No earlier conversation.";
-    }
-
-    const outcome = await this.adapter.compact({ summary, recent: history.slice(-keep) });
-    if (outcome === "unsupported") return false;
-
-    const summaryMessage: Message = {
-      sender: "user",
-      text: `[Conversation summary from compaction]\n\n${summary}\n\n[End of summary - the conversation continues from here]`,
-      is_compaction: true,
-    };
-    this.persist([summaryMessage]);
-    await this.writes;
-    if (this.cfg.persist !== false) await this.agent.store.resetCounters();
-    this.log = this.log.slice(-keep);
-    this.contextTokens = 0;
-    await this.notify("compaction_end", {
-      current_token_consumption: 0,
-      summary_message: summaryMessage,
-      consumption: { tokens_in: tokensIn, tokens_out: tokensOut },
-    });
-    this.emit("compacted", summary, outcome);
-    // An in-place compaction removed the snapshot item; a reconnect started
-    // without one. Either way the model needs the current state again.
-    await this.refreshContext(true);
-    return true;
   }
 
   // ── host API ──────────────────────────────────────────────────────────────

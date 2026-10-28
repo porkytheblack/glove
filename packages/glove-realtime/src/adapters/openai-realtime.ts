@@ -43,6 +43,7 @@ import {
   defaultSocket,
   int16ToBase64,
   mediaBase64,
+  OpenCancelled,
   type WebSocketLike,
 } from "../wire";
 
@@ -127,6 +128,17 @@ export class OpenAIRealtimeAdapter extends AdapterBase implements RealtimeAdapte
 
   private ws: WebSocketLike | null = null;
   private opened = false;
+  private cancelOpen: ((error: Error) => void) | null = null;
+  /**
+   * One response can call several tools. Answering each result with its own
+   * `response.create` starts a reply before the other results exist, and the
+   * next create collides with it (`conversation_already_has_active_response`).
+   * So results are grouped by the response that asked for them, and the
+   * conversation continues once — after that response is done and every
+   * result is in.
+   */
+  private toolBatches = new Map<string, { calls: Set<string>; results: Set<string>; done: boolean; respond: boolean }>();
+  private callBatch = new Map<string, string>();
   private expectClose = false;
   private generation = 0;
   /** Conversation items in order, as the server reported them. */
@@ -158,72 +170,91 @@ export class OpenAIRealtimeAdapter extends AdapterBase implements RealtimeAdapte
     this.expectClose = false;
     this.items = [];
     this.keyed.clear();
+    this.toolBatches.clear();
+    this.callBatch.clear();
 
-    const token = await this.cfg.getToken();
-    const base = (this.cfg.url ?? "wss://api.openai.com/v1/realtime").replace(/\/$/, "");
-    const url = `${base}?model=${encodeURIComponent(this.model)}`;
-    const protocols = ["realtime", `openai-insecure-api-key.${token}`];
-    const ws = this.cfg.socketFactory ? this.cfg.socketFactory(url, protocols) : defaultSocket(url, protocols);
-    this.ws = ws;
-
-    let acknowledge!: () => void;
-    let refuse!: (error: Error) => void;
-    const accepted = new Promise<void>((resolve, reject) => {
-      acknowledge = resolve;
-      refuse = reject;
-    });
+    // close() while connecting rejects this open at once, instead of leaving
+    // a socket nobody listens to (or a caller waiting out the timeout).
+    let cancel!: (error: Error) => void;
+    const cancelled = new Promise<never>((_, reject) => { cancel = reject; });
+    cancelled.catch(() => {});
+    this.cancelOpen = cancel;
+    let ws: WebSocketLike | undefined;
     let pending = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
 
-    ws.addEventListener("message", (ev: { data: unknown }) => {
-      if (generation !== this.generation) return;
-      decodeFrame(ev.data, (text) => {
-        let event: Wire;
-        try {
-          event = JSON.parse(text);
-        } catch {
-          return;
-        }
-        if (pending && event.type === "session.updated") {
-          pending = false;
-          acknowledge();
-          return;
-        }
-        if (pending && event.type === "error") {
-          pending = false;
-          refuse(new Error(`OpenAI Realtime rejected the session: ${event.error?.message ?? "unknown error"}`));
-          return;
-        }
-        this.handle(event);
-      });
-    });
-    ws.addEventListener("close", (ev: { code?: number; reason?: string }) => {
-      if (generation !== this.generation) return;
-      if (pending) {
-        pending = false;
-        refuse(new Error(`OpenAI Realtime closed during setup (${ev?.code ?? "?"})${ev?.reason ? `: ${ev.reason}` : ""}`));
-      }
-      this.release(ev?.reason || (ev?.code !== undefined ? `closed (${ev.code})` : undefined));
-    });
-    ws.addEventListener("error", () => {
-      if (generation === this.generation && this.opened) this.fail("OpenAI Realtime socket error");
-    });
-
-    const timeoutMs = this.cfg.connectTimeoutMs ?? 15_000;
     try {
-      await awaitOpen(ws, timeoutMs, "OpenAI Realtime");
+      const token = await Promise.race([Promise.resolve(this.cfg.getToken()), cancelled]);
+      const base = (this.cfg.url ?? "wss://api.openai.com/v1/realtime").replace(/\/$/, "");
+      const url = `${base}?model=${encodeURIComponent(this.model)}`;
+      const protocols = ["realtime", `openai-insecure-api-key.${token}`];
+      const socket = this.cfg.socketFactory ? this.cfg.socketFactory(url, protocols) : defaultSocket(url, protocols);
+      ws = socket;
+      this.ws = socket;
+
+      let acknowledge!: () => void;
+      let refuse!: (error: Error) => void;
+      const accepted = new Promise<void>((resolve, reject) => {
+        acknowledge = resolve;
+        refuse = reject;
+      });
+
+      socket.addEventListener("message", (ev: { data: unknown }) => {
+        if (generation !== this.generation) return;
+        decodeFrame(ev.data, (text) => {
+          let event: Wire;
+          try {
+            event = JSON.parse(text);
+          } catch {
+            return;
+          }
+          if (pending && event.type === "session.updated") {
+            pending = false;
+            acknowledge();
+            return;
+          }
+          if (pending && event.type === "error") {
+            pending = false;
+            refuse(new Error(`OpenAI Realtime rejected the session: ${event.error?.message ?? "unknown error"}`));
+            return;
+          }
+          this.handle(event);
+        });
+      });
+      socket.addEventListener("close", (ev: { code?: number; reason?: string }) => {
+        if (generation !== this.generation) return;
+        if (pending) {
+          // Setup failed: open() rejects. It never opened, so there is no
+          // session to report closed.
+          pending = false;
+          refuse(new Error(`OpenAI Realtime closed during setup (${ev?.code ?? "?"})${ev?.reason ? `: ${ev.reason}` : ""}`));
+          return;
+        }
+        this.release(ev?.reason || (ev?.code !== undefined ? `closed (${ev.code})` : undefined));
+      });
+      socket.addEventListener("error", () => {
+        if (generation === this.generation && this.opened) this.fail("OpenAI Realtime socket error");
+      });
+
+      const timeoutMs = this.cfg.connectTimeoutMs ?? 15_000;
+      await Promise.race([awaitOpen(socket, timeoutMs, "OpenAI Realtime"), cancelled]);
       this.send({ type: "session.update", session: this.sessionPayload(this.spec, true) });
       await Promise.race([
         accepted,
-        new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error("OpenAI Realtime session setup timed out")), timeoutMs),
-        ),
+        cancelled,
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error("OpenAI Realtime session setup timed out")), timeoutMs);
+        }),
       ]);
     } catch (error) {
       pending = false;
-      ++this.generation;
-      this.ws = null;
-      try { ws.close(); } catch { /* already closed */ }
+      if (generation === this.generation) ++this.generation;
+      if (this.ws === ws) this.ws = null;
+      try { ws?.close(); } catch { /* already closed */ }
       throw asError(error);
+    } finally {
+      clearTimeout(timer);
+      if (this.cancelOpen === cancel) this.cancelOpen = null;
     }
 
     this.opened = true;
@@ -232,6 +263,12 @@ export class OpenAIRealtimeAdapter extends AdapterBase implements RealtimeAdapte
   }
 
   async close(): Promise<void> {
+    if (this.cancelOpen) {
+      const cancel = this.cancelOpen;
+      this.cancelOpen = null;
+      ++this.generation;
+      cancel(new OpenCancelled("OpenAI Realtime"));
+    }
     if (!this.ws) return;
     this.expectClose = true;
     const ws = this.ws;
@@ -252,6 +289,8 @@ export class OpenAIRealtimeAdapter extends AdapterBase implements RealtimeAdapte
     for (const pending of this.outOfBand.values()) pending.reject(new Error("OpenAI Realtime session closed"));
     this.outOfBand.clear();
     this.outOfBandResponses.clear();
+    this.toolBatches.clear();
+    this.callBatch.clear();
     if (wasOpen) this.emit({ type: "session.closed", expected, ...(reason ? { reason } : {}) });
   }
 
@@ -318,7 +357,24 @@ export class OpenAIRealtimeAdapter extends AdapterBase implements RealtimeAdapte
         output: typeof result.output === "string" ? result.output : (JSON.stringify(result.output) ?? "null"),
       },
     });
-    if (result.respond !== false && result.scheduling !== "silent") this.send({ type: "response.create" });
+    const respond = result.respond !== false && result.scheduling !== "silent";
+    const batchId = this.callBatch.get(result.callId);
+    const batch = batchId ? this.toolBatches.get(batchId) : undefined;
+    if (!batchId || !batch) {
+      if (respond) this.send({ type: "response.create" });
+      return;
+    }
+    this.callBatch.delete(result.callId);
+    batch.results.add(result.callId);
+    batch.respond ||= respond;
+    this.continueBatch(batchId);
+  }
+
+  private continueBatch(responseId: string): void {
+    const batch = this.toolBatches.get(responseId);
+    if (!batch || !batch.done || batch.results.size < batch.calls.size) return;
+    this.toolBatches.delete(responseId);
+    if (batch.respond) this.send({ type: "response.create" });
   }
 
   respond(opts?: { instructions?: string }): void {
@@ -363,6 +419,9 @@ export class OpenAIRealtimeAdapter extends AdapterBase implements RealtimeAdapte
         response: {
           conversation: "none",
           output_modalities: ["text"],
+          // A summary that turned into a function call would be filtered
+          // out and come back empty.
+          tool_choice: "none",
           instructions,
           metadata: { glove_request: tag },
         },
@@ -550,7 +609,18 @@ export class OpenAIRealtimeAdapter extends AdapterBase implements RealtimeAdapte
         this.text = "";
         break;
 
-      case "response.function_call_arguments.done":
+      case "response.function_call_arguments.done": {
+        const responseId = typeof e.response_id === "string" ? e.response_id : undefined;
+        const callId = String(e.call_id ?? "");
+        if (responseId && callId) {
+          let batch = this.toolBatches.get(responseId);
+          if (!batch) {
+            batch = { calls: new Set(), results: new Set(), done: false, respond: false };
+            this.toolBatches.set(responseId, batch);
+          }
+          batch.calls.add(callId);
+          this.callBatch.set(callId, responseId);
+        }
         this.emit({
           type: "tool.call",
           callId: String(e.call_id ?? ""),
@@ -558,6 +628,7 @@ export class OpenAIRealtimeAdapter extends AdapterBase implements RealtimeAdapte
           arguments: String(e.arguments ?? "{}"),
         });
         break;
+      }
 
       case "response.done":
         this.onResponseDone(e.response ?? {});
@@ -599,6 +670,10 @@ export class OpenAIRealtimeAdapter extends AdapterBase implements RealtimeAdapte
       : response.status === "cancelled" || response.status === "failed" || response.status === "incomplete" ? response.status
       : "completed";
     if (status === "failed") this.fail(response.status_details?.error?.message ?? "OpenAI Realtime response failed");
+    if (response.id && this.toolBatches.has(String(response.id))) {
+      this.toolBatches.get(String(response.id))!.done = true;
+      this.continueBatch(String(response.id));
+    }
     this.emit({
       type: "response.done",
       status,
