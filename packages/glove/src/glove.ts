@@ -5,7 +5,19 @@
 // how do you achieve undos? include something in the do, that can be undone
 
 import z from "zod";
-import { Agent, ContentPart, Context, Executor, HandOverFunction, Message, ModelAdapter, ModelPromptResult, NotifySubscribersFunction, Observer, PromptMachine, StoreAdapter, SubscriberAdapter, Tool, ToolResultData } from "./core";
+import { AbortError, Agent, AgentFrameworkHooks, ContentPart, Context, Executor, HandOverFunction, Message, ModelAdapter, ModelPromptResult, NotifySubscribersFunction, Observer, PromptMachine, StoreAdapter, SubscriberAdapter, Tool, ToolResultData } from "./core";
+import {
+  AgentEvent,
+  defaultEventFormatter,
+  defaultEventPolicy,
+  escapeXml,
+  EventDisposition,
+  EventFormatter,
+  EventPolicy,
+  EventPolicyState,
+  EventQueueAdapter,
+  MemoryEventQueue,
+} from "./events";
 import { MemoryStore } from "./utils";
 import { createTaskTool } from "./tools/task-tool";
 import { createInboxTool } from "./tools/inbox-tool";
@@ -69,15 +81,50 @@ export interface GloveFoldArgs<I> {
   generateToolSummary?: (summaryArgs?: unknown) => Promise<string>
 }
 
-/** Read current external state before each model iteration. Not persisted as chat history. */
+/** Read current external state for the model. How it reaches the model is the provider's `delivery`. */
 export type RuntimeContextValue = string | ContentPart[] | null | undefined;
 export type RuntimeContextProvider = (signal?: AbortSignal) => RuntimeContextValue | Promise<RuntimeContextValue>;
 
+/**
+ * - `"iteration"` (default): re-read before every model call, including
+ *   between tool steps, and appended transiently at the input tail. Use it
+ *   for state a tool can change mid-request (a browser screenshot).
+ * - `"request"`: read once per request and frozen transiently just before the
+ *   request's message, so the prefix is identical on every tool step.
+ * - `"history"`: read once per request and saved to history before the
+ *   request's message — only when the value differs from the one this
+ *   provider saved last. It then ages into the background like any other
+ *   message, and the model can reason over it without a tool call. After
+ *   compaction removes it, the next request saves it again. Text only.
+ */
+export type RuntimeContextDelivery = "iteration" | "request" | "history";
+
+export interface RuntimeContextOptions {
+  delivery?: RuntimeContextDelivery;
+  /**
+   * Stable name for this provider's saved messages. Required for `"history"`:
+   * the saved text is wrapped in `<context key="…">`, which is how the last
+   * saved value is found again with any store, including after a restart.
+   */
+  key?: string;
+}
+
 export interface IGloveRunnable {
-  /** Append transient context at the model-input tail; returns an unregister function. */
-  addContextProvider: (provider: RuntimeContextProvider) => () => void
-  /** Resolve live snapshots for external runtimes such as realtime voice. */
-  getRuntimeContext: (signal?: AbortSignal) => Promise<Array<Message>>
+  /** Supply context for the model; `options.delivery` decides when and how. Returns an unregister function. */
+  addContextProvider: (provider: RuntimeContextProvider, options?: RuntimeContextOptions) => () => void
+  /**
+   * Resolve current snapshots without saving anything, for external runtimes
+   * such as realtime voice. Pass `delivery` to read only those providers.
+   */
+  getRuntimeContext: (signal?: AbortSignal, delivery?: RuntimeContextDelivery) => Promise<Array<Message>>
+  /**
+   * Deliver a spontaneous event from a third party. While a turn runs it joins
+   * at the next tool-step boundary; while idle the event policy wakes the
+   * agent, defers it to the next request, or drops it. Saved to history once.
+   */
+  emitEvent: (event: AgentEvent) => Promise<EventDisposition>
+  /** Tell the event policy a user is present (typing, a live voice session). */
+  notifyUserActivity: () => void
   processRequest: (request: string | ContentPart[], signal?: AbortSignal) => Promise<ModelPromptResult | Message>
   setModel: (model: ModelAdapter) => void
   setSystemPrompt: (prompt: string) => void
@@ -125,7 +172,7 @@ export interface IGloveRunnable {
 
 
 export interface IGloveBuilder {
-  addContextProvider: (provider: RuntimeContextProvider) => () => void,
+  addContextProvider: (provider: RuntimeContextProvider, options?: RuntimeContextOptions) => () => void,
   fold: <I>(args: GloveFoldArgs<I>) => IGloveBuilder,
   replaceTools: (
     previousNames: Iterable<string>,
@@ -160,8 +207,68 @@ interface GloveConfig {
   maxRetries?: number,
   maxConsecutiveErrors?: number,
   compaction_config: CompactionConfig,
-  enableToolResultSummary?: boolean
+  enableToolResultSummary?: boolean,
+  events?: GloveEventsConfig
 }
+
+export interface GloveEventsConfig {
+  /** Where events wait. Defaults to an in-memory queue. */
+  queue?: EventQueueAdapter,
+  /** What an idle agent does with an event. Defaults to {@link defaultEventPolicy}. */
+  policy?: EventPolicy,
+  /** How queued events become a message. Defaults to escaped `<event>` XML. */
+  formatter?: EventFormatter,
+  /** How long `notifyUserActivity` counts the user as present. Default 15 000 ms. */
+  userActivityWindowMs?: number,
+  /** Deferred events wake the agent after this long without a request. Default 60 000 ms; `Infinity` holds them. */
+  deferTimeoutMs?: number,
+}
+
+interface RegisteredContextProvider {
+  delivery: RuntimeContextDelivery
+  key?: string
+}
+
+const CONTEXT_DELIVERIES = new Set<RuntimeContextDelivery>(["iteration", "request", "history"])
+
+function contextOpenTag(key: string): string {
+  return `<context key="${escapeXml(key)}"`
+}
+
+/** Most recent saved message for a history-delivered provider, found by its wrapper. */
+function lastSavedContext(history: ReadonlyArray<Message>, key: string): Message | undefined {
+  const open = contextOpenTag(key)
+  for (let i = history.length - 1; i >= 0; i--) {
+    const message = history[i]
+    if (message.sender === "user" && message.text?.startsWith(open) &&
+        (message.text.length === open.length || message.text[open.length] === ">" || message.text[open.length] === " ")) {
+      return message
+    }
+  }
+  return undefined
+}
+
+function isExpired(event: AgentEvent, now = Date.now()): boolean {
+  if (!event.expiresAt) return false
+  const at = Date.parse(event.expiresAt)
+  return Number.isFinite(at) && at <= now
+}
+
+/** Wait for the turns ahead; reject at once if this request is aborted while it waits. */
+function waitForTurn(previous: Promise<void>, signal?: AbortSignal): Promise<void> {
+  if (!signal) return previous
+  if (signal.aborted) return Promise.reject(signal.reason ?? new AbortError())
+  return new Promise<void>((resolve, reject) => {
+    const onAbort = () => reject(signal.reason ?? new AbortError())
+    signal.addEventListener("abort", onAbort, { once: true })
+    previous.then(() => {
+      signal.removeEventListener("abort", onAbort)
+      resolve()
+    })
+  })
+}
+
+const CONSUMED_EVENT_MEMORY = 1000
 
 
 export class Glove implements IGloveBuilder, IGloveRunnable {
@@ -184,8 +291,22 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
   private inboxTool: Tool<unknown> | null = null
 
   private subscribers: Array<SubscriberAdapter> = []
-  private contextProviders = new Set<RuntimeContextProvider>()
+  private contextProviders = new Map<RuntimeContextProvider, RegisteredContextProvider>()
   private compactionConfig: CompactionConfig
+
+  // Turns (requests and event wakes) run one at a time, in arrival order.
+  private turnTail: Promise<void> = Promise.resolve()
+  private pendingTurns = 0
+
+  private eventQueue: EventQueueAdapter
+  private eventPolicy: EventPolicy
+  private eventFormatter: EventFormatter
+  private userActivityWindowMs: number
+  private deferTimeoutMs: number
+  private lastUserActivity = Number.NEGATIVE_INFINITY
+  private consumedEventIds = new Set<string>()
+  private deferTimer: ReturnType<typeof setTimeout> | undefined
+  private dispatching = false
 
   private store_defined = false
   private built = false
@@ -201,6 +322,11 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
     this._displayManager = config.displayManager
     this.serverMode = config.serverMode ?? false
     this.compactionConfig = config.compaction_config
+    this.eventQueue = config.events?.queue ?? new MemoryEventQueue()
+    this.eventPolicy = config.events?.policy ?? defaultEventPolicy
+    this.eventFormatter = config.events?.formatter ?? defaultEventFormatter
+    this.userActivityWindowMs = config.events?.userActivityWindowMs ?? 15_000
+    this.deferTimeoutMs = config.events?.deferTimeoutMs ?? 60_000
 
     this.context = new Context(this.store)
     this.promptMachine = new PromptMachine(config.model, this.context,config.systemPrompt, config.enableToolResultSummary)
@@ -210,15 +336,28 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
 
     this.observer = new Observer(this.store, this.context, this.promptMachine, this.compactionConfig?.compaction_instructions, this.compactionConfig?.max_turns, this.compactionConfig?.compaction_context_limit)
 
-    this.agent = new Agent(
+    this.agent = this.createAgent()
+
+  }
+
+  private createAgent(): Agent {
+    const framework: AgentFrameworkHooks = {
+      beforeRequest: async (history, signal) => [
+        ...await this.resolveHistoryContext(history, signal),
+        ...await this.drainEvents("request"),
+      ],
+      frozenContext: (signal) => this.getRuntimeContext(signal, "request"),
+      drainEvents: () => this.drainEvents("loop"),
+    }
+    return new Agent(
       this.store,
       this.executor,
       this.context,
       this.observer,
       this.promptMachine,
-      (signal) => this.getRuntimeContext(signal)
+      (signal) => this.getRuntimeContext(signal, "iteration"),
+      framework,
     )
-
   }
 
   private notifyExtensionEvent: NotifySubscribersFunction = async (event_name, event_data) => {
@@ -227,34 +366,296 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
     );
   };
 
-  addContextProvider(provider: RuntimeContextProvider): () => void {
-    this.contextProviders.add(provider)
+  addContextProvider(provider: RuntimeContextProvider, options?: RuntimeContextOptions): () => void {
+    const delivery = options?.delivery ?? "iteration"
+    if (!CONTEXT_DELIVERIES.has(delivery)) {
+      throw new Error(`Unknown context delivery "${delivery}". Use "iteration", "request" or "history".`)
+    }
+    const key = options?.key
+    if (key !== undefined && (typeof key !== "string" || !key.trim())) {
+      throw new Error("Context provider key must be a non-empty string.")
+    }
+    if (delivery === "history") {
+      if (!key) throw new Error(`History-delivered context needs a stable key so its saved value can be found again.`)
+      for (const [other, registered] of this.contextProviders) {
+        if (other !== provider && registered.delivery === "history" && registered.key === key) {
+          throw new Error(`A history-delivered context provider with key "${key}" is already registered.`)
+        }
+      }
+    }
+    this.contextProviders.set(provider, { delivery, ...(key ? { key } : {}) })
     return () => { this.contextProviders.delete(provider) }
   }
 
-  async getRuntimeContext(signal?: AbortSignal): Promise<Array<Message>> {
+  async getRuntimeContext(signal?: AbortSignal, delivery?: RuntimeContextDelivery): Promise<Array<Message>> {
     const messages: Array<Message> = []
-    for (const provider of this.contextProviders) {
+    let read = 0
+    for (const [provider, registered] of this.contextProviders) {
+      if (delivery && registered.delivery !== delivery) continue
+      read++
       signal?.throwIfAborted()
       const value = await provider(signal)
       signal?.throwIfAborted()
+      const keyed = registered.key ? { context_key: registered.key } : {}
       if (typeof value === "string" && value) {
-        messages.push({ sender: "user", text: value, framework_context: "runtime" })
+        messages.push({ sender: "user", text: value, framework_context: "runtime", transient: true, ...keyed })
       } else if (Array.isArray(value) && value.length) {
         const content = structuredClone(value)
         const text = content.filter(part => part.type === "text").map(part => part.text ?? "").join("\n")
-        messages.push({ sender: "user", text, content, framework_context: "runtime" })
+        messages.push({ sender: "user", text, content, framework_context: "runtime", transient: true, ...keyed })
       }
     }
-    if (this.contextProviders.size) {
+    if (read) {
       // Media is transient model input, not a telemetry payload. Keep text
       // and media kinds observable without persisting bytes or signed URLs.
       const trace = messages.map(message => ({ ...message, ...(message.content ? {
         content: message.content.map(part => part.type === "text" ? part : { type: "text" as const, text: `[${part.type} observation]` }),
       } : {}) }))
-      await this.notifyExtensionEvent("runtime_context", { messages: structuredClone(trace) })
+      await this.notifyExtensionEvent("runtime_context", { messages: structuredClone(trace), ...(delivery ? { delivery } : {}) })
     }
     return messages
+  }
+
+  /**
+   * Resolve history-delivered providers and return the messages to save: a
+   * provider's value is saved only when it differs from the last one it
+   * saved in the visible (post-compaction) history, and a provider that goes
+   * empty after saving something saves a cleared marker once.
+   */
+  private async resolveHistoryContext(history: ReadonlyArray<Message>, signal?: AbortSignal): Promise<Array<Message>> {
+    const saved: Array<Message> = []
+    let read = 0
+    for (const [provider, registered] of this.contextProviders) {
+      if (registered.delivery !== "history" || !registered.key) continue
+      read++
+      signal?.throwIfAborted()
+      const value = await provider(signal)
+      signal?.throwIfAborted()
+      let body: string
+      if (typeof value === "string") {
+        body = value
+      } else if (Array.isArray(value)) {
+        if (value.some((part) => part.type !== "text")) {
+          throw new Error(`History-delivered context "${registered.key}" must be text; media stays transient (use "iteration" or "request").`)
+        }
+        body = value.map((part) => part.text ?? "").join("\n")
+      } else {
+        body = ""
+      }
+      const open = contextOpenTag(registered.key)
+      const previous = lastSavedContext(history, registered.key)
+      const text = body.trim()
+        ? `${open}>\n${body}\n</context>`
+        : previous && !previous.text.startsWith(`${open} status="cleared"`) ? `${open} status="cleared" />` : null
+      if (text === null || previous?.text === text) continue
+      saved.push({ sender: "user", text, framework_context: "runtime", context_key: registered.key })
+    }
+    if (read) {
+      await this.notifyExtensionEvent("runtime_context", { messages: structuredClone(saved), delivery: "history" })
+    }
+    return saved
+  }
+
+  // ─── Spontaneous events ──────────────────────────────────────────────────
+
+  async emitEvent(event: AgentEvent): Promise<EventDisposition> {
+    if (!this.built) throw new Error("Call build before emitEvent")
+    if (!event || typeof event.id !== "string" || !event.id.trim()) throw new Error("Event id must be a non-empty string.")
+    if (typeof event.source !== "string" || !event.source.trim()) throw new Error("Event source must be a non-empty string.")
+    const empty = typeof event.content === "string" ? !event.content.trim() : !Array.isArray(event.content) || event.content.length === 0
+    if (empty) throw new Error("Event content must not be empty.")
+
+    const received: AgentEvent = { ...structuredClone(event), receivedAt: event.receivedAt ?? new Date().toISOString() }
+    const report = async (disposition: EventDisposition) => {
+      await this.notifyExtensionEvent("event_received", {
+        id: received.id, source: received.source, ...(received.kind ? { kind: received.kind } : {}), disposition,
+      })
+      return disposition
+    }
+
+    if (this.consumedEventIds.has(received.id)) return report("duplicate")
+    if (isExpired(received)) {
+      await this.notifyExtensionEvent("event_dropped", { id: received.id, reason: "expired" })
+      return report("dropped")
+    }
+
+    // A turn is running or waiting: the event joins it at the next boundary.
+    if (this.pendingTurns > 0) {
+      const pushed = await this.eventQueue.push(received)
+      // The turn may have finished while the push was in flight; make sure
+      // the idle path sees the event rather than leaving it stranded.
+      if (pushed && this.pendingTurns === 0) this.dispatchIdleQuietly()
+      return report(pushed ? "queued" : "duplicate")
+    }
+
+    const queued = (await this.eventQueue.peek()).length
+    const decision = this.eventPolicy(received, this.policyState(queued))
+    if (decision === "drop") {
+      this.rememberConsumed([received.id])
+      await this.notifyExtensionEvent("event_dropped", { id: received.id, reason: "policy" })
+      return report("dropped")
+    }
+    if (!await this.eventQueue.push(received)) return report("duplicate")
+    if (decision === "wake") {
+      this.startWake()
+      return report("woke")
+    }
+    this.armDeferTimer()
+    return report("deferred")
+  }
+
+  notifyUserActivity(): void {
+    this.lastUserActivity = Date.now()
+  }
+
+  private policyState(queued: number): EventPolicyState {
+    return {
+      looping: this.pendingTurns > 0,
+      userActive: Date.now() - this.lastUserActivity < this.userActivityWindowMs,
+      queued,
+    }
+  }
+
+  private rememberConsumed(ids: ReadonlyArray<string>) {
+    for (const id of ids) {
+      this.consumedEventIds.delete(id)
+      this.consumedEventIds.add(id)
+    }
+    while (this.consumedEventIds.size > CONSUMED_EVENT_MEMORY) {
+      this.consumedEventIds.delete(this.consumedEventIds.values().next().value!)
+    }
+  }
+
+  /** Take everything queued, reporting and discarding what expired while it waited. */
+  private async takeLiveEvents(): Promise<Array<AgentEvent>> {
+    const taken = await this.eventQueue.take()
+    this.clearDeferTimer()
+    const now = Date.now()
+    const live: Array<AgentEvent> = []
+    for (const event of taken) {
+      if (isExpired(event, now)) {
+        this.rememberConsumed([event.id])
+        await this.notifyExtensionEvent("event_dropped", { id: event.id, reason: "expired" })
+      } else {
+        live.push(event)
+      }
+    }
+    return live
+  }
+
+  private async drainEvents(phase: "loop" | "request"): Promise<Array<Message>> {
+    const events = await this.takeLiveEvents()
+    if (!events.length) return []
+    const ids = events.map((event) => event.id)
+    this.rememberConsumed(ids)
+    const message = this.eventFormatter(events, phase)
+    await this.notifyExtensionEvent("event_injected", { ids, phase })
+    return [message]
+  }
+
+  /**
+   * Background dispatch has no caller to report to. If a custom queue or
+   * policy throws here, the events stay queued and the next request drains them.
+   */
+  private dispatchIdleQuietly() {
+    this.dispatchIdle().catch(() => {})
+  }
+
+  /** Decide what to do with events waiting while no turn runs. */
+  private async dispatchIdle(): Promise<void> {
+    if (this.pendingTurns > 0 || this.dispatching || !this.built) return
+    this.dispatching = true
+    try {
+      const now = Date.now()
+      const waiting = await this.eventQueue.peek()
+      const expired = waiting.filter((event) => isExpired(event, now))
+      const live = waiting.filter((event) => !isExpired(event, now))
+      const state = this.policyState(waiting.length)
+      const decisions = live.map((event) => this.eventPolicy(event, state))
+      const dropped = live.filter((_, i) => decisions[i] === "drop")
+      const wake = decisions.includes("wake")
+      if (expired.length || dropped.length) {
+        await this.eventQueue.remove([...expired, ...dropped].map((event) => event.id))
+        this.rememberConsumed([...expired, ...dropped].map((event) => event.id))
+        for (const event of expired) await this.notifyExtensionEvent("event_dropped", { id: event.id, reason: "expired" })
+        for (const event of dropped) await this.notifyExtensionEvent("event_dropped", { id: event.id, reason: "policy" })
+      }
+      if (live.length === dropped.length) {
+        this.clearDeferTimer()
+        return
+      }
+      if (wake) this.startWake()
+      else this.armDeferTimer()
+    } finally {
+      this.dispatching = false
+    }
+  }
+
+  /** Start a turn whose message is the queued events. */
+  private startWake() {
+    this.clearDeferTimer()
+    void this.runTurn(async () => {
+      const events = await this.takeLiveEvents()
+      // A request that ran first may already have taken them.
+      if (!events.length) return
+      const ids = events.map((event) => event.id)
+      this.rememberConsumed(ids)
+      const message = this.eventFormatter(events, "wake")
+      await this.notifyExtensionEvent("event_injected", { ids, phase: "wake" })
+      try {
+        await this.agent.ask(message, this.handOver)
+      } catch (error) {
+        await this.notifyExtensionEvent("event_wake_failed", {
+          ids, message: error instanceof Error ? error.message : String(error),
+        })
+      }
+    }).catch(() => {})
+  }
+
+  private armDeferTimer() {
+    if (this.deferTimer || !Number.isFinite(this.deferTimeoutMs) || this.deferTimeoutMs < 0) return
+    this.deferTimer = setTimeout(() => {
+      this.deferTimer = undefined
+      if (this.pendingTurns > 0) return
+      this.eventQueue.peek().then((waiting) => {
+        if (waiting.length && this.pendingTurns === 0) this.startWake()
+      }).catch(() => {})
+    }, this.deferTimeoutMs)
+    // Never keep a process alive just to deliver a deferred event.
+    ;(this.deferTimer as { unref?: () => void }).unref?.()
+  }
+
+  private clearDeferTimer() {
+    if (this.deferTimer) clearTimeout(this.deferTimer)
+    this.deferTimer = undefined
+  }
+
+  /**
+   * Run one turn at a time. A turn that arrives while another runs waits for
+   * it (and can be aborted while waiting); events left over when the last
+   * turn ends go to the idle path. Calling `processRequest` on the same
+   * Glove from inside one of its own tools would wait on itself.
+   */
+  private runTurn<T>(fn: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+    const contended = this.pendingTurns > 0
+    this.pendingTurns++
+    const previous = this.turnTail
+    let release!: () => void
+    this.turnTail = new Promise<void>((resolve) => { release = resolve })
+    return (async () => {
+      try {
+        if (contended) await waitForTurn(previous, signal)
+        return await fn()
+      } finally {
+        this.pendingTurns--
+        // The next turn starts only after every turn ahead of it finished,
+        // even when this one gave up waiting.
+        void previous.then(() => {
+          release()
+          if (this.pendingTurns === 0) this.dispatchIdleQuietly()
+        })
+      }
+    })()
   }
 
   // Like the task tool: a store that implements the inbox gets
@@ -471,14 +872,7 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
         this.compactionConfig?.compaction_context_limit,
       )
 
-      this.agent = new Agent(
-        this.store,
-        this.executor,
-        this.context,
-        this.observer,
-        this.promptMachine,
-        (signal) => this.getRuntimeContext(signal)
-      )
+      this.agent = this.createAgent()
 
       for (const tool of previousTools) this.executor.registerTool(tool)
 
@@ -525,17 +919,22 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
     return this.promptMachine.systemPrompt;
   }
 
+  private handOver: HandOverFunction = async (input: unknown) => {
+    const obj = input as Record<string, unknown>;
+    const renderer = (typeof obj?.renderer === 'string') ? obj.renderer : 'generic';
+    return this.displayManager.pushAndWait({
+      renderer,
+      input,
+    })
+  }
+
   async processRequest(request: string | ContentPart[], signal?: AbortSignal) {
     if (!this.built) throw new Error("Call build before processRequest");
+    return this.runTurn(() => this.runRequest(request, signal), signal)
+  }
 
-    const handOver: HandOverFunction = async (input: unknown)=> {
-      const obj = input as Record<string, unknown>;
-      const renderer = (typeof obj?.renderer === 'string') ? obj.renderer : 'generic';
-      return this.displayManager.pushAndWait({
-        renderer,
-        input,
-      })
-    }
+  private async runRequest(request: string | ContentPart[], signal?: AbortSignal): Promise<ModelPromptResult | Message> {
+    const handOver = this.handOver
 
     // Pull raw text out of the incoming request so we can scan for tokens.
     let rawText: string;

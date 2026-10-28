@@ -1,5 +1,5 @@
 export { defineFacts, defineGoals, defineForms, foundryGuidanceSubject,
-  type FoundryFactsOptions, type FoundryGoalsOptions, type FoundryFormsOptions,
+  type FoundryFactsOptions, type FoundryGoalsOptions, type FoundryFormsOptions, type FoundryContextProvider,
   type FoundryGuidanceHandles, type FoundryGuidanceScope } from "./guidance.js";
 export {
   EMPTY_AGENT_COMPOSITION,

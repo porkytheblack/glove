@@ -312,6 +312,15 @@ function messagesToTimeline(messages: Message[]): TimelineEntry[] {
     if (msg.sender === "user") {
       // Skip synthetic "tool results" messages
       if (msg.tool_results) continue;
+      // Saved runtime context and delivered events are framework input, not
+      // something the user typed. The text checks cover stores that drop
+      // `framework_context` on the way through.
+      if (
+        msg.framework_context === "runtime" ||
+        msg.framework_context === "event" ||
+        msg.text.startsWith("<context key=\"") ||
+        msg.text.startsWith("<events note=\"")
+      ) continue;
 
       const images = msg.content
         ?.filter((p) => p.type === "image" && p.source)

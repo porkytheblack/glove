@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { IGloveRunnable, RuntimeContextProvider } from "glove-core";
+import type { IGloveRunnable, RuntimeContextOptions, RuntimeContextProvider } from "glove-core";
 import { FactPreparation, FactStore, useFacts, type FactAdapter, type FactScope, type FactInput } from "glove-facts";
 import type { GoalAdapter, GoalProgram, GoalRunner, GoalScope } from "glove-memory/goals";
 import type { FormAdapter, FormRunner } from "glove-memory/forms";
@@ -17,6 +17,14 @@ export interface FoundryFactsOptions {
   readonly preparationAgent?: IGloveRunnable;
   readonly source?: () => { source: FactInput["source"]; operationId: string };
 }
+/**
+ * A context provider for a Foundry definition: a bare provider (re-read before
+ * every model call) or one with a `delivery` of `"request"` or `"history"`.
+ */
+export type FoundryContextProvider =
+  | RuntimeContextProvider
+  | (RuntimeContextOptions & { readonly provider: RuntimeContextProvider });
+
 export interface FoundryGoalsOptions extends Omit<UseGoalRunnerConfig<IGloveRunnable>, "scope" | "preparation"> {
   readonly adapter: GoalAdapter;
   readonly scope?: FoundryGuidanceScope | GoalScope;
@@ -51,7 +59,7 @@ export async function mountFoundryGuidance(glove: IGloveRunnable, context: Agent
   facts?: FoundryFactsOptions;
   goals?: FoundryGoalsOptions;
   forms?: FoundryFormsOptions;
-  contextProviders: ReadonlyArray<RuntimeContextProvider>;
+  contextProviders: ReadonlyArray<FoundryContextProvider>;
 }): Promise<{ handles: FoundryGuidanceHandles; snapshot: () => Promise<void>; dispose: () => void }> {
   const { facts, goals, forms } = options;
   const subject = (scope?: FoundryGuidanceScope | { readonly subject: string }) =>
@@ -116,7 +124,13 @@ export async function mountFoundryGuidance(glove: IGloveRunnable, context: Agent
   };
   const cleanups: Array<() => void> = [];
   try {
-    for (const provider of options.contextProviders) cleanups.push(glove.addContextProvider(provider));
+    for (const entry of options.contextProviders) {
+      if (typeof entry === "function") cleanups.push(glove.addContextProvider(entry));
+      else {
+        const { provider, ...delivery } = entry;
+        cleanups.push(glove.addContextProvider(provider, delivery));
+      }
+    }
     if (facts || goals || forms) {
       await snapshot();
       cleanups.push(glove.addContextProvider(async () => { await snapshot(); return null; }));

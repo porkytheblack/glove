@@ -541,8 +541,17 @@ permits a custom renderer. Requires glove-core >=4.0.0; runnable proxies forward
 addContextProvider and getRuntimeContext. Subscribers receive runtime_context
 snapshots. Context providers accept text or native ContentPart[]; media is transient
 and runtime_context telemetry replaces media payloads with placeholders.
-Message.framework_context marks runtime/inbox provenance without a new
-provider role. These entries and skill/compaction markers do not count as real
+glove-core >=4.4: addContextProvider(provider, { delivery, key }) with delivery
+"iteration" (default, every model call, tail), "request" (once per request, frozen
+before its message) or "history" (saved before the request's message when changed,
+wrapped <context key="...">, text only; key required). Goals render as escaped
+<goals> XML; useGoalRunner/useFormRunner/useContext accept delivery. emitEvent({ id,
+source, content, whenIdle? }) delivers third-party events: mid-loop they join at the
+next tool-step boundary; idle, the policy wakes the agent or defers to the next
+request (notifyUserActivity marks the user present). Events render as escaped
+<events><event> XML and are saved once. Turns run one at a time.
+Message.framework_context marks runtime/inbox/event provenance without a new
+provider role; Message.transient marks model-only input. These entries and skill/compaction markers do not count as real
 user turns for tool-result summarization. Inbox reminders follow complete tool
 results; adjacent-user merging preserves structured media. Realtime voice
 refreshes silently at start and after tools; call

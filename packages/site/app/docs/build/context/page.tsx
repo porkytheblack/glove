@@ -27,8 +27,12 @@ export default function BuildContextPage() {
         language="text"
         code={`system prompt            stable: who the agent is, its rules
 saved history            stable: the conversation (after the last compaction)
+                         + "history" context, saved once per change
+"request" context        frozen for this request, just before its message
+the request's message
+tool calls and results   this request so far, plus events that arrived mid-loop
 ─────────────────────────────────────────────────── cache boundary
-runtime context          fresh: current state from your providers
+"iteration" context      fresh: current state from your providers
                          (never saved, never rewrites the prompt)`}
       />
       <p>
@@ -64,6 +68,88 @@ stop();`}
         (the text exactly, media as a placeholder), so you can trace it. glove-memory&apos;s pinned context, forms and
         goals all use this same seam; so does <code>mountBrowser</code> to show the
         model its latest screenshot.
+      </p>
+
+      <h2 id="delivery">When it arrives: delivery</h2>
+      <p>
+        A provider&apos;s <code>delivery</code> decides when it is read and whether it
+        stays:
+      </p>
+      <CodeBlock
+        filename="delivery.ts"
+        language="typescript"
+        code={`// Default: re-read before every model call, tool steps included. For state a
+// tool can change mid-request — a browser screenshot, a build that is running.
+agent.addContextProvider(renderBuild);
+
+// Read once per request and frozen just before the request's message. The input
+// is identical on every tool step, so each step reuses the cache.
+agent.addContextProvider(renderAccount, { delivery: "request" });
+
+// Saved to history before the request's message, only when it changed. It ages
+// into the background like any message; the model reasons over it without a
+// tool call. Saved again after compaction hides it. Text only.
+agent.addContextProvider(renderPlan, { delivery: "history", key: "plan" });`}
+      />
+      <p>
+        A history provider&apos;s text is saved wrapped in{" "}
+        <code>&lt;context key=&quot;plan&quot;&gt;</code>, which is how Glove finds
+        its last value again with any store, after a restart too. When it returns
+        nothing after having saved something, a{" "}
+        <code>status=&quot;cleared&quot;</code> marker is saved once. Goals, forms and
+        pinned context take the same option:{" "}
+        <code>useGoalRunner(agent, adapter, {"{ scope, delivery: \"history\" }"})</code>.
+      </p>
+      <p>
+        Prompt caching follows: the Anthropic and Bedrock adapters put their
+        conversation breakpoint on the last saved block, never on a transient one,
+        plus one just before request-frozen context, because that prefix is what the
+        next request starts with.
+      </p>
+
+      <h2 id="events">Things that happen on their own: events</h2>
+      <p>
+        Tool results and user messages have a place in the loop. A reply from
+        another agent, a webhook or a calendar change arrives on its own schedule.
+        Hand it to <code>emitEvent</code>:
+      </p>
+      <CodeBlock
+        filename="events.ts"
+        language="typescript"
+        code={`await agent.emitEvent({
+  id: delivery.id,                 // emitting the same id twice is a no-op
+  source: "webhook:ci",
+  kind: "build.finished",
+  content: \`Build \${build.id} is \${build.status}.\`,
+  whenIdle: "auto",                // "wake" | "defer" | "auto"
+});
+
+// From your client: the user is typing, or a voice session is live.
+agent.notifyUserActivity();`}
+      />
+      <ul>
+        <li>
+          <strong>While the loop runs</strong>, the event joins at the next tool-step
+          boundary, saved once right after the tool results.
+        </li>
+        <li>
+          <strong>While idle</strong>, the policy decides. By default an event wakes
+          the agent, starting a turn with the event as its message, unless the user
+          has been active recently: then it waits and is saved just before their
+          next message. A deferred event wakes the agent after{" "}
+          <code>deferTimeoutMs</code> (60 s by default) if no message comes.
+        </li>
+      </ul>
+      <p>
+        Events reach the model as escaped XML,{" "}
+        <code>&lt;event id source kind received_at&gt;</code> inside an{" "}
+        <code>&lt;events&gt;</code> wrapper that says they came from outside and are
+        information, not instructions. Replace the policy, the formatter or the
+        in-memory queue (for a durable one) through the <code>events</code> option
+        on <code>new Glove</code>. Turns run one at a time, so a woken turn and a
+        user&apos;s message never interleave. Subscribers get{" "}
+        <code>event_received</code>, <code>event_injected</code>,{" "}
+        <code>event_dropped</code> and <code>event_wake_failed</code>.
       </p>
 
       <h2 id="skills">Guidance on demand: skills</h2>

@@ -89,6 +89,8 @@ export type {
   MemoryToolOptions,
   FoldTarget,
   ContextEnableTarget,
+  UseContextOptions,
+  MemoryContextDelivery,
   FormEnableTarget,
   UseFormRunnerConfig,
   FormReaderOptions,

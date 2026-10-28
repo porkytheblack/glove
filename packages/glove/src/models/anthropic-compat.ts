@@ -71,7 +71,7 @@ export class AnthropicCompatAdapter implements ModelAdapter {
     notify: NotifySubscribersFunction,
     signal?: AbortSignal,
   ): Promise<ModelPromptResult> {
-    const messages = formatAnthropicMessages(request.messages);
+    const messages = formatAnthropicMessages(request.messages, this.cache);
     const tools =
       request.tools?.length ? formatTools(request.tools) : undefined;
 

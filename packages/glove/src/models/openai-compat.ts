@@ -190,11 +190,16 @@ const CACHE_CONTROL_PROVIDERS: ReadonlyMap<string, "part" | "message"> = new Map
  * (OpenRouter / Vercel AI Gateway → Anthropic). Other providers cache
  * automatically and ignore the field, so we don't risk a 400 by only emitting
  * it for known-good providers.
+ *
+ * Pass `latestTurn: false` when the last message is transient runtime context:
+ * a breakpoint there caches a prefix no later request repeats, so it would
+ * only pay the cache-write premium.
  */
 export function applyOpenAICacheControl(
   messages: Array<OpenAIMessage>,
   cache: ResolvedPromptCache,
   provider: string,
+  latestTurn: boolean = true,
 ): Array<OpenAIMessage> {
   const placement = CACHE_CONTROL_PROVIDERS.get(provider);
   if (!cache.enabled || !placement) return messages;
@@ -230,7 +235,7 @@ export function applyOpenAICacheControl(
   // Latest turn — only user/system content blocks carry cache_control safely;
   // `tool` and `assistant` messages are left untouched.
   const lastIdx = out.length - 1;
-  if (lastIdx >= 0 && lastIdx !== sysIdx && out[lastIdx].role === "user") {
+  if (latestTurn && lastIdx >= 0 && lastIdx !== sysIdx && out[lastIdx].role === "user") {
     out[lastIdx] = withBreakpoint(out[lastIdx]);
   }
 
@@ -623,7 +628,7 @@ export class OpenAICompatAdapter implements ModelAdapter {
       messages.push({ role: "system", content: this.systemPrompt });
     }
     messages.push(...formatMessages(request.messages, this.reasoning.echo, this.provider));
-    messages = applyOpenAICacheControl(messages, this.cache, this.provider);
+    messages = applyOpenAICacheControl(messages, this.cache, this.provider, !request.messages.at(-1)?.transient);
 
     const tools =
       request.tools?.length ? formatTools(request.tools) : undefined;

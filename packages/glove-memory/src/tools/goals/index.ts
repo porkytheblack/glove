@@ -2,7 +2,7 @@ import { z } from "zod";
 import { equalGoalData } from "../../goals/equal";
 import type { GloveFoldArgs } from "glove-core";
 import type { FormEnableTarget } from "../forms";
-import { assertRuntimeContext, attachRuntimeContext } from "../runtime-context";
+import { assertRuntimeContext, attachRuntimeContext, type MemoryContextDelivery } from "../runtime-context";
 import { selectFoldArgs, type ToolSelection } from "../selection";
 import {
   GoalRunner, GoalPostCommitError, GoalProgramSchema, GoalUpdateSchema, GoalScopeSchema, renderGoalStatus,
@@ -16,9 +16,21 @@ export interface UseGoalRunnerConfig<G extends GoalEnableTarget = GoalEnableTarg
   /** Reapply current state to each runnable, including after a restart. Must be idempotent. */
   configure?: (context: { glove: G; status: GoalStatus | null }) => void | Promise<void>;
   tools?: ToolSelection;
-  /** Default true: append a current goal snapshot as transient runtime context. */
+  /** Default true: give the model the current `<goals>` snapshot. `false` leaves only the tools. */
   injectStatus?: boolean;
+  /**
+   * How the snapshot reaches the model (default `"iteration"`):
+   * - `"iteration"` — fresh at the input tail on every model call, tool steps included
+   * - `"request"` — read once per request, frozen before the request's message
+   * - `"history"` — saved to history once per change, before the next request's
+   *   message, so goals age into the background and the model reasons over
+   *   them without a status call; saved again after compaction hides them
+   */
+  delivery?: MemoryContextDelivery;
 }
+
+/** History key for the goal snapshot; its saved messages are wrapped in `<context key="glove.goals">`. */
+export const GOAL_CONTEXT_KEY = "glove.goals";
 
 function tool<I>(name: string, description: string, inputSchema: z.ZodType<I>, run: (input: I) => Promise<unknown>): GloveFoldArgs<I> {
   return {
@@ -117,11 +129,12 @@ export function useGoalRunner<G extends GoalEnableTarget>(glove: G, adapter: Goa
     await applyConfiguration(status);
     return renderGoalStatus(status);
   };
-  // Resolve from storage at every model iteration, including after a tool write.
-  // No system-prompt mutation and no copied snapshots in conversation history.
+  // Resolve from storage at the configured delivery point: every model
+  // iteration (default), once per request, or saved to history on change.
+  // Never a system-prompt mutation.
   if (config.injectStatus !== false) attachRuntimeContext(glove, async () => {
     return renderGoalStatus(selectStatus(await runner.status()));
-  });
+  }, { delivery: config.delivery ?? "iteration", key: GOAL_CONTEXT_KEY });
   const original = glove.processRequest.bind(glove);
   glove.processRequest = async (request, signal) => { await synchronize(); return original(request, signal); };
   return { glove, runner, refresh: async () => { await synchronize(); } };

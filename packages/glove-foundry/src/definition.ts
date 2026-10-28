@@ -11,7 +11,6 @@ import type {
   StoreAdapter,
   SubscriberAdapter,
   SubAgentFactoryContext,
-  RuntimeContextProvider,
 } from "glove-core";
 import { Displaymanager, Glove } from "glove-core";
 import { Effect } from "effect";
@@ -47,7 +46,7 @@ import type {
   FoundryWorkingEnvironmentDefinition,
 } from "./workbench.js";
 import type { WorkingEnvironment } from "glove-working-environment";
-import type { FoundryFactsOptions, FoundryGoalsOptions, FoundryFormsOptions, FoundryGuidanceHandles } from "./guidance.js";
+import type { FoundryContextProvider, FoundryFactsOptions, FoundryGoalsOptions, FoundryFormsOptions, FoundryGuidanceHandles } from "./guidance.js";
 import type {
   AgentInstance,
   Conversation,
@@ -236,8 +235,12 @@ export interface AgentAssemblyOptions<TInput = unknown> {
   readonly goals?: FoundryResolver<FoundryGoalsOptions | undefined, TInput>;
   readonly facts?: FoundryResolver<FoundryFactsOptions | undefined, TInput>;
   readonly forms?: FoundryResolver<FoundryFormsOptions | undefined, TInput>;
-  /** Native providers re-read transient context before each model iteration. */
-  readonly contextProviders?: FoundryListResolver<RuntimeContextProvider, TInput>;
+  /**
+   * Native context providers. A bare provider is re-read before each model
+   * iteration; `{ provider, delivery: "request" | "history", key }` freezes it
+   * per request or saves it to history on change.
+   */
+  readonly contextProviders?: FoundryListResolver<FoundryContextProvider, TInput>;
   /** Lazily load native Glove inbox items into this run's conversation store. */
   readonly inboxes?: (
     agent: FoundryAgentDefinition,

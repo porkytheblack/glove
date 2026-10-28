@@ -113,7 +113,9 @@ function mount(glove: IGloveRunnable, kind: "browser" | "sandbox", adapter: Exec
 export function mountBrowser(glove: IGloveRunnable, config: MountBrowserConfig): MountedExecution {
   const images = imageQueue(config.maxImageBytes ?? 4 * 1024 * 1024);
   const mounted = mount(glove, "browser", config.adapter, config, image => images.accept(image));
-  const removeContext = glove.addContextProvider(() => images.context());
+  // A screenshot is taken mid-loop and must reach the very next model call,
+  // so this provider is re-read on every iteration, never frozen or saved.
+  const removeContext = glove.addContextProvider(() => images.context(), { delivery: "iteration" });
   const subscriber: SubscriberAdapter = { async record(type) {
     if (type === "token_consumption") images.consumed();
   } };

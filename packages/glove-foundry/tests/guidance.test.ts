@@ -36,7 +36,7 @@ test("named lazy fields mount native goals, facts, forms and live context withou
   const model: ModelAdapter = { name: "deterministic", setSystemPrompt() {}, async prompt(input) {
     const runtime = input.messages.filter(m => m.framework_context === "runtime").map(m => m.text).join("\n");
     assert.match(runtime, new RegExp(`phase=${phase}`));
-    assert.match(runtime, /GOALS/);
+    assert.match(runtime, /<goals /);
     if (rounds++ === 0) return { messages: [{ sender: "agent", text: "", tool_calls: [
       { id: "capture", tool_name: "record_fact", input_args: { fact: "Name is Mira" } },
       { id: "goal", tool_name: "glove_goal_update", input_args: { goalKey: "identity", completed: ["name"], reason: "User provided name", ifVersion: 1 } },
@@ -123,4 +123,28 @@ test("preparation configuration fails closed without a dedicated agent", async (
       preparation: { rule: () => ({ kind: "information", criteria: "Name" }) } }),
   });
   await assert.rejects(compileAgentDefinition(definition, "invalid-preparation").handler!(envelope()), /dedicated preparationAgent/);
+});
+
+test("definition goals and context providers take a delivery", async () => {
+  const store = new MemoryStore("guidance-delivery");
+  const seen: Array<Array<{ text: string; transient?: boolean }>> = [];
+  const model: ModelAdapter = { name: "deterministic", setSystemPrompt() {}, async prompt(input) {
+    seen.push(input.messages.map((m) => ({ text: m.text, transient: m.transient })));
+    return { messages: [{ sender: "agent", text: "Ready" }], tokens_in: 1, tokens_out: 1 };
+  } };
+  const definition = defineAgentFromModule("intake", {
+    description: "Guided conversation", systemPrompt: "Help", model, store: () => store,
+    goals: () => defineGoals({ adapter: new InMemoryGoalAdapter(), program, delivery: "history" }),
+    contextProviders: () => [
+      { provider: () => "Account: gold", delivery: "history", key: "account" },
+      { provider: () => "Shift: night", delivery: "request" },
+    ],
+  });
+  await compileAgentDefinition(definition, "intake").handler!(envelope());
+  const saved = (await store.getMessages()).map((m) => m.text);
+  assert.ok(saved.some((text) => text.startsWith('<context key="glove.goals">\n<goals ')));
+  assert.ok(saved.includes('<context key="account">\nAccount: gold\n</context>'));
+  assert.ok(!saved.some((text) => text.includes("Shift: night")));
+  const frozen = seen[0].find((m) => m.text === "Shift: night");
+  assert.equal(frozen?.transient, true);
 });

@@ -1,5 +1,5 @@
 import type { ContentPart, GloveFoldArgs, Message, ModelPromptResult } from "glove-core";
-import { assertRuntimeContext, attachRuntimeContext, type RuntimeContextTarget } from "../runtime-context";
+import { assertRuntimeContext, attachRuntimeContext, type MemoryContextDelivery, type RuntimeContextTarget } from "../runtime-context";
 import type { DisplayManagerAdapter } from "glove-core";
 import type { FormAdapter } from "../../forms/adapter";
 import type { FormMemoryAdapters } from "../../forms/bridge";
@@ -69,8 +69,10 @@ export interface UseFormRunnerConfig {
   display?: DisplayManagerAdapter;
   actor?: string;
   source?: string;
-  /** Skip transient tier-0 runtime context and drive it yourself. */
+  /** Skip tier-0 runtime context and drive it yourself. */
   injectStatus?: boolean;
+  /** How tier-0 reaches the model: `"iteration"` (default), `"request"` or `"history"` (key `glove.forms`). */
+  delivery?: MemoryContextDelivery;
   /**
    * Narrow the folded surface. `{ deny: ["abandon"] }` leaves the agent
    * unable to close an instance out; `{ allow: ["list", "status", "fill"] }`
@@ -120,7 +122,7 @@ export function useFormRunner<G extends FormEnableTarget>(
   if (config.injectStatus !== false) attachRuntimeContext(glove, async () => {
     if (config.preparation) return runner.tier0();
     try { return await runner.tier0(); } catch { return ""; }
-  });
+  }, { delivery: config.delivery ?? "iteration", key: "glove.forms" });
   if (config.preparation) {
     const original = glove.processRequest.bind(glove);
     glove.processRequest = async (request, signal) => { await synchronize(); return original(request, signal); };

@@ -38,6 +38,13 @@ const agent = new Glove({
     max_turns?: number,                   // Turn limit (default: 120)
     compaction_context_limit?: number,    // Token threshold (default: 100k)
   },
+  events?: {                              // Spontaneous events (glove-core >=4.4), all optional
+    queue?: EventQueueAdapter,            // where events wait; default MemoryEventQueue (push/peek/take/remove)
+    policy?: EventPolicy,                 // (event, { looping, userActive, queued }) => "wake" | "defer" | "drop"
+    formatter?: EventFormatter,           // (events, phase) => Message; default escaped <events><event …> XML
+    userActivityWindowMs?: number,        // how long notifyUserActivity() counts the user as present (15 000)
+    deferTimeoutMs?: number,              // deferred events wake the agent after this (60 000; Infinity holds them)
+  },
 })
   .fold<I>(toolArgs)            // Register tool (chainable; ALSO callable post-build on the IGloveRunnable)
   .defineHook(name, handler)    // Register `/name` hook
@@ -48,7 +55,11 @@ const agent = new Glove({
   .build(store?);               // Returns IGloveRunnable. Optional store argument supersedes the constructor's store
                                 // (used by subagent factories that derive a store via parentStore.createSubAgentStore).
 
-await agent.processRequest("Hello", abortSignal?);  // Also accepts ContentPart[]
+await agent.processRequest("Hello", abortSignal?);  // Also accepts ContentPart[]. Turns queue: one runs at a time.
+agent.addContextProvider(provider, { delivery?, key? }); // "iteration" (default) | "request" | "history" (needs key)
+await agent.getRuntimeContext(signal?, delivery?);       // resolve snapshots without saving (voice, tracing)
+await agent.emitEvent({ id, source, kind?, content, whenIdle?, expiresAt?, metadata? }); // → "queued" | "woke" | "deferred" | "dropped" | "duplicate"
+agent.notifyUserActivity();                              // the user is present; the default policy defers instead of waking
 agent.setModel(newModelAdapter);  // Hot-swap model at runtime
 agent.fold({ ... });              // Legal post-build — adds tools mid-session (used by the MCP discovery subagent)
 agent.rebuild(store?);            // Alias for build(store?) when re-binding to a new store post-construction
@@ -336,6 +347,11 @@ interface SubscriberAdapter {
 | `skill_invoked` | Core (Glove or skill dispatch tool) | `{ name, source: "user" | "agent", args? }` | A skill handler is about to run. `source: "user"` fires from `Glove.processRequest`; `source: "agent"` fires from inside `glove_invoke_skill` |
 | `subagent_invoked` | Core (Executor, not the dispatcher) | `{ name, prompt }` | Open bracket — fires before a `glove_invoke_subagent` call runs |
 | `subagent_completed` | Core (Executor, not the dispatcher) | `{ name, status: "success" | "error", message? }` | Close bracket — fires after the dispatcher resolves OR on abort/error. **Guaranteed 1:1 with `subagent_invoked`** |
+| `runtime_context` | Core (Glove) | `{ messages, delivery? }` | Resolved context snapshots (media replaced by placeholders). `delivery: "history"` carries what was saved this request |
+| `event_received` | Core (Glove) | `{ id, source, kind?, disposition }` | `emitEvent` queued, woke for, deferred, dropped or de-duplicated an event |
+| `event_injected` | Core (Glove) | `{ ids, phase: "loop" \| "request" \| "wake" }` | Events saved to history: at a tool-step boundary, before a request's message, or as the message of a turn of their own |
+| `event_dropped` | Core (Glove) | `{ id, reason: "policy" \| "expired" }` | Discarded by the policy or because `expiresAt` passed |
+| `event_wake_failed` | Core (Glove) | `{ ids, message }` | A turn started for events failed |
 
 **Custom adapter event contract:**
 - Non-streaming: emit `model_response` once per prompt call
@@ -2863,9 +2879,19 @@ class ResourceAccessControl {
 
 Behaviour: `"read"` refuses every mutation with `ResourceAccessError` (`ResourceFsError` subclass, `code: "access_denied"`, carries `path` / `required` / `granted`). `"none"` refuses reads and is filtered out of `ls` / `grep` / `glob` / `searchSemantic` / `linksFor` results; `exists` returns `false` rather than throwing. A recursive `remove` or a directory `move` is refused when any protected path intersects the subtree. `replaceLinkTarget` is refused under any restrictive policy (run reconciliation unwrapped). `findFilesNeedingEmbedding` / `setEmbedding` pass through unfiltered — the embedding loop is the host's, not the agent's. Wrappers compose: wrapping a wrapped adapter narrows further.
 
-`useContext` registers `adapter.render()` through `addContextProvider`. Glove appends its output as a transient user-role message after persisted history before each model iteration, including after tools. Multiple providers compose in registration order. The system prompt and saved history remain unchanged.
+`useContext` registers `adapter.render()` through `addContextProvider`. By default Glove appends its output as a transient user-role message after persisted history before each model iteration, including after tools. Multiple providers compose in registration order. The system prompt and saved history remain unchanged. `useContext(glove, adapter, { delivery: "request" | "history", key? })` freezes it per request or saves it to history on change (default key `glove.context`; give each history-delivered mount its own).
 
-`useFormRunner` registers `runner.tier0()` through the same provider API. Completed forms render nothing. Both require glove-core >=4.0.0; runnable proxies must forward `addContextProvider`. External runtimes can resolve snapshots with `getRuntimeContext(signal?)`; subscribers receive `runtime_context` events.
+`useFormRunner` registers `runner.tier0()` through the same provider API (`delivery` option, key `glove.forms`). Completed forms render nothing. Both require glove-core >=4.0.0 (`delivery` needs >=4.4); runnable proxies must forward `addContextProvider` and its options. External runtimes can resolve snapshots with `getRuntimeContext(signal?, delivery?)`; subscribers receive `runtime_context` events.
+
+**Delivery** (`addContextProvider(provider, { delivery, key })`):
+
+| `delivery` | Read | Placed | Saved |
+|---|---|---|---|
+| `"iteration"` (default) | before every model call, tool steps included | input tail, transient | never |
+| `"request"` | once per request | just before the request's message, transient; identical on every tool step | never |
+| `"history"` | once per request | before the request's message | when the value differs from the one it saved last, wrapped `<context key="…">`; a `status="cleared"` marker once when it goes empty; again after compaction hides it. Text only |
+
+Anthropic and Bedrock place conversation cache breakpoints on the last saved block (never on transient context) plus one before request-frozen context; OpenAI-compatible adapters skip the latest-turn breakpoint when that turn is transient.
 
 ### Lower-level tool factories
 
