@@ -357,11 +357,20 @@ export const primitives: Primitive[] = [
   {
     name: "Runtime context providers",
     part: "context",
-    api: "glove.addContextProvider(() => renderCurrentState())",
+    api: "glove.addContextProvider(() => renderCurrentState(), { delivery? })",
     pkg: "glove-core",
-    gives: "Live state appended after history before every model call, including between tool steps. Never saved to history, never rewrites the system prompt.",
+    gives: "Live state for the model without rewriting the system prompt: re-read before every model call (default), frozen once per request, or saved to history only when it changes.",
     insteadOf: "rebuilding the system prompt every turn (and losing the prompt cache)",
-    href: "/blog/fresh-context-in-the-agent-loop",
+    href: "/docs/runtime-context",
+  },
+  {
+    name: "Spontaneous events",
+    part: "context",
+    api: "await glove.emitEvent({ id, source, content, whenIdle? })",
+    pkg: "glove-core",
+    gives: "Replies, webhooks and app changes join a running loop at the next tool step, or wake or wait for an idle agent. Saved once, as escaped XML marked as outside information.",
+    insteadOf: "pushing webhooks into processRequest as fake user messages",
+    href: "/docs/runtime-context#events",
   },
   {
     name: "Compaction",
