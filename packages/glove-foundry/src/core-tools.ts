@@ -277,13 +277,14 @@ export function createInstalledApplicationTransmissionTools(
         jsonSchema: outboundToolSchema(transmission, routeIds),
         ...(requiresPermission !== undefined
           ? {
-              requiresPermission: async (input: { readonly routeId: string; readonly payload: unknown }) => {
+              requiresPermission: (input: { readonly routeId: string; readonly payload: unknown }): boolean | Promise<boolean> => {
                 if (routeIds.length > 0 && !routeIds.includes(input.routeId)) return false;
                 try {
                   const payload = Schema.decodeUnknownSync(transmission.outbound!.input)(input.payload);
-                  return typeof requiresPermission === "function"
-                    ? await requiresPermission(payload)
-                    : requiresPermission;
+                  // A synchronous predicate stays synchronous. An async one's
+                  // promise is returned as is: a rejected policy check fails
+                  // the call instead of skipping the approval.
+                  return typeof requiresPermission === "function" ? requiresPermission(payload) : requiresPermission;
                 } catch {
                   // Malformed input is rejected by do(); it must not create an approval request first.
                   return false;
