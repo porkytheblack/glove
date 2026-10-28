@@ -568,6 +568,15 @@ export const primitives: Primitive[] = [
     href: "/docs/realtime-voice",
   },
   {
+    name: "Realtime agents",
+    part: "surface",
+    api: "new RealtimeSession({ agent }) with model: realtimeModel({ provider })",
+    pkg: "glove-realtime",
+    gives: "The whole agent on a realtime multimodal model: enforced permissions, the call in the store, runtime context, goals, reconnects and compaction.",
+    insteadOf: "re-implementing permissions, persistence and context for a realtime provider",
+    href: "/docs/realtime",
+  },
+  {
     name: "Voice calls",
     part: "surface",
     api: "run: voiceCall({ room, greeting }) · webSocketRoom({ port, token })",

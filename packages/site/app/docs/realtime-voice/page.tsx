@@ -33,6 +33,17 @@ export default function RealtimeVoicePage() {
         </p>
       </div>
 
+      <div className="docs-note">
+        <span className="docs-note-icon">◆</span>
+        <p>
+          <strong>Need the whole agent on the call?</strong>{" "}
+          <code>RealtimeAgent</code> runs tools directly, without permissions,
+          store writes or subscriber events. <a href="/docs/realtime">Realtime
+          Agents</a> (<code>glove-realtime</code>) adds all of those, plus
+          camera, screen and text output, session resumption and compaction.
+        </p>
+      </div>
+
       <p>Three packages layer on top of each other:</p>
 
       <table>

@@ -1397,6 +1397,57 @@ Adapters: `OpenAIRealtimeSocketAdapter` (`openai`, WS), `OpenAIRealtimeAdapter` 
 
 ---
 
+## glove-realtime
+
+The whole agent on a realtime multimodal model. Adapters own the provider's half; `RealtimeSession` owns Glove's half.
+
+```typescript
+import {
+  RealtimeSession, realtimeModel, createRealtimeAdapter,
+  OpenAIRealtimeAdapter, GeminiLiveAdapter, OpenAILiveAdapter,
+} from "glove-realtime";
+
+realtimeModel(config?: CreateRealtimeAdapterArgs & { label?: string }): RealtimeModel   // model slot carrying the config
+createRealtimeAdapter(args?: CreateRealtimeAdapterArgs): RealtimeAdapter
+// args: { provider?: "openai" | "openai-live" | "gemini", apiKey?, getToken?, model?, voice?, ...that adapter's config }
+// env: REALTIME_PROVIDER, REALTIME_MODEL, REALTIME_VOICE, OPENAI_API_KEY / GEMINI_API_KEY
+
+new RealtimeSession({
+  agent: IGloveRunnable,
+  adapter?: RealtimeAdapter,              // default: from realtimeModel on the agent
+  instructions?: string,                  // default: agent.getSystemPrompt()
+  output?: "audio" | "text",
+  voice?: string,
+  excludeTools?: string[],
+  nonBlockingTools?: string[],
+  permissions?: "display" | "deny" | "allow" | ((r: { tool: string; input: unknown }) => boolean | Promise<boolean>),
+  maxToolRetries?: number,                // default 0
+  persist?: boolean,                      // default true
+  history?: { maxItems?, maxChars?, maxToolChars? } | false,   // seed fresh sessions from the store
+  compaction?: { contextLimit?, instructions?, model?: ModelAdapter, keepRecent? } | false,
+  reconnect?: { attempts?, backoffMs?, maxBackoffMs? } | false,
+  maxDurationMs?: number,
+  resumeHandle?: string,
+  beforeTurn?: () => void | Promise<void>,
+})
+
+session.start({ resumeHandle? }) / stop(reason?)
+session.sendAudio(pcm) · say(text) · sendImage(data, mime?) · sendVideoFrame(data, mime?) · sendMedia(media)
+session.inject({ kind: "context" | "instruction" | "user", text, respond?, key?, persist? })
+session.respond(instructions?) · interrupt() · notifyPlayback(speaking)
+session.refreshContext(force?) · refreshSession() · compact(): Promise<boolean>
+session.addSubscriber(s) / removeSubscriber(s)
+session.state · resumeHandle · tools · exposedTools · adapter
+
+// events: state, event (raw RealtimeEvent), user_delta, user_said, agent_delta, agent_said, audio(pcm, format),
+//   interrupted, user_speech_started/stopped, agent_speech_started/stopped, tool_started, tool_finished,
+//   context_refreshed, compacted, resumable(handle), usage, ended(reason), error
+```
+
+`RealtimeAdapter`: `capabilities` (input/output modalities, tool update mode, supersede, history seed, compaction apply/summarize, resumption, transcripts, speechLifecycle), `open(spec)`, `close()`, `subscribe(listener)`, `sendAudio/sendText/sendMedia`, `setTools`, `setInstructions`, `inject`, `sendToolResult`, `respond`, `interrupt` (must always emit `interrupted`), `compact`, optional `summarize` and `notifyPlayback`. Extend `AdapterBase` for the listener set.
+
+---
+
 ## glove-voice-avatar
 
 Live avatars as a rendering layer over the S2S stack: PCM in, a talking face on a WebRTC surface. The mic path stays yours — echo/passthrough avatars have no perception.

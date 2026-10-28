@@ -108,9 +108,9 @@ createRealtimeAdapter({ provider: "openai-live", backendModel: "gpt-5.6-luna" })
 ## How Glove primitives work on a session
 
 - **Tools** (`fold`, `replaceTools`) are registered with the provider at
-  start. After each call, if the agent's tools changed (a discovery tool
-  folded new ones, MCP refreshed), the new set is registered *before* the
-  result goes back. Calls run through glove-core's `Executor`: Zod
+  start. After each call, if the agent's tools or system prompt changed (a
+  discovery tool folded new ones, MCP refreshed, a goal's `configure`
+  rewrote the prompt), the change is sent *before* the result goes back. Calls run through glove-core's `Executor`: Zod
   validation, `generateSummary`, `subagent_invoked`/`subagent_completed`
   brackets, `tool_use_result` with `duration_ms`. Retries default to 0,
   because a retry on a live call is silence; set `maxToolRetries` to change
@@ -152,6 +152,18 @@ createRealtimeAdapter({ provider: "openai-live", backendModel: "gpt-5.6-luna" })
   `compaction.model` (any glove-core text adapter), otherwise from the
   transcript itself. The adapter applies it. Without a limit, compaction is
   left to the provider. `session.compact()` compacts on demand.
+
+- **Goals and forms** (glove-memory): their tools and status snapshots work
+  as they are. Their per-turn preparation (preparation, resuming interrupted
+  lifecycle hooks, re-applying `configure`) wraps `processRequest`, which a
+  session never calls. Hand it over as `beforeTurn`. It runs before the
+  session opens and when each user turn starts, and any prompt or tool change
+  it makes is sent to the provider:
+
+  ```ts
+  const goals = useGoalRunner(agent, goalAdapter, { scope, configure });
+  const session = new RealtimeSession({ agent, beforeTurn: goals.refresh });
+  ```
 
 Not translated: `/hook` and `/skill` directives in typed text. `say()` sends
 text as a user turn, and the directive parsing belongs to the text loop.

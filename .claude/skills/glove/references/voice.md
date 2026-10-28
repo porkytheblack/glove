@@ -306,3 +306,44 @@ The Live voice model delegates tool selection to a Responses backend; existing G
 Read [the S2S API reference](api-reference.md#glove-voice-s2s) and the [package guide](https://github.com/porkytheblack/glove/blob/main/packages/glove-voice-s2s/README.md#gpt-live) for configuration and host responsibilities. Protocol tests do not establish live account access or audible behavior; use a live session when validating those.
 
 Full API in api-reference.md ("glove-voice-s2s", "glove-voice-avatar", "glove-voice-livekit"); runnable progression in `examples/layered-voice` → `server-voice` → `s2s-rooms` → `avatar-rooms` → `livekit-rooms` (each preserved, ports side-by-side). These examples retain their existing providers and are not GPT-Live-ready without the host changes above.
+
+## Realtime multimodal sessions (`glove-realtime`)
+
+`RealtimeAgent` runs tools directly through `Tool.run`. There are no permission prompts, nothing is written to the store and no subscriber events fire. That suits a thin voice front. Use `glove-realtime` when the call should behave like the rest of the agent, or when it needs camera/screen input or text output. The adapter owns the provider's half: tool registration, synthetic prompts, compaction and modalities. `RealtimeSession` owns Glove's half.
+
+```typescript
+import { RealtimeSession, realtimeModel } from "glove-realtime";
+
+const agent = new Glove({
+  model: realtimeModel({ provider: "gemini", voice: "Puck" }),   // "openai" | "openai-live" | "gemini"
+  store, displayManager, systemPrompt, compaction_config,
+}).fold(lookupOrder).fold(refund).build();
+
+const session = new RealtimeSession({
+  agent,
+  permissions: "display",                 // | "deny" | "allow" | ({ tool, input }) => boolean; default "deny" in serverMode
+  excludeTools: ["render_chart"],
+  nonBlockingTools: ["research"],         // Gemini: conversation continues while it runs
+  compaction: { contextLimit: 24_000 },   // Glove decides when; the adapter decides how
+  beforeTurn: goals.refresh,              // glove-memory goals: see below
+});
+session.on("audio", (pcm, format) => play(pcm, format.sampleRate));
+session.on("interrupted", flushPlayback);
+session.addSubscriber(uiSubscriber);      // same SubscriberEvents as a text turn
+await session.start();                    // or start({ resumeHandle })
+
+session.sendAudio(pcm);                   // session.adapter.inputFormat (Gemini 16 kHz, OpenAI 24 kHz)
+session.sendVideoFrame(jpeg);             // Gemini; OpenAI takes stills via sendImage
+session.say("typed text");
+session.inject({ kind: "user", text: "worker result to relay" });
+```
+
+How primitives translate:
+- Tools run through the Executor (validation, summaries, subagent events, `tool_use_result`). `maxToolRetries` defaults to 0. Tools folded mid-call, and system-prompt changes a tool makes, reach the provider before the result does.
+- `requiresPermission` is enforced: the store's decision first, then the `permissions` policy.
+- The store gets turns, tool call/result pairs and `is_compaction` summaries. Fresh provider sessions are seeded from it.
+- Runtime context providers and the inbox are injected on open, after tools, and at the start of each user turn. On OpenAI a snapshot replaces the previous one. Image parts go in as media.
+- Goals and forms: tools and status snapshots work. Their per-turn preparation wraps `processRequest`, which a session never calls, so pass `beforeTurn: useGoalRunner(...).refresh`.
+- Not translated: `/hook` and `/skill` directives in `say()` text. Glove-level subscribers only see events the Glove itself emits; add subscribers to the session.
+
+Providers: `openai` (audio/text/image in, audio or text out, compacts in place and summarises itself), `gemini` (audio/text/image/video in, resumption handles and `goAway`, reconnects to change tools, `NON_BLOCKING` tools), `openai-live` (audio only, provider-managed context, server only). `createRealtimeAdapter` reads `REALTIME_PROVIDER`, `REALTIME_MODEL`, `REALTIME_VOICE` and the provider key. Avatars, LiveKit and Foundry `voiceCall` are built on `glove-voice-s2s` and still use `RealtimeAgent`. API in [api-reference.md](api-reference.md#glove-realtime).

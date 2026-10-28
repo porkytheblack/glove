@@ -495,6 +495,7 @@ Use this reference when building goal-driven agents, retaining early evidence, o
 - Forms use `defineForm`, `FormRegistry`, and `FormRunner` from `glove-memory/forms`, and `useFormRunner` from `glove-memory/tools`.
 - Shared evidence ships separately as `glove-facts@0.1.0`: `FactStore`, `InMemoryFactAdapter`, `FactPreparation`, `useFacts`, and `buildRecordFactTool` are root exports.
 - `useGoalRunner` mounts the `glove_goal_*` tools; `useFormRunner` mounts `glove_form_*`; `useFacts` mounts `record_fact`. Merely importing the classes does not expose tools to an agent.
+- On a realtime call (`glove-realtime`), the tools and status snapshots work unchanged. The per-turn synchronization (preparation, resuming lifecycle hooks, `configure`) wraps `processRequest`, which `RealtimeSession` never calls: pass `beforeTurn: useGoalRunner(...).refresh`. Prompt or tool changes made by `configure` are sent to the provider.
 
 ### Runtime visibility and caching
 

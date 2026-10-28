@@ -435,3 +435,48 @@ test("stop() during a reconnect doesn't leave a provider session running", async
   assert.equal(session.state, "closed");
   assert.equal(adapter.isOpen, false);
 });
+
+test("a prompt change made by a tool reaches the provider before the result", async () => {
+  const { agent, glove } = buildAgent();
+  glove.fold({
+    name: "enter_billing",
+    description: "Switch to the billing step.",
+    inputSchema: z.object({}),
+    async do() {
+      glove.setSystemPrompt("You are Nova. Current step: billing.");
+      return { status: "success", data: "ok" };
+    },
+  });
+  const adapter = new FakeAdapter();
+  const session = new RealtimeSession({ agent, adapter });
+  await session.start();
+  adapter.fire({ type: "tool.call", callId: "b", name: "enter_billing", arguments: "{}" });
+  await settle();
+  assert.deepEqual(adapter.instructionUpdates, ["You are Nova. Current step: billing."]);
+  assert.equal(adapter.results.length, 1);
+});
+
+test("beforeTurn runs before opening and at each user turn, and its changes are sent", async () => {
+  const { agent, glove } = buildAgent();
+  let turns = 0;
+  const adapter = new FakeAdapter();
+  const session = new RealtimeSession({
+    agent,
+    adapter,
+    beforeTurn: async () => {
+      turns++;
+      if (turns === 2) glove.setSystemPrompt("You are Nova. Goal: verify identity.");
+    },
+  });
+  await session.start();
+  assert.equal(turns, 1);
+  assert.equal(adapter.opens.length, 1);
+  adapter.fire({ type: "input.speech_started" });
+  await settle();
+  assert.equal(turns, 2);
+  assert.deepEqual(adapter.instructionUpdates, ["You are Nova. Goal: verify identity."]);
+
+  const failing = new RealtimeSession({ agent, adapter: new FakeAdapter(), beforeTurn: () => { throw new Error("goal transition blocked"); } });
+  await assert.rejects(failing.start(), /goal transition blocked/);
+  assert.equal(failing.state, "closed");
+});

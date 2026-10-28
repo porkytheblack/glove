@@ -1047,6 +1047,29 @@ Avatars: \`attachAvatar(rt, avatar)\` with \`TavusEchoAdapter\` or
 set \`publishAgentAudio: false\` and \`{ agentAudio: false }\` so the voice is not
 published twice.
 
+Realtime multimodal agents (\`glove-realtime\`): the adapter owns the provider's
+half (tool registration, synthetic prompts, compaction, modalities) and
+\`RealtimeSession\` owns Glove's half. Tool calls run through the Executor,
+\`requiresPermission\` is enforced (\`permissions\`: "display" | "deny" | "allow" |
+function; "deny" by default in serverMode), turns and tool call/result pairs are
+written to the store, fresh sessions are seeded from it, runtime context and the
+inbox are injected, and session subscribers get the usual SubscriberEvents.
+Providers: "openai" (audio/text/image in; compacts in place), "gemini"
+(audio/text/image/video in; resumption handles, goAway, reconnect to change
+tools), "openai-live" (audio only, provider-managed context). For goals, pass
+\`beforeTurn: useGoalRunner(...).refresh\`.
+
+\`\`\`ts
+import { RealtimeSession, realtimeModel } from "glove-realtime";
+// agent built with model: realtimeModel({ provider: "gemini" })
+const session = new RealtimeSession({ agent, compaction: { contextLimit: 24_000 } });
+session.on("audio", (pcm, format) => play(pcm, format.sampleRate));
+await session.start();
+session.sendAudio(pcm);
+session.sendVideoFrame(jpeg);
+\`\`\`
+See /docs/realtime.
+
 ## 10. Gotchas
 
 - Tool \`description\` is the interface the model sees — write it for the model,

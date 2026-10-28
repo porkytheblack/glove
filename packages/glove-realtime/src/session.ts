@@ -141,6 +141,15 @@ export interface RealtimeSessionConfig {
   reconnect?: { attempts?: number; backoffMs?: number; maxBackoffMs?: number } | false;
   /** End the session after this long. */
   maxDurationMs?: number;
+  /**
+   * Runs before the session opens and at the start of every user turn — the
+   * realtime counterpart of work a text agent does before `processRequest`.
+   * Modules that prepare state per turn expose it as a function (glove-memory
+   * goals: `useGoalRunner(...).refresh`). Prompt or tool changes it makes are
+   * sent to the provider. An error fails `start()`; mid-call it is reported
+   * and the turn goes ahead.
+   */
+  beforeTurn?: () => void | Promise<void>;
   /** Resume a provider session from a stored handle. */
   resumeHandle?: string;
 }
@@ -328,6 +337,7 @@ export class RealtimeSession extends EventEmitter<RealtimeSessionEvents> {
     this.unsubscribe = this.adapter.subscribe((event) => this.onEvent(event));
     this.agent.addSubscriber(this.gloveBridge);
     try {
+      await this.cfg.beforeTurn?.();
       await this.adapter.open(await this.buildSpec(true));
     } catch (error) {
       this.teardown();
@@ -490,7 +500,7 @@ export class RealtimeSession extends EventEmitter<RealtimeSessionEvents> {
         this.emit("user_speech_started");
         // The start of a user turn is the last moment new state can land
         // before the model answers it.
-        void this.refreshContext().catch((error) => this.emit("error", asError(error)));
+        void this.startTurn();
         break;
       case "input.speech_stopped":
         this.emit("user_speech_stopped");
@@ -691,7 +701,7 @@ export class RealtimeSession extends EventEmitter<RealtimeSessionEvents> {
       // A tool may have folded new tools or changed state: register the new
       // surface and refresh context BEFORE the result triggers the next turn.
       // A failure here must not relabel a tool that already succeeded.
-      this.syncTools();
+      this.syncSession();
       try { await this.refreshContext(); } catch (error) { this.emit("error", asError(error)); }
       if (live()) {
         this.adapter.sendToolResult({ callId, name, output: toWireResult(result.result) });
@@ -722,6 +732,32 @@ export class RealtimeSession extends EventEmitter<RealtimeSessionEvents> {
       : Boolean(await policy({ tool: tool.name, input }));
     await store.setPermission?.(tool.name, allowed ? "granted" : "denied", input);
     return allowed;
+  }
+
+  private async startTurn(): Promise<void> {
+    if (this.cfg.beforeTurn) {
+      try {
+        await this.cfg.beforeTurn();
+        this.syncSession();
+      } catch (error) {
+        this.emit("error", asError(error));
+      }
+    }
+    try { await this.refreshContext(); } catch (error) { this.emit("error", asError(error)); }
+  }
+
+  /**
+   * Send the agent's current prompt and tools if either changed. Tools fold
+   * new tools mid-call (discovery, MCP refresh) and modules rewrite the prompt
+   * as state moves (a goal's `configure`); the provider has to hear about it.
+   */
+  private syncSession(): void {
+    const instructions = this.cfg.instructions ?? this.agent.getSystemPrompt();
+    if (instructions !== this.instructions) {
+      this.instructions = instructions;
+      this.adapter.setInstructions(instructions);
+    }
+    this.syncTools();
   }
 
   /** Re-register tools with the provider if the agent's set changed. */
@@ -810,12 +846,7 @@ export class RealtimeSession extends EventEmitter<RealtimeSessionEvents> {
 
   /** Re-send the prompt and tools — after changing them on the agent. */
   async refreshSession(): Promise<void> {
-    const instructions = this.cfg.instructions ?? this.agent.getSystemPrompt();
-    if (instructions !== this.instructions) {
-      this.instructions = instructions;
-      this.adapter.setInstructions(instructions);
-    }
-    this.syncTools();
+    this.syncSession();
     await this.refreshContext();
   }
 
