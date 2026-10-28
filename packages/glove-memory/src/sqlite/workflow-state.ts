@@ -13,13 +13,14 @@ function preserving<T>(schema: z.ZodType): z.ZodType<T> {
   return z.custom<T>(value => schema.safeParse(value).success, "Invalid persisted workflow state");
 }
 const goalSnapshot = z.object({ program: GoalProgramSchema,
+  lazy: z.record(z.string(), z.object({ seen: version }).passthrough()).optional(),
   progress: z.record(z.string(), z.record(z.string(), z.object({
     disposition: z.enum(["pending", "done", "deferred", "declined"]), done: z.boolean(), note: z.string().nullable(), at: z.string(),
   }).passthrough())),
 }).passthrough();
 export const goalState = preserving<GoalMemoryState>(z.object({
   instances: z.array(z.tuple([key, goalSnapshot.extend({ scope: GoalScopeSchema, version: version.min(1),
-    createdAt: z.string(), updatedAt: z.string(), history: z.array(goalSnapshot.extend({ version: version.min(1), kind: z.enum(["start", "revise", "update"]), reason: z.string(), provenance: ProvenanceSchema })),
+    createdAt: z.string(), updatedAt: z.string(), history: z.array(goalSnapshot.extend({ version: version.min(1), kind: z.enum(["start", "revise", "update", "turn"]), reason: z.string(), provenance: ProvenanceSchema })),
   })])),
   dispatches: z.array(z.tuple([key, z.array(z.tuple([key, z.object({ transitionId: key, owner: key,
     state: z.enum(["running", "completed", "failed"]), attempts: version.min(1), leaseUntil: z.number().finite(),

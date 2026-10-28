@@ -500,6 +500,10 @@ Use this reference when building goal-driven agents, retaining early evidence, o
 
 Use glove-core >=4.0.0 with glove-memory >=2.0.0. Goals, forms, and pinned context register live providers through `addContextProvider`. Glove appends current state as transient user-role messages after saved history before each model iteration, including after tool results. State stays in its scoped adapter; snapshots never rewrite the system prompt or become saved conversation messages. `runtime_context` subscriber events expose resolved snapshots for tracing. Prefix stability does not guarantee provider cache hits.
 
+Pass `runtimeContextPlacement: "before_request"` to `new Glove(...)` (or set it on a Foundry agent) to insert snapshots just before the user's latest message instead, so the user's own words come last. The trade-off is caching: the previous request's transcript stops being a cached prefix on the next request.
+
+Lazy goals (`lazy: { turns }` on a goal definition) are shown for that many user turns, then expire by themselves with no tool call. They sit beside the ordered program (never `activeGoal`), may have no items, and fire `onExpire`. Each mounted `processRequest` counts a turn; custom loops call `runner.advanceTurn()`.
+
 Runnable proxies must forward `addContextProvider` and `getRuntimeContext`. Forms/goals can opt out with `injectStatus: false` and a custom renderer. Preparation and lifecycle synchronization still run before mounted requests; reading a snapshot does not run inference. Realtime voice silently injects changed snapshots at start and after tools; call `await realtime.refreshContext()` after external changes. Voice providers retain earlier injected snapshots in their session, superseded by the latest one.
 
 ### Skipping a field without inventing a value

@@ -11,6 +11,7 @@ import type {
   StoreAdapter,
   SubscriberAdapter,
   SubAgentFactoryContext,
+  RuntimeContextPlacement,
   RuntimeContextProvider,
 } from "glove-core";
 import { Displaymanager, Glove } from "glove-core";
@@ -215,6 +216,8 @@ export interface AgentAssemblyOptions<TInput = unknown> {
   readonly compactionInstructions?: FoundryResolver<string, TInput>;
   readonly maxTurns?: FoundryResolver<number, TInput>;
   readonly enableToolResultSummary?: boolean;
+  /** Where runtime context sits; "before_request" keeps the user's latest message last. Default "tail". */
+  readonly runtimeContextPlacement?: RuntimeContextPlacement;
   readonly tools?: FoundryListResolver<GloveFoldArgs<any>, TInput>;
   readonly hooks?: FoundryListResolver<FoundryHookDefinition, TInput>;
   readonly skills?: FoundryListResolver<DefineSkillArgs, TInput>;
@@ -340,6 +343,7 @@ export interface FoundryAgentConventionModule {
   readonly compactionInstructions?: AgentAssemblyOptions["compactionInstructions"];
   readonly maxTurns?: AgentAssemblyOptions["maxTurns"];
   readonly enableToolResultSummary?: boolean;
+  readonly runtimeContextPlacement?: RuntimeContextPlacement;
   readonly tools?: AgentAssemblyOptions["tools"];
   readonly hooks?: AgentAssemblyOptions["hooks"];
   readonly skills?: AgentAssemblyOptions["skills"];
@@ -448,7 +452,7 @@ const CONVENTION_EXPORTS = [
   "accountSessions", "store", "model", "systemPrompt",
   "displayManager", "serverMode", "maxRetries", "maxConsecutiveErrors",
   "compactionLimit", "compactionInstructions", "maxTurns",
-  "enableToolResultSummary", "tools", "hooks", "skills", "subagents",
+  "enableToolResultSummary", "runtimeContextPlacement", "tools", "hooks", "skills", "subagents",
   "delegates", "answerWaitMs", "memory", "goals", "facts", "forms", "contextProviders", "inboxes", "subscribers", "layers", "calls", "schedules", "playbooks", "mesh",
   "workingEnvironment", "repl", "configure", "build",
   "spawn", "run", "handler",

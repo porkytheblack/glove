@@ -35,9 +35,20 @@ export interface GoalRunnerConfig {
 /** Pure derived view. No active-row bookkeeping to become stale after edits. */
 export function projectGoalStatus(instance: GoalInstance): GoalStatus {
   let activeGoal: string | null = null;
+  let lazyShown = false;
   const goals = instance.program.goals.map((definition, index) => {
     const items = definition.items.map((item) => ({ definition: structuredClone(item), state: structuredClone(instance.progress[definition.key]?.[item.key] ?? null) }));
-    const settled = items.filter((item) => !item.definition.retired).every((item) => item.state && item.state.disposition !== "pending");
+    const live = items.filter((item) => !item.definition.retired);
+    const settled = live.every((item) => item.state && item.state.disposition !== "pending");
+    if (definition.lazy) {
+      // Beside the sequence: shown until its turns run out, never the active slot.
+      // An objective-only lazy goal has nothing to settle, so it can only expire.
+      const seen = instance.lazy?.[definition.key]?.seen ?? 0;
+      const status = definition.retired ? "retired" : live.length && settled ? "completed" : seen > definition.lazy.turns ? "expired" : "active";
+      if (status === "active") lazyShown = true;
+      return { definition: structuredClone(definition), ordinal: index + 1, status, items,
+        lazy: { turns: definition.lazy.turns, seen, remaining: Math.max(0, definition.lazy.turns - seen) } } as GoalStatus["goals"][number];
+    }
     const status = definition.retired ? "retired" : settled ? "completed" : activeGoal === null ? "active" : "pending";
     if (status === "active") activeGoal = definition.key;
     return { definition: structuredClone(definition), ordinal: index + 1, status, items } as GoalStatus["goals"][number];
@@ -54,7 +65,7 @@ export function projectGoalStatus(instance: GoalInstance): GoalStatus {
     }
   }
   return { scope: structuredClone(instance.scope), version: instance.version, programKey: instance.program.key,
-    status: activeGoal === null ? "completed" : "active", activeGoal, goals, deferred, ...(instance.preparation ? { preparation: structuredClone(instance.preparation) } : {}) };
+    status: activeGoal === null && !lazyShown ? "completed" : "active", activeGoal, goals, deferred, ...(instance.preparation ? { preparation: structuredClone(instance.preparation) } : {}) };
 }
 
 function findItem(instance: GoalInstance, goalKey: string, itemKey: string): { goal: GoalDefinition; item: GoalItemDefinition } | undefined {
@@ -103,6 +114,29 @@ export class GoalRunner {
     }
   }
   async history(): Promise<GoalRevision[]> { return (await this.inspect())?.history ?? []; }
+
+  /**
+   * Count one user turn for every lazy goal currently shown. A goal shown for
+   * more turns than its window expires here, with no tool call. Writes nothing
+   * when no lazy goal is shown. useGoalRunner calls this as each request starts;
+   * hosts that drive their own loop call it once per user turn.
+   */
+  async advanceTurn(): Promise<GoalStatus | null> {
+    for (let attempt = 0; ; attempt++) {
+      const before = await this.inspect();
+      if (!before) return null;
+      const shown = projectGoalStatus(before).goals.filter((goal) => goal.lazy && goal.status === "active");
+      if (!shown.length) return projectGoalStatus(before);
+      const lazy = structuredClone(before.lazy ?? {});
+      for (const goal of shown) lazy[goal.definition.key] = { seen: (lazy[goal.definition.key]?.seen ?? 0) + 1 };
+      try {
+        return await this.commit(before.scope, before, { program: before.program, progress: before.progress, preparation: before.preparation, lazy },
+          "turn", `User turn passed with lazy goals shown: ${shown.map((goal) => goal.definition.key).join(", ")}`);
+      } catch (error) {
+        if (!(error instanceof GoalConflictError) || attempt >= 4) throw error;
+      }
+    }
+  }
 
   /** Resume saved transition effects after a failure/restart. Completed effects are not replayed. */
   async resumeHooks(): Promise<GoalHookResumeResult> { return this.resumeHooksForScope(this.scope()); }
@@ -235,10 +269,13 @@ export class GoalRunner {
     return instance;
   }
   private async commit(scope: GoalScope, before: GoalInstance | null, snapshot: GoalSnapshot, kind: GoalRevision["kind"], reason: string): Promise<GoalStatus> {
-    const saved = await prepareGoalCommit(this.config.preparation, scope, before,
-      { ...snapshot, preparation: snapshot.preparation ?? before?.preparation }, async prepared => {
+    // Writes that do not name lazy progress carry it forward unchanged.
+    const lazy = snapshot.lazy ?? before?.lazy;
+    // A turn tick carries no new evidence; prepare() already runs once per request.
+    const saved = await prepareGoalCommit(kind === "turn" ? undefined : this.config.preparation, scope, before,
+      { ...snapshot, preparation: snapshot.preparation ?? before?.preparation, ...(lazy ? { lazy } : {}) }, async prepared => {
         snapshot = prepared;
-        if (before && equal({ program: before.program, progress: before.progress, preparation: before.preparation }, snapshot)) return before;
+        if (before && equal({ program: before.program, progress: before.progress, preparation: before.preparation, lazy: before.lazy }, snapshot)) return before;
         await this.config.validateChange?.({ before: structuredClone(before), after: structuredClone(snapshot), kind, reason });
         const now = new Date().toISOString();
         const version = (before?.version ?? 0) + 1;

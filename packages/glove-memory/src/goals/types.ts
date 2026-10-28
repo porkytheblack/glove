@@ -15,11 +15,22 @@ export const GoalItemDefinitionSchema = z.object({
   locked: z.boolean().optional(),
   retired: z.boolean().optional(),
 }).strict();
+/**
+ * A lazy goal is shown for a fixed number of user turns, then drops off on its
+ * own: no tool call settles it. It sits beside the ordered program rather than
+ * taking the active slot, so it never blocks the goals after it.
+ */
+export const GoalLazySchema = z.object({
+  /** User turns that start while the goal is shown, counting from when it first appears. */
+  turns: z.number().int().min(1).max(100),
+}).strict();
 export const GoalDefinitionSchema = z.object({
   key: GoalKeySchema,
   title: z.string().trim().min(1).max(1000),
   objective: z.string().trim().min(1).max(4000),
-  items: z.array(GoalItemDefinitionSchema).min(1).max(100),
+  /** At least one item, except for lazy goals, which may be objective-only. */
+  items: z.array(GoalItemDefinitionSchema).max(100),
+  lazy: GoalLazySchema.optional(),
   locked: z.boolean().optional(),
   retired: z.boolean().optional(),
 }).strict();
@@ -31,6 +42,7 @@ export const GoalProgramSchema = z.object({
   for (const goal of program.goals) {
     if (keys.has(goal.key)) ctx.addIssue({ code: "custom", message: `Duplicate goal key: ${goal.key}` });
     keys.add(goal.key);
+    if (!goal.items.length && !goal.lazy) ctx.addIssue({ code: "custom", message: `Goal ${goal.key} needs at least one item` });
     const items = new Set<string>();
     for (const item of goal.items) {
       if (items.has(item.key)) ctx.addIssue({ code: "custom", message: `Duplicate item key: ${goal.key}/${item.key}` });
@@ -40,6 +52,7 @@ export const GoalProgramSchema = z.object({
     if (goal.locked && goal.retired) ctx.addIssue({ code: "custom", message: "Locked goals cannot be retired" });
   }
 });
+export type GoalLazy = z.infer<typeof GoalLazySchema>;
 export type GoalItemDefinition = z.infer<typeof GoalItemDefinitionSchema>;
 export type GoalDefinition = z.infer<typeof GoalDefinitionSchema>;
 export type GoalProgram = z.infer<typeof GoalProgramSchema>;
@@ -65,17 +78,22 @@ export interface GoalItemState {
   at: string;
 }
 export type GoalProgress = Record<string, Record<string, GoalItemState>>;
+/** Per lazy goal key: user turns that started while it was shown. */
+export type GoalLazyProgress = Record<string, { seen: number }>;
 export interface GoalSnapshot {
   preparation?: PreparationReport;
   program: GoalProgram;
   /** Retained even for removed/retired definitions; keys must not be repurposed. */
   progress: GoalProgress;
+  /** Absent until a lazy goal has been shown for a turn. */
+  lazy?: GoalLazyProgress;
 }
 export interface GoalRevision extends GoalSnapshot {
   /** Persisted atomically with progress. Absent on pre-lifecycle records. */
   transitions?: GoalTransition[];
   version: number;
-  kind: "start" | "revise" | "update";
+  /** "turn" records a user turn passing while lazy goals were shown. */
+  kind: "start" | "revise" | "update" | "turn";
   reason: string;
   provenance: Provenance;
 }
@@ -90,15 +108,20 @@ export interface GoalInstance extends GoalSnapshot {
 export interface GoalView {
   definition: GoalDefinition;
   ordinal: number;
-  status: "active" | "pending" | "completed" | "retired";
+  /** A shown lazy goal is "active" without being activeGoal; one past its turns is "expired". */
+  status: "active" | "pending" | "completed" | "expired" | "retired";
   items: Array<{ definition: GoalItemDefinition; state: GoalItemState | null }>;
+  /** Lazy goals only. remaining counts turns that will still start with it shown. */
+  lazy?: { turns: number; seen: number; remaining: number };
 }
 export interface GoalStatus {
   preparation?: PreparationReport;
   scope: GoalScope;
   version: number;
   programKey: string;
+  /** "active" while a sequential goal is unsettled or a lazy goal is still shown. */
   status: "active" | "completed";
+  /** The sequential goal in progress. Lazy goals never take this slot. */
   activeGoal: string | null;
   goals: GoalView[];
   /** Includes outstanding deferrals in removed/retired goals and items. */

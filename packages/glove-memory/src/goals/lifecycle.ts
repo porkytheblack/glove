@@ -1,6 +1,6 @@
 import type { GoalInstance, GoalScope, GoalStatus, GoalView } from "./types";
 
-export type GoalTransitionKind = "enter" | "complete" | "reopen";
+export type GoalTransitionKind = "enter" | "complete" | "reopen" | "expire";
 export interface GoalTransition {
   id: string;
   kind: GoalTransitionKind;
@@ -21,6 +21,8 @@ export interface GoalLifecycleHooks<C extends GoalHookContext = GoalHookContext>
   onEnter?: (context: C) => void | Promise<void>;
   onComplete?: (context: C) => void | Promise<void>;
   onReopen?: (context: C) => void | Promise<void>;
+  /** A lazy goal ran out of turns without its items being settled. */
+  onExpire?: (context: C) => void | Promise<void>;
 }
 export interface GoalTransitionDispatch {
   transitionId: string;
@@ -42,7 +44,7 @@ export class GoalHookError extends Error {
   }
 }
 export function transitionHookName(kind: GoalTransitionKind): keyof GoalLifecycleHooks {
-  return kind === "enter" ? "onEnter" : kind === "complete" ? "onComplete" : "onReopen";
+  return kind === "enter" ? "onEnter" : kind === "complete" ? "onComplete" : kind === "expire" ? "onExpire" : "onReopen";
 }
 
 /** Completion/reopening are handled before entering the next active goal. */
@@ -56,6 +58,7 @@ export function goalTransitions(before: GoalStatus | null, after: GoalStatus): G
     const previous = before?.goals.find((g) => g.definition.key === goal.definition.key);
     if (goal.status === "completed" && previous?.status !== "completed") add("complete", goal.definition.key);
     if (previous?.status === "completed" && (goal.status === "active" || goal.status === "pending")) add("reopen", goal.definition.key);
+    if (goal.status === "expired" && previous && previous.status !== "expired") add("expire", goal.definition.key);
   }
   if (after.activeGoal && after.activeGoal !== before?.activeGoal) add("enter", after.activeGoal);
   return result;
@@ -64,6 +67,6 @@ export function goalTransitions(before: GoalStatus | null, after: GoalStatus): G
 /** Reconstruct the state a hook observed without relying on current code definitions. */
 export function instanceAtRevision(instance: GoalInstance, index: number): GoalInstance {
   const revision = instance.history[index];
-  return { ...instance, program: revision.program, progress: revision.progress, preparation: revision.preparation, version: revision.version,
+  return { ...instance, program: revision.program, progress: revision.progress, preparation: revision.preparation, lazy: revision.lazy, version: revision.version,
     updatedAt: revision.provenance.timestamp, history: instance.history.slice(0, index + 1) };
 }
