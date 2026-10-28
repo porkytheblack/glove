@@ -168,8 +168,8 @@ export interface OutboundContract<
   readonly config: TConfig;
   readonly input: TInput;
   readonly output: TOutput;
-  /** Require Glove's exact-input approval before this outbound effect is dispatched. */
-  readonly requiresPermission?: boolean | ((input: Schema.Schema.Type<TInput>) => boolean);
+  /** Require Glove's exact-input approval before this outbound effect is dispatched. A predicate may be async. */
+  readonly requiresPermission?: boolean | ((input: Schema.Schema.Type<TInput>) => boolean | Promise<boolean>);
   /**
    * Project provider output into the model-visible tool result. Use this to
    * omit large or sensitive presentation-only bytes without weakening the

@@ -397,7 +397,7 @@ function programmaticToolFunction(
       }
       const validated = parsed?.success ? parsed.data : input;
       const permission = typeof tool.requiresPermission === "function"
-        ? tool.requiresPermission(validated)
+        ? Boolean(await tool.requiresPermission(validated))
         : Boolean(tool.requiresPermission);
       if (permission) {
         options.context.controls.emit({

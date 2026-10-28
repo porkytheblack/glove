@@ -194,10 +194,10 @@ test("host instruction changes remain independent of all runtime context provide
   await runner.start(program()); await runner.update(completeIdentity);
   assert.equal(glove.getSystemPrompt(), "Entered: work");
   const context = (await glove.getRuntimeContext()).map(m => m.text).join("\n");
-  assert.match(context, /GOALS — intake \(version 2/);
+  assert.match(context, /<goals program="intake" version="2"/);
   assert.match(context, /FORM: pending answer/);
   assert.match(context, /CONTEXT: returning client/);
-  assert.equal(context.match(/GOALS —/g)?.length, 1);
+  assert.equal(context.match(/<goals /g)?.length, 1);
   removeForms();
   assert.doesNotMatch((await glove.getRuntimeContext()).map(m => m.text).join("\n"), /FORM: pending answer/);
   assert.equal(glove.getSystemPrompt(), "Entered: work");

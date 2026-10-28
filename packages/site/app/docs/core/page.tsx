@@ -2058,10 +2058,11 @@ export const readFile: GloveFoldArgs<{ path: string; from?: number; to?: number 
 
       <p>
         For tools where the check itself depends on the input,{" "}
-        <code>Tool.requiresPermission</code> also accepts a function. Return{" "}
-        <code>true</code> to require a check for that input, <code>false</code>{" "}
-        to skip it entirely. This lets a single tool gate writes but not reads
-        without store-side rules.
+        <code>Tool.requiresPermission</code> also accepts a function, sync or
+        async (it is awaited). Return <code>true</code> to require a check for
+        that input, <code>false</code> to skip it entirely. This lets a single
+        tool gate writes but not reads without store-side rules, or consult a
+        policy service before deciding.
       </p>
 
       <h3 id="permission-key">permissionKey</h3>

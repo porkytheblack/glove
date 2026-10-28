@@ -43,8 +43,11 @@ import { splitAtLastCompaction, abortablePromise } from "./utils";
  * of the run).
  */
 export type SubscriberEvent =
-  /** Resolved runtime snapshots, outside persisted history (also used by external runtimes). */
-  | { type: "runtime_context"; messages: Array<Message> }
+  /**
+   * Resolved runtime snapshots (also used by external runtimes). `delivery`
+   * names the providers that were read; it is absent for an unfiltered read.
+   */
+  | { type: "runtime_context"; messages: Array<Message>; delivery?: "iteration" | "request" | "history" }
   | { type: "text_delta"; text: string }
   | { type: "tool_use"; id: string; name: string; input: unknown }
   | { type: "model_response"; text: string; tool_calls?: ToolCall[]; stop_reason?: string; tokens_in?: number; tokens_out?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number }
@@ -81,7 +84,20 @@ export type SubscriberEvent =
   | { type: "hook_invoked"; name: string }
   | { type: "skill_invoked"; name: string; source: "user" | "agent"; args?: string }
   | { type: "subagent_invoked"; name: string; prompt: string }
-  | { type: "subagent_completed"; name: string; status: "success" | "error"; message?: string };
+  | { type: "subagent_completed"; name: string; status: "success" | "error"; message?: string }
+  /**
+   * **Spontaneous events** (emitted by Glove's event queue):
+   * - `event_received` — `emitEvent` accepted, deferred, woke for or dropped an event
+   * - `event_injected` — queued events were saved to history; `phase` says where:
+   *   at a tool-step boundary (`loop`), before a request's message (`request`),
+   *   or as the message that started a turn of their own (`wake`)
+   * - `event_dropped` — an event was discarded by the policy or because it expired
+   * - `event_wake_failed` — a turn started for events failed
+   */
+  | { type: "event_received"; id: string; source: string; kind?: string; disposition: "queued" | "woke" | "deferred" | "dropped" | "duplicate" }
+  | { type: "event_injected"; ids: string[]; phase: "loop" | "request" | "wake" }
+  | { type: "event_dropped"; id: string; reason: "policy" | "expired" }
+  | { type: "event_wake_failed"; ids: string[]; message: string };
 
 /** Extract a single event by its type field. */
 export type SubscriberEventOf<T extends SubscriberEvent["type"]> =
@@ -212,14 +228,15 @@ export interface Tool<I> {
    * Gate the tool behind a permission check.
    *
    * - `boolean` — applies to every invocation regardless of input.
-   * - `(input) => boolean` — called with the model-supplied input on every
-   *   call; return `true` to require a permission check for THIS call,
-   *   `false` to skip the check entirely (e.g. read-only bash commands).
+   * - `(input) => boolean | Promise<boolean>` — called with the model-supplied
+   *   input on every call and awaited; resolve `true` to require a permission
+   *   check for THIS call, `false` to skip the check entirely (e.g. read-only
+   *   bash commands, or a policy looked up asynchronously).
    *
    * When the gate is on, the store is consulted via `getPermission(name, input)`
    * and a permission prompt is rendered via `handOver({ renderer: "permission_request", toolName, toolInput })`.
    */
-  requiresPermission?: boolean | ((input: I) => boolean);
+  requiresPermission?: boolean | ((input: I) => boolean | Promise<boolean>);
   unAbortable?: boolean;
   /**
    * Tool implementation.
@@ -298,7 +315,15 @@ export interface InboxItem {
 export interface Message {
   sender: "user" | "agent";
   /** Framework-supplied state, not a human turn. Wire roles remain adapter-compatible. */
-  framework_context?: "runtime" | "inbox";
+  framework_context?: "runtime" | "inbox" | "event";
+  /**
+   * Model input only, never persisted (runtime snapshots, the blocking-inbox
+   * reminder). Adapters keep prompt-cache breakpoints off these messages so
+   * the cached prefix is one the next request can actually reuse.
+   */
+  transient?: boolean;
+  /** The `key` of the history-delivered context provider that wrote this message. */
+  context_key?: string;
   id?: string;
   text: string;
   // in cases where a user is using a hook that will rewrite the existing text, we wanna be able to still know the original message, especially in instances where we need to display it to the user
@@ -397,6 +422,44 @@ export function resolvePromptCache(
     return { enabled: true, ttl: "5m" };
   }
   return { enabled: true, ttl: config.ttl ?? "5m" };
+}
+
+/**
+ * Indices of the messages whose last content block should carry a
+ * conversation prompt-cache breakpoint.
+ *
+ * A breakpoint on a transient message caches a prefix no later request
+ * contains, so every write is wasted. Instead this returns the last persisted
+ * message and, when transient messages sit inside the conversation (context
+ * frozen before the request's message), the last persisted message before
+ * them: that prefix is exactly what the next request will start with.
+ */
+export function promptCacheAnchors(messages: ReadonlyArray<Message>): number[] {
+  let last = -1;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (!messages[i].transient) { last = i; break; }
+  }
+  if (last < 0) return [];
+  const firstTransient = messages.findIndex((m) => m.transient);
+  if (firstTransient < 0 || firstTransient > last) return [last];
+  for (let i = firstTransient - 1; i >= 0; i--) {
+    if (!messages[i].transient) return [i, last];
+  }
+  return [last];
+}
+
+/**
+ * True when the user turn an OpenAI-style adapter will end on carries no
+ * transient context. Consecutive user messages merge into that one turn, so
+ * request-frozen context before the request's message counts too.
+ */
+export function latestTurnIsPersisted(messages: ReadonlyArray<Message>): boolean {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m.sender !== "user" || m.tool_results?.length) return true;
+    if (m.transient) return false;
+  }
+  return true;
 }
 
 export interface ModelAdapter {
@@ -643,7 +706,7 @@ export class Executor {
     // lets a single tool gate writes but not reads (e.g. bash) without
     // store-side rules.
     const gate = typeof tool.requiresPermission === "function"
-      ? Boolean(tool.requiresPermission(input))
+      ? Boolean(await tool.requiresPermission(input))
       : Boolean(tool.requiresPermission);
     if (!gate) return true;
     if (!this.store?.getPermission || !this.store?.setPermission) return true;
@@ -1123,6 +1186,45 @@ export class Observer {
   }
 }
 
+/**
+ * Framework seams the agent loop calls at fixed points. Glove supplies them;
+ * an `Agent` constructed without them behaves exactly as before.
+ */
+export interface AgentFrameworkHooks {
+  /**
+   * Once per request, before the request's message is saved. Returned
+   * messages are saved to history first, in order (history-delivered
+   * context, events deferred while idle).
+   */
+  beforeRequest?: (history: ReadonlyArray<Message>, signal?: AbortSignal) => Promise<Array<Message>>;
+  /**
+   * Once per request: transient context frozen for the whole request. It is
+   * placed just before the request's message on every model call, so the
+   * prefix stays identical between tool steps.
+   */
+  frozenContext?: (signal?: AbortSignal) => Promise<Array<Message>>;
+  /**
+   * At every tool-step boundary, after the tool results are saved. Returned
+   * messages (events that arrived mid-loop) are saved once, right after them.
+   */
+  drainEvents?: (signal?: AbortSignal) => Promise<Array<Message>>;
+}
+
+/**
+ * Place request-frozen context immediately before the request's message.
+ * Matched by reference, then by content, because stores may return copies.
+ * If compaction removed the message, the context goes after the summary.
+ */
+function insertBeforeTrigger(messages: Array<Message>, trigger: Message, frozen: Array<Message>): Array<Message> {
+  let index = -1;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m === trigger || (m.sender === trigger.sender && !m.tool_results && m.text === trigger.text)) { index = i; break; }
+  }
+  if (index < 0) index = messages[0]?.is_compaction ? 1 : 0;
+  return [...messages.slice(0, index), ...frozen, ...messages.slice(index)];
+}
+
 export class Agent {
   store: StoreAdapter;
   executor: Executor;
@@ -1137,6 +1239,7 @@ export class Agent {
     observer: Observer,
     prompt_machine: PromptMachine,
     private runtimeContext?: (signal?: AbortSignal) => Promise<Array<Message>>,
+    private framework?: AgentFrameworkHooks,
   ) {
     this.store = store;
     this.executor = executor;
@@ -1149,8 +1252,17 @@ export class Agent {
 
     // Inbox: inject resolved items (persisted) and build transient blocking reminder
     await this.injectResolvedInboxItems();
-    const pendingBlockingMessage = await this.buildPendingBlockingMessage();
-    
+    if (this.framework?.beforeRequest) {
+      const preamble = await this.framework.beforeRequest(await this.context.getMessages(), signal);
+      // Save before honouring an abort: drained events have left the queue,
+      // so history is now the only place they exist.
+      if (preamble.length) await this.context.appendMessages(preamble);
+      if (signal?.aborted) throw new AbortError();
+    }
+    let pendingBlockingMessage = await this.buildPendingBlockingMessage();
+    const frozen = this.framework?.frozenContext ? await this.framework.frozenContext(signal) : [];
+    if (signal?.aborted) throw new AbortError();
+
     await this.context.appendMessages([message]);
 
     // Per-request turn counter to prevent runaway loops.
@@ -1161,7 +1273,7 @@ export class Agent {
       if (signal?.aborted) throw new AbortError();
 
       let messages = await this.context.getMessages();
-      messages = [...messages]
+      messages = frozen.length ? insertBeforeTrigger(messages, message, frozen) : [...messages]
 
       // Keep framework reminders after complete tool call/result bundles.
       // They do not establish a conversational turn boundary or enter history.
@@ -1245,13 +1357,21 @@ export class Agent {
       };
       await this.context.appendMessages([toolResultMessage]);
 
+      // Things that happened while the tools ran join the loop now, once:
+      // inbox items resolved mid-request and spontaneous events.
+      if (await this.injectResolvedInboxItems()) {
+        pendingBlockingMessage = await this.buildPendingBlockingMessage();
+      }
+      const events = this.framework?.drainEvents ? await this.framework.drainEvents(signal) : [];
+      if (events.length) await this.context.appendMessages(events);
+
       await this.observer.tryCompaction();
     }
   }
 
-  private async injectResolvedInboxItems() {
+  private async injectResolvedInboxItems(): Promise<boolean> {
     const resolved = await this.context.getResolvedInboxItems();
-    if (resolved.length === 0) return;
+    if (resolved.length === 0) return false;
 
     const inboxMessage: Message = {
       sender: "user",
@@ -1267,6 +1387,7 @@ export class Agent {
     for (const item of resolved) {
       await this.context.updateInboxItem(item.id, { status: "consumed" });
     }
+    return true;
   }
 
   private async buildPendingBlockingMessage(): Promise<Message | null> {
@@ -1280,6 +1401,7 @@ export class Agent {
     return {
       sender: "user",
       framework_context: "inbox",
+      transient: true,
       text: `[Inbox: ${pendingBlocking.length} blocking item(s) still pending — ` +
         `you cannot proceed with actions that depend on these results]\n` +
         pendingBlocking.map((item) =>

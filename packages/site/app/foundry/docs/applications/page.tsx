@@ -220,7 +220,7 @@ export default defineTransmission({
           <tr><td><code>inbound.serialize</code></td><td>Optional <code>(event, ctx) =&gt; Effect&lt;string&gt;</code> replacing the default XML turn (below). <code>ctx</code> carries <code>eventId</code>, <code>eventName</code>, <code>threadKey</code> and the matched <code>playbooks</code>.</td></tr>
           <tr><td><code>outbound.input</code> / <code>output</code></td><td>The send tool’s payload schema and the delivery result schema. Both are enforced.</td></tr>
           <tr><td><code>outbound.adapter.deliver</code></td><td><code>(input, ctx) =&gt; Effect&lt;output&gt;</code>. <code>ctx</code>: <code>route</code>, <code>account?</code>, <code>grant</code>, <code>signal</code>, <code>withAccountSession?</code>.</td></tr>
-          <tr><td><code>outbound.requiresPermission</code></td><td><code>boolean</code> or <code>(input) =&gt; boolean</code>. Gates the send behind an <Link href="/foundry/docs/approvals">approval</Link>.</td></tr>
+          <tr><td><code>outbound.requiresPermission</code></td><td><code>boolean</code> or <code>(input) =&gt; boolean | Promise&lt;boolean&gt;</code>. Gates the send behind an <Link href="/foundry/docs/approvals">approval</Link>.</td></tr>
           <tr><td><code>outbound.project</code> / <code>render</code></td><td>Map the output to what the model sees / to UI-only render data (for example, drop image bytes from the model result).</td></tr>
           <tr><td><code>outbound.observe</code></td><td>Map the input to secret-safe trace data. Omit it and traces record no payload.</td></tr>
         </tbody>
