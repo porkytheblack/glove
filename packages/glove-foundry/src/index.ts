@@ -90,6 +90,7 @@ export {
   type FoundryDataAdapter,
   type FoundryActivationRecord,
   type FoundryMessageInput,
+  type FoundryPendingInbound,
   type InboundDeliveryClaim,
   type ProvisionAgentOptions,
   type FoundryRequest,
@@ -111,6 +112,7 @@ export {
   type FoundryDelegateOptions,
   type FoundryDelegation,
   type FoundryDelegationReply,
+  type FoundryTransmissionDelivery,
   type FoundryDelegationStatus,
   type FoundryDelegationUpdate,
 } from "./delegation.js";

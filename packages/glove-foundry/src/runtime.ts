@@ -64,6 +64,7 @@ import {
 } from "./manifest.js";
 import { transmissionPredicate, type AnyFoundryTransmission } from "./integration.js";
 import { serializeInboundTransmissionXml } from "./transmission.js";
+import { ConversationGate } from "./conversation-gate.js";
 import { reconstructPlaybook, type AgentPlaybook } from "./playbook.js";
 import {
   definePlaybookSubscription,
@@ -97,6 +98,7 @@ import {
 import type { FoundryNativeManifest, FoundryNativeRegistry } from "./surfaces.js";
 import { FOUNDRY_CORE_COMMAND_EVENT, type FoundryCoreCommand } from "./core-tools.js";
 import {
+  FOUNDRY_CONVERSATION_LEASE_EVENT,
   FOUNDRY_CONVERSATION_LISTEN_EVENT,
   FOUNDRY_MAILBOX_DIRECTORY_ENV,
   delegationFromContext,
@@ -107,6 +109,7 @@ import {
   renderDeliveries,
   undeliveredUpdate,
   workerAgentId,
+  writeConversationLease,
   writeMailboxDelivery,
   type FoundryConversationDelivery,
   type FoundryDelegation,
@@ -143,6 +146,7 @@ import {
   type FoundryDataAdapter,
   type FoundryActivationRecord,
   type FoundryMessageInput,
+  type FoundryPendingInbound,
   type FoundryRequest,
   type FoundryResult,
   type FoundryTask,
@@ -234,6 +238,18 @@ interface DeliveryTarget {
   readonly agentId: string;
   readonly conversationId: string;
   readonly workspaceId: string;
+}
+
+/** Where a run started from held deliveries came from. */
+function deliverySource(deliveries: ReadonlyArray<FoundryConversationDelivery>): FoundryRequest["source"] {
+  const first = deliveries[0]!;
+  if (deliveries.every((delivery) => delivery.kind === "transmission")) {
+    return first.kind === "transmission"
+      ? { kind: "transmission", id: first.routeId, eventId: first.eventId }
+      : { kind: "transmission" };
+  }
+  const delegation = deliveries.find((delivery) => delivery.kind !== "transmission");
+  return { kind: "delegation", ...(delegation && "delegationId" in delegation ? { id: delegation.delegationId } : {}) };
 }
 
 function deliveryText(value: unknown): string {
@@ -346,7 +362,27 @@ export class FoundryRuntime {
   private readonly conversationQueues = new Map<string, Promise<unknown>>();
   /** Runs cancelled by steering: a replacement follows, so their delegation stays open. */
   private readonly steeredRuns = new Set<string>();
+  /** One run at a time per conversation; the next starts once the one ahead has let go. */
+  private readonly gate = new ConversationGate({
+    idle: (conversationId) => {
+      void this.inConversation(conversationId, () => this.flushHeldDeliveries(conversationId))
+        .catch((cause) => this.reportDeliveryFailure(conversationId, cause));
+    },
+    failed: (conversationId, runId, cause) => {
+      this.observability.append({
+        type: "conversation.run.start-failed",
+        category: "system",
+        runId,
+        data: { conversationId, error: cause instanceof Error ? cause.message : String(cause) },
+      });
+    },
+  });
+  /** Pending inbound records each run is handling, so they are cleared when it settles. */
+  private readonly pendingInboundByRun = new Map<string, Set<string>>();
+  /** Recently settled runs, for a record assigned to a run that already finished. */
+  private readonly settledRuns = new Set<string>();
   private started = false;
+  private stopping = false;
   private disposed = false;
 
   constructor(options: FoundryRuntimeOptions) {
@@ -432,6 +468,15 @@ export class FoundryRuntime {
         if (event.type === FOUNDRY_CONVERSATION_LISTEN_EVENT) {
           const state = (event.data as { state?: unknown } | null)?.state;
           if (state === "on" || state === "off") this.trackConversationListener(event.run, state);
+          return;
+        }
+        if (event.type === FOUNDRY_CONVERSATION_LEASE_EVENT) {
+          const conversationId = this.toFoundryRun(event.run).conversationId;
+          if (!conversationId) return;
+          const runId = event.run.id;
+          void this.gate.claim(conversationId, runId)
+            .then(() => writeConversationLease(this.mailboxDirectory, runId))
+            .catch((cause) => this.reportDeliveryFailure(conversationId, cause));
           return;
         }
         if (event.type === FOUNDRY_CORE_COMMAND_EVENT) {
@@ -606,6 +651,7 @@ export class FoundryRuntime {
         this.runInBackground("signal", this.signalRunner.start());
         await this.reconcileApplicationConnections();
         void this.redeliverDelegations().catch((cause) => this.reportDeliveryFailure("startup", cause));
+        void this.redeliverInbound().catch((cause) => this.reportDeliveryFailure("startup", cause));
       } catch (cause) {
         try {
           await this.stop();
@@ -634,6 +680,7 @@ export class FoundryRuntime {
         this.disposed = true;
         return;
       }
+      this.stopping = true;
       for (const timer of this.activationTimers.values()) clearTimeout(timer);
       this.activationTimers.clear();
       this.activationDispatches.clear();
@@ -662,6 +709,7 @@ export class FoundryRuntime {
   requestEffect(
     route: string,
     request: FoundryRequest,
+    options: { readonly front?: boolean } = {},
   ): Effect.Effect<FoundryRun, FoundryRuntimeError> {
     return promiseEffect("agent.request", async () => {
       if (!this.started) throw new Error("Foundry runtime is not started.");
@@ -683,10 +731,7 @@ export class FoundryRuntime {
         ...conversation,
         updatedAt: new Date().toISOString(),
       })));
-      const runId = await this.signalRunner.triggerSignal(
-        discovered.executionName,
-        await this.executionEnvelope(request),
-      );
+      const runId = await this.admitRun(discovered.executionName, request, options);
       const run = await this.signalRunner.getRun(runId);
       if (!run) throw new Error(`Foundry failed to create run "${runId}".`);
       return this.toFoundryRun(run);
@@ -1058,6 +1103,11 @@ export class FoundryRuntime {
     runId: string,
     options?: { pollMs?: number; timeoutMs?: number },
   ): Promise<FoundryRun<TOutput> | null> {
+    // Time spent waiting for the conversation does not count against the
+    // wait: the timeout is for the run itself, which has not started yet.
+    while (this.gate.waiting(runId)) {
+      await new Promise((resolveWait) => setTimeout(resolveWait, options?.pollMs ?? 100));
+    }
     const run = await this.signalRunner.waitForRun(runId, options);
     return run ? this.toFoundryRun<TOutput>(run) : null;
   }
@@ -1123,28 +1173,44 @@ export class FoundryRuntime {
       throw new Error(`Foundry run "${runId}" does not expose an agent conversation to steer.`);
     }
     const active = source.status === "pending" || source.status === "running";
-    if (active) this.steeredRuns.add(runId);
-    const interrupted = active ? await this.cancel(runId) : false;
-    if (!interrupted) this.steeredRuns.delete(runId);
-    if (interrupted) {
-      const terminal = await this.waitForRun(runId, {
-        pollMs: 25,
-        timeoutMs: Math.min(Math.max(source.timeoutMs, 1_000), 30_000),
-      });
-      if (!terminal || (terminal.status === "pending" || terminal.status === "running")) {
-        throw new Error(`Foundry could not reach a safe steering boundary for run "${runId}".`);
+    // Nothing else on the conversation starts between the cancel and the
+    // replacement, which goes ahead of anything already waiting.
+    const release = this.gate.hold(source.conversationId);
+    let run: FoundryRun<FoundryResult>;
+    let interrupted = false;
+    try {
+      if (active) this.steeredRuns.add(runId);
+      interrupted = active ? await this.cancel(runId) : false;
+      if (!interrupted) this.steeredRuns.delete(runId);
+      if (interrupted) {
+        const terminal = await this.waitForRun(runId, {
+          pollMs: 25,
+          timeoutMs: Math.min(Math.max(source.timeoutMs, 1_000), 30_000),
+        });
+        if (!terminal || (terminal.status === "pending" || terminal.status === "running")) {
+          throw new Error(`Foundry could not reach a safe steering boundary for run "${runId}".`);
+        }
+        // Station marks the run cancelled before its process exits, so the
+        // replacement must also wait for that process to let go of the conversation.
+        await this.waitForRunProcessRelease(terminal, source.agent);
       }
-      // Station marks the run cancelled before its process exits, so the
-      // replacement must also wait for that process to let go of the conversation.
-      await this.waitForRunProcessRelease(terminal, source.agent);
+      const agent = await Effect.runPromise(this.data.getAgent(source.agentId));
+      if (!agent) throw new Error(`Foundry agent instance "${source.agentId}" was not found.`);
+      run = await Effect.runPromise(this.requestEffect(agent.definitionId, {
+        agentId: source.agentId,
+        conversationId: source.conversationId,
+        workspaceId: agent.workspaceId,
+        message,
+        context: {
+          protocol: "foundry-control",
+          steeredFromRunId: runId,
+          steeringMode: "interrupt-and-restart",
+        },
+        source: { kind: "direct" },
+      }, { front: true })) as FoundryRun<FoundryResult>;
+    } finally {
+      release();
     }
-    const run = await this.send(source.agentId, source.conversationId, message, {
-      context: {
-        protocol: "foundry-control",
-        steeredFromRunId: runId,
-        steeringMode: "interrupt-and-restart",
-      },
-    });
     this.observability.append({
       type: "run.steered",
       category: "system",
@@ -1452,7 +1518,7 @@ export class FoundryRuntime {
     const eventName = classifiedEvent?.id ?? inferredEventName ?? "event";
     const instances = await this.listAgentInstances();
     const runs: FoundryRun[] = [];
-    const deliveries: Array<{ agentId: string; playbookIds: string[]; runId: string }> = [];
+    const deliveries: Array<{ agentId: string; playbookIds: string[]; runId?: string }> = [];
     const matchedByAgent = new Map<string, { agent: AgentInstance; playbooks: AgentPlaybook[] }>();
     for (const agent of instances) {
       const installedApplications = new Set(
@@ -1570,29 +1636,34 @@ export class FoundryRuntime {
             event,
             playbooks: matched,
           });
-      const run = await this.request(agent.definitionId, {
-        agentId: agent.id,
-        conversationId: conversation.id,
-        workspaceId: agent.workspaceId,
-        message: eventMessage,
-        payload: event,
-        context: {
-          playbookIds: matched.map((playbook) => playbook.id),
-          outbound: matched.flatMap((playbook) => playbook.outbound ?? []),
-        },
-        source: {
-          kind: "transmission",
-          id: route.id,
-          provider: route.transmissionId,
-          eventId: input.eventId,
-          threadKey: input.threadKey,
+      const run = await this.admitInbound({
+        id: `${claim}:${agent.id}`,
+        definitionId: agent.definitionId,
+        createdAt: new Date().toISOString(),
+        request: {
+          agentId: agent.id,
+          conversationId: conversation.id,
+          workspaceId: agent.workspaceId,
+          message: eventMessage,
+          payload: event,
+          context: {
+            playbookIds: matched.map((playbook) => playbook.id),
+            outbound: matched.flatMap((playbook) => playbook.outbound ?? []),
+          },
+          source: {
+            kind: "transmission",
+            id: route.id,
+            provider: route.transmissionId,
+            eventId: input.eventId,
+            threadKey: input.threadKey,
+          },
         },
       });
-      runs.push(run);
+      if (run && !runs.some((item) => item.id === run.id)) runs.push(run);
       deliveries.push({
         agentId: agent.id,
         playbookIds: matched.map((playbook) => playbook.id),
-        runId: run.id,
+        ...(run ? { runId: run.id } : {}),
       });
     }
     await Effect.runPromise(
@@ -2385,6 +2456,7 @@ export class FoundryRuntime {
           for (const delivery of held.deliveries) {
             await writeMailboxDelivery(this.mailboxDirectory, conversationId, delivery);
           }
+          await this.markHandedOver(held.deliveries, run.id);
         }
         return;
       }
@@ -2401,6 +2473,10 @@ export class FoundryRuntime {
     if (deliveries.length === 0) return;
     const target = await this.deliveryTargetFor(conversationId);
     if (!target) return;
+    // An event the run never read waits for the conversation's next run.
+    for (const delivery of deliveries) {
+      if (delivery.kind === "transmission") await this.assignPendingInbound(delivery.pendingId, undefined);
+    }
     this.holdDeliveries(target, deliveries);
   }
 
@@ -2429,7 +2505,7 @@ export class FoundryRuntime {
         for (const delivery of deliveries) {
           await writeMailboxDelivery(this.mailboxDirectory, target.conversationId, delivery);
         }
-        await this.markHandedOver(deliveries);
+        await this.markHandedOver(deliveries, this.conversationListeners.get(target.conversationId));
         this.observability.append({
           type: "delegation.delivered",
           category: "system",
@@ -2447,7 +2523,7 @@ export class FoundryRuntime {
   /** Start one run with everything held for a conversation, once nothing else holds it. */
   private async flushHeldDeliveries(conversationId: string): Promise<void> {
     if (!this.started) return;
-    if ((this.conversationRuns.get(conversationId)?.size ?? 0) > 0) return;
+    if (this.gate.busy(conversationId)) return;
     if (this.conversationListeners.has(conversationId)) return;
     const held = this.heldDeliveries.get(conversationId);
     if (!held || held.deliveries.length === 0) return;
@@ -2459,10 +2535,10 @@ export class FoundryRuntime {
       workspaceId: target.workspaceId,
       message: renderDeliveries(deliveries),
       payload: { deliveries },
-      source: { kind: "delegation", id: deliveries[0]!.delegationId },
+      source: deliverySource(deliveries),
     });
     this.occupyConversation(conversationId, runId);
-    await this.markHandedOver(deliveries);
+    await this.markHandedOver(deliveries, runId);
     this.observability.append({
       type: "delegation.delivered",
       category: "system",
@@ -2473,9 +2549,15 @@ export class FoundryRuntime {
   }
 
   /** Clear the bookkeeping that lets a restart hand these deliveries over again. */
-  private async markHandedOver(deliveries: ReadonlyArray<FoundryConversationDelivery>): Promise<void> {
+  private async markHandedOver(
+    deliveries: ReadonlyArray<FoundryConversationDelivery>,
+    runId: string | undefined,
+  ): Promise<void> {
     for (const delivery of deliveries) {
-      if (delivery.kind === "reply") {
+      if (delivery.kind === "transmission") {
+        // Kept until the run that took it settles, not merely until handover.
+        await this.assignPendingInbound(delivery.pendingId, runId);
+      } else if (delivery.kind === "reply") {
         await this.updateDelegation(delivery.delegationId, (current) => {
           const pending = [...(current.pendingReplies ?? [])];
           const index = pending.indexOf(delivery.message);
@@ -2486,6 +2568,82 @@ export class FoundryRuntime {
         await this.updateDelegation(delivery.delegationId, (current) =>
           current.undelivered === delivery.kind ? { undelivered: undefined } : {});
       }
+    }
+  }
+
+  /** Record which run is handling a pending inbound event (none while it waits). */
+  private async assignPendingInbound(pendingId: string, runId: string | undefined): Promise<void> {
+    for (const ids of this.pendingInboundByRun.values()) ids.delete(pendingId);
+    if (runId) {
+      const ids = this.pendingInboundByRun.get(runId) ?? new Set<string>();
+      ids.add(pendingId);
+      this.pendingInboundByRun.set(runId, ids);
+    }
+    if (this.data.putPendingInbound && this.data.listPendingInbound) {
+      const record = (await Effect.runPromise(this.data.listPendingInbound()))
+        .find((item) => item.id === pendingId);
+      if (record) {
+        const { runId: _previous, ...rest } = record;
+        await Effect.runPromise(this.data.putPendingInbound(runId ? { ...rest, runId } : rest));
+      }
+    }
+    // The run finished before it was recorded as handling this event.
+    if (runId && this.settledRuns.has(runId)) await this.finishPendingInbound(runId);
+  }
+
+  /** The run settled: the inbound events it was handling are done with. */
+  private async finishPendingInbound(runId: string): Promise<void> {
+    const ids = this.pendingInboundByRun.get(runId);
+    if (!ids) return;
+    this.pendingInboundByRun.delete(runId);
+    // A run stopped by shutdown did not finish its events: the next start delivers them.
+    if (this.stopping || !this.data.deletePendingInbound) return;
+    for (const id of ids) await Effect.runPromise(this.data.deletePendingInbound(id));
+  }
+
+  /**
+   * Hand an inbound event to one agent's conversation. A free conversation
+   * starts a run for it. A busy one gets it as a delivery: it joins the
+   * running turn at its next tool step, or waits and starts the
+   * conversation's next run with anything else that arrived meanwhile.
+   * Returns the run handling it now, when there is one.
+   */
+  private async admitInbound(record: FoundryPendingInbound): Promise<FoundryRun | null> {
+    if (this.data.putPendingInbound) await Effect.runPromise(this.data.putPendingInbound(record));
+    const { request } = record;
+    if (!this.gate.busy(request.conversationId)) {
+      const run = await this.request(record.definitionId, request);
+      await this.assignPendingInbound(record.id, run.id);
+      return run;
+    }
+    const source = request.source;
+    await this.deliver(
+      {
+        definitionId: record.definitionId,
+        agentId: request.agentId,
+        conversationId: request.conversationId,
+        workspaceId: request.workspaceId,
+      },
+      [{
+        kind: "transmission",
+        pendingId: record.id,
+        routeId: source?.id ?? "",
+        eventId: source?.eventId ?? "",
+        message: typeof request.message === "string" ? request.message : JSON.stringify(request.message),
+      }],
+    );
+    const active = this.gate.activeRun(request.conversationId);
+    return active ? this.getRun(active) : null;
+  }
+
+  /** After a restart, deliver the inbound events no run had finished with. */
+  private async redeliverInbound(): Promise<void> {
+    if (!this.data.listPendingInbound) return;
+    const pending = [...await Effect.runPromise(this.data.listPendingInbound())]
+      .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+    for (const record of pending) {
+      const { runId: _lost, ...waiting } = record;
+      await this.admitInbound(waiting);
     }
   }
 
@@ -2719,6 +2877,13 @@ export class FoundryRuntime {
     readonly error?: string;
   }): Promise<void> {
     this.releaseConversationRun(event.run.id);
+    // The conversation's next run starts once this one's process has let go.
+    void this.waitForRunProcessRelease(this.toFoundryRun(event.run), event.route)
+      .finally(() => this.gate.settled(event.run.id));
+    this.settledRuns.add(event.run.id);
+    if (this.settledRuns.size > 1_000) this.settledRuns.delete(this.settledRuns.values().next().value!);
+    await this.finishPendingInbound(event.run.id).catch((cause) =>
+      this.reportDeliveryFailure(this.toFoundryRun(event.run).conversationId ?? "settle", cause));
     const steered = this.steeredRuns.delete(event.run.id);
     const run = this.toFoundryRun(event.run);
     if (!run.conversationId || !isDelegationId(run.conversationId)) return;
@@ -2783,9 +2948,33 @@ export class FoundryRuntime {
     const agent = await Effect.runPromise(this.data.getAgent(request.agentId));
     const conversation = await Effect.runPromise(this.data.getConversation(request.conversationId));
     if (!agent || !conversation) throw new Error("Core command references an unknown agent instance or conversation.");
-    return this.signalRunner.triggerSignal(
-      discovered.executionName,
-      await this.executionEnvelope(request),
+    return this.admitRun(discovered.executionName, request);
+  }
+
+  /**
+   * Create the run for a request through its conversation's gate: it starts
+   * at once when the conversation is free and waits parked, holding no
+   * concurrency slot, behind the run that holds it otherwise. A parked run
+   * starts from an envelope built when its turn comes, not when it was asked
+   * for, so it sees the conversation as the runs ahead of it left it.
+   */
+  private admitRun(
+    executionName: string,
+    request: FoundryRequest,
+    options: { readonly front?: boolean } = {},
+  ): Promise<string> {
+    return this.gate.admit(
+      request.conversationId,
+      async (parked) => this.signalRunner.triggerSignal(
+        executionName,
+        await this.executionEnvelope(request, { leased: true }),
+        { parked },
+      ),
+      async (runId) => this.signalRunner.releaseRun(
+        runId,
+        await this.executionEnvelope(request, { leased: true }),
+      ),
+      options,
     );
   }
 
@@ -3437,14 +3626,25 @@ export class FoundryRuntime {
     });
   }
 
-  private async executionEnvelope(request: FoundryRequest): Promise<unknown> {
+  private async executionEnvelope(
+    request: FoundryRequest,
+    options: { readonly leased?: boolean } = {},
+  ): Promise<unknown> {
     const agent = await Effect.runPromise(this.data.getAgent(request.agentId));
     const conversation = await Effect.runPromise(this.data.getConversation(request.conversationId));
     if (!agent || !conversation) throw new Error("Cannot schedule an unknown agent instance or conversation.");
     const activations = (await Effect.runPromise(this.data.listActivations(request.workspaceId)))
       .filter((activation) => activation.agentId === request.agentId);
     const delegations = await this.openDelegationsFrom(request.agentId, request.conversationId);
-    return { [FOUNDRY_EXECUTION_MARKER]: true, request, agent, conversation, activations, delegations };
+    return {
+      [FOUNDRY_EXECUTION_MARKER]: true,
+      request,
+      agent,
+      conversation,
+      activations,
+      delegations,
+      ...(options.leased ? { conversationLease: true } : {}),
+    };
   }
 
   private toFoundryRun<TOutput = unknown>(run: Run): FoundryRun<TOutput> {

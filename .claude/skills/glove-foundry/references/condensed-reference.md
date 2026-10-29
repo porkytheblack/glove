@@ -204,6 +204,14 @@ exposeToAgent? }) (exposed as a tool by default; callable via ctx.invoke).
   bindings". Transmission ids are global across agents.
 - Fire inbound events: POST /api/transmissions/:routeId/fire or client.dispatchInbound.
   Delivery is claimed idempotently by routeId:eventId.
+- One run at a time per conversation, for every way a run starts. A later run waits
+  (pending, no concurrency slot, wait not counted against its timeout) in arrival
+  order; steer's replacement goes first; schedule firings wait in their process.
+  An inbound event for a busy thread joins the running turn at its next tool step,
+  else starts the thread's next run once free. Pending inbound events are kept in
+  the data adapter until a run finishes with them and redelivered after a restart
+  (FileFoundryDataAdapter; custom adapters: optional putPendingInbound,
+  deletePendingInbound, listPendingInbound).
 - Credentials: Foundry never does OAuth, stores secrets, refreshes tokens or picks
   accounts. accessRef is opaque; your accountSessions adapter resolves it;
   outbound adapters call context.withAccountSession(operation, use).
@@ -293,9 +301,12 @@ delegates: [
 - glove_foundry_reply({ delegationId, message }) answers a question or sends a
   follow-up (reopens a finished delegation).
 - Results, questions and failures return to the delegating conversation as
-  <delegation id agent status="completed|question|failed"> messages: into a run
-  that listens (ctx.onDelegationUpdate; voiceCall does), otherwise as one new run
-  once the conversation is free (source.kind "delegation"). Open delegations are
+  <delegation id agent status="completed|question|failed"> messages: to a
+  ctx.onDelegationUpdate handler (voiceCall has one); else into the delegating
+  turn at its next tool step if it is still calling tools (a Glove event, saved
+  after the tool results; replies reach a working worker the same way); else,
+  after the run ends, as one new run once the conversation is free
+  (source.kind "delegation"). Open delegations are
   in the interactor's runtime context. Updates and replies not yet handed over
   are kept on the record (undelivered, pendingReplies) and handed over again
   when the runtime starts. runtime.listDelegations({ agentId?,

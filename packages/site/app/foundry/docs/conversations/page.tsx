@@ -83,7 +83,9 @@ export default function ConversationsPage() {
       <h2 id="create">Create, message, list and rename</h2>
       <p>
         Two customers write to the same support instance at once. Each gets its own
-        conversation, so histories never mix, and both runs proceed in parallel.
+        conversation, so histories never mix, and both runs proceed in parallel. Two
+        messages to the <em>same</em> conversation run one after the other; see{" "}
+        <a href="#one-run-at-a-time">one run at a time</a>.
       </p>
       <CodeBlock filename="scripts/support-threads.ts" language="typescript" code={`import { createFoundryClient } from "glove-foundry/client";
 
@@ -123,6 +125,30 @@ await foundry.updateConversation(support.id, billing.id, {
           <tr><td><code>conversationTranscript(agentId, id, {"{ offset?, limit? }"})</code></td><td><code>GET /api/conversations/:id/messages?agent=</code></td><td>See below.</td></tr>
         </tbody>
       </table>
+      <h3 id="one-run-at-a-time">One run at a time per conversation</h3>
+      <p>
+        Different conversations run in parallel. One conversation never has two runs acting
+        on it at once: a run that is asked for while another holds the conversation waits,
+        in arrival order, and starts once the run ahead has finished and its process has let
+        go. Nothing needs configuring, and it covers every way a run starts: messages, the
+        API, schedules and wake-ups, delegation results and inbound events.
+      </p>
+      <ul>
+        <li>A waiting run exists and has an id; its status stays <code>pending</code>. It holds no
+          concurrency slot, and the time it waits does not count against its timeout or
+          against <code>wait()</code>. It starts from the conversation as the runs ahead of it
+          left it.</li>
+        <li>Cancelling a waiting run removes it; the ones behind it move up.</li>
+        <li>To change course rather than queue,{" "}
+          <Link href="/foundry/docs/approvals#steering">steer</Link>: the replacement goes ahead
+          of anything already waiting.</li>
+        <li>Inbound events and delegation updates do not wait if they can help it: one that
+          arrives while the running turn is still calling tools joins that turn at its next
+          tool step. Only what arrives during its final answer waits, and then starts the
+          conversation&apos;s next run together with anything else that arrived meanwhile.</li>
+        <li>A schedule firing (created inside the execution queue) waits in its process,
+          before it reads any history.</li>
+      </ul>
       <p>
         To ship fixed conversations with the code (a website chat thread, a voice line),
         seed them into the data adapter. Seeds are inserted only when their id is absent,
@@ -225,6 +251,11 @@ if (transcript.page.hasEarlier) {
         conversation with the same key is an error. Only use <code>&quot;agent&quot;</code>{" "}
         scope when a trusted adapter produced the key. See{" "}
         <Link href="/foundry/docs/applications">Apps &amp; transmissions</Link>.
+      </p>
+      <p>
+        A second event on a thread whose run is still working does not start a run beside
+        it: it joins that run&apos;s turn at the next tool step, or starts the thread&apos;s
+        next run once it is free (<a href="#one-run-at-a-time">one run at a time</a>).
       </p>
 
       <h2 id="workspace">The workspace primitives</h2>

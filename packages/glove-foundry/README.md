@@ -285,7 +285,11 @@ Provisioning modes:
 
 The data adapter atomically enforces `provisioningKey`. Inbound delivery claims are also adapter-backed, so retrying the same route/event does not create duplicate runs.
 
+A conversation has one run at a time. An inbound event for a thread whose run is still working joins that run's turn at its next tool step; one that arrives during its final answer starts the thread's next run once it is free. Until a run has finished with an event, the event is kept as pending in the data adapter (`FileFoundryDataAdapter` keeps it on disk; custom adapters implement the optional `putPendingInbound`, `deletePendingInbound` and `listPendingInbound`), and a restart delivers it again.
+
 ## Conversations and shared work
+
+Different conversations run in parallel; one conversation runs one run at a time. A run asked for while another holds the conversation waits (pending, holding no concurrency slot, its wait not counted against its timeout) and starts once the run ahead has finished. Steering's replacement goes ahead of waiting runs. Schedule firings wait in their process, before reading history.
 
 One agent instance can own many conversations. Messages use native Glove content parts,
 and media parts may retain an optional human-facing filename. The server keeps JSON at
@@ -382,13 +386,17 @@ Each delegation runs as its own conversation on a worker instance (one per
 interactor instance and worker), which carries the interactor instance's
 context. The worker gets `glove_foundry_ask`; its final reply is the result.
 
-Results and questions come back to the conversation that delegated. If a run
-there is listening (`ctx.onDelegationUpdate`, used by `voiceCall`), they reach
-it directly. Otherwise they wait until the conversation is free and start one
-run carrying everything that arrived, as `<delegation>` messages. A worker's
-question waits up to `answerWaitMs` (default 90 s) inside the same run, so a
-worker holding a browser or sandbox session keeps it; after that the run
-suspends and the answer starts a new run in the same conversation. Open
+Results and questions come back to the conversation that delegated. A handler
+registered with `ctx.onDelegationUpdate` (`voiceCall` uses one) takes them
+directly. Otherwise, one that arrives while the delegating turn is still
+calling tools joins it at the next tool step as a Glove event, read as the same
+`<delegation>` message. Anything the run did not read goes back to the runtime
+when it ends and, once the conversation is free, starts one run carrying
+everything that arrived. A worker's question waits up to `answerWaitMs`
+(default 90 s) inside the same run, so a worker holding a browser or sandbox
+session keeps it; after that the run suspends and the answer starts a new run
+in the same conversation. Follow-up replies reach a worker that is still
+working at its next tool step. Open
 delegations appear in the interactor's runtime context, and
 `runtime.listDelegations()` lists them all. See
 [`examples/foundry-layered-assistant`](../../examples/foundry-layered-assistant).

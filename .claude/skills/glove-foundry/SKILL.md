@@ -17,7 +17,7 @@ Docs: https://glove.dterminal.net/foundry/docs · Tutorial: https://glove.dtermi
 | --- | --- | --- |
 | **Definition** | code: `agents/<route>/agent.ts` | What an agent of this kind *can* assemble: model, prompt, tools, catalogue, memory, schedules. The file path is the id. |
 | **Instance** | data: `FoundryDataAdapter` | One persisted agent: `{ id, definitionId, workspaceId, context, installations, playbooks }`. Created by your app, the API, a seed, or a subscription when an event arrives. |
-| **Conversation** | data | A durable thread owned by one instance. An instance can own many. |
+| **Conversation** | data | A durable thread owned by one instance. An instance can own many. One run at a time: later runs wait their turn, and inbound events or delegation updates join the running turn. |
 | **Run** | a fresh child process | One message processed by a Glove assembled **from scratch** out of the definition, the instance and the message. Instance edits apply on the next message without a deploy. |
 
 Consequences you must design for:
@@ -150,7 +150,7 @@ const done = await run.wait({ timeoutMs: 120_000 }); // also run.cancel(), run.s
 
 ## Layered agents and voice
 
-Split an assistant by how fast each part must reply, what context it keeps and how long it runs. The **interactor** (fast model, personal memory, the person's chat or call) lists sibling **workers** in `delegates`; workers get their own tools (sandbox, browser, APIs) and no memory of the person. `glove_foundry_delegate({ to, task })` returns at once; the worker's final reply comes back to the delegating conversation as a `<delegation status="completed">` message, into a listening run or as a new run once the conversation is free. A worker asks with `glove_foundry_ask` (waits `answerWaitMs`, default 90 s, in-run, then suspends); the interactor answers with `glove_foundry_reply`, from memory or after asking the person. For calls, `run: voiceCall(...)` speaks delegation updates at the next pause and keeps approval-gated tools off the line. Details: [references/building.md](references/building.md#layered-agents-and-voice); runnable: `examples/foundry-layered-assistant`.
+Split an assistant by how fast each part must reply, what context it keeps and how long it runs. The **interactor** (fast model, personal memory, the person's chat or call) lists sibling **workers** in `delegates`; workers get their own tools (sandbox, browser, APIs) and no memory of the person. `glove_foundry_delegate({ to, task })` returns at once; the worker's final reply comes back to the delegating conversation as a `<delegation status="completed">` message: into the delegating turn at its next tool step if it is still working, otherwise as a new run once the conversation is free. A worker asks with `glove_foundry_ask` (waits `answerWaitMs`, default 90 s, in-run, then suspends); the interactor answers with `glove_foundry_reply`, from memory or after asking the person. For calls, `run: voiceCall(...)` speaks delegation updates at the next pause and keeps approval-gated tools off the line. Details: [references/building.md](references/building.md#layered-agents-and-voice); runnable: `examples/foundry-layered-assistant`.
 
 ## Built-in agent tools (on every Foundry agent)
 
