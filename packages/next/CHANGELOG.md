@@ -1,5 +1,12 @@
 # glove-next
 
+## 3.2.2
+
+### Patch Changes
+
+- Updated dependencies [[`6f04d7e`](https://github.com/porkytheblack/glove/commit/6f04d7e1db19b30676254753c6a2a68c04d427cb)]:
+  - glove-core@4.5.0
+
 ## 3.2.1
 
 ### Patch Changes

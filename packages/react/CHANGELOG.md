@@ -1,5 +1,13 @@
 # glove-react
 
+## 4.0.8
+
+### Patch Changes
+
+- Updated dependencies [[`6f04d7e`](https://github.com/porkytheblack/glove/commit/6f04d7e1db19b30676254753c6a2a68c04d427cb)]:
+  - glove-core@4.5.0
+  - glove-voice@3.6.8
+
 ## 4.0.7
 
 ### Patch Changes

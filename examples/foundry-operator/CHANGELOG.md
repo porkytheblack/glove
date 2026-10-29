@@ -1,5 +1,15 @@
 # glove-foundry-operator
 
+## 0.1.5
+
+### Patch Changes
+
+- Updated dependencies [[`6f04d7e`](https://github.com/porkytheblack/glove/commit/6f04d7e1db19b30676254753c6a2a68c04d427cb)]:
+  - glove-core@4.5.0
+  - glove-execution@0.2.3
+  - glove-foundry@0.6.1
+  - glove-memory@2.3.1
+
 ## 0.1.4
 
 ### Patch Changes

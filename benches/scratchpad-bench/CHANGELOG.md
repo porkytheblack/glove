@@ -1,5 +1,18 @@
 # glove-scratchpad-bench
 
+## 1.0.9
+
+### Patch Changes
+
+- Updated dependencies [[`6f04d7e`](https://github.com/porkytheblack/glove/commit/6f04d7e1db19b30676254753c6a2a68c04d427cb)]:
+  - glove-core@4.5.0
+  - glove-js@0.5.4
+  - glove-lisp@0.5.4
+  - glove-mcp@1.2.4
+  - glove-python@0.4.4
+  - glove-scratchpad@3.0.4
+  - glove-egress@0.2.8
+
 ## 1.0.8
 
 ### Patch Changes

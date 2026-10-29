@@ -1,6 +1,6 @@
 {
   "name": "glove-realtime",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Run Glove agents on realtime multimodal models (OpenAI Realtime, GPT-Live, Gemini Live): provider adapters own tools, context and compaction; Glove owns the session",
   "type": "module",
   "license": "MIT",

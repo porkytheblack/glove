@@ -1,5 +1,13 @@
 # glove-document-desk
 
+## 1.0.9
+
+### Patch Changes
+
+- Updated dependencies [[`6f04d7e`](https://github.com/porkytheblack/glove/commit/6f04d7e1db19b30676254753c6a2a68c04d427cb)]:
+  - glove-core@4.5.0
+  - glove-working-environment@0.7.0
+
 ## 1.0.8
 
 ### Patch Changes
