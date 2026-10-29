@@ -495,6 +495,7 @@ Use this reference when building goal-driven agents, retaining early evidence, o
 - Forms use `defineForm`, `FormRegistry`, and `FormRunner` from `glove-memory/forms`, and `useFormRunner` from `glove-memory/tools`.
 - Shared evidence ships separately as `glove-facts@0.1.0`: `FactStore`, `InMemoryFactAdapter`, `FactPreparation`, `useFacts`, and `buildRecordFactTool` are root exports.
 - `useGoalRunner` mounts the `glove_goal_*` tools; `useFormRunner` mounts `glove_form_*`; `useFacts` mounts `record_fact`. Merely importing the classes does not expose tools to an agent.
+- Per-turn synchronization (preparation, resuming lifecycle hooks, `configure`) is registered with glove-core's `addTurnPreparer`. `processRequest` runs it first, and runtimes that don't call `processRequest`, such as `RealtimeSession` from `glove-realtime`, call `prepareTurn()` at their turn boundaries. Goals and forms work on a realtime call with no extra wiring, and prompt or tool changes made by `configure` are sent to the provider. On a runnable without the seam (a hand-rolled proxy), glove-memory falls back to wrapping `processRequest`.
 
 ### Runtime visibility and caching
 

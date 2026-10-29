@@ -37,6 +37,7 @@ const columns: { title: string; links: { label: string; href: string; external?:
       { label: "Working Environment", href: "/docs/working-environment" },
       { label: "Code Execution", href: "/docs/code-execution" },
       { label: "Realtime Voice", href: "/docs/realtime-voice" },
+      { label: "Realtime Agents", href: "/docs/realtime" },
       { label: "Image Workflows", href: "/docs/image" },
       { label: "Video Workflows", href: "/docs/video" },
       { label: "Browsers & Sandboxes", href: "/docs/execution" },

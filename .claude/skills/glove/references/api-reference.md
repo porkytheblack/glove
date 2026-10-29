@@ -52,6 +52,8 @@ const agent = new Glove({
   .defineSubAgent(args)         // Register a subagent the model routes to via glove_invoke_subagent
   .setDisplayManager(dm)        // Swap the display manager (chainable, also callable post-build)
   .addSubscriber(subscriber)    // Add event subscriber (chainable)
+  .addContextProvider(fn)       // Transient live state at the model-input tail; returns an unregister function
+  .addTurnPreparer(fn)          // Work before every turn (processRequest runs it first); returns an unregister function
   .build(store?);               // Returns IGloveRunnable. Optional store argument supersedes the constructor's store
                                 // (used by subagent factories that derive a store via parentStore.createSubAgentStore).
 
@@ -64,6 +66,15 @@ agent.addTurnPreparer(async (signal) => { … });          // runs inside the tu
 agent.setModel(newModelAdapter);  // Hot-swap model at runtime
 agent.fold({ ... });              // Legal post-build — adds tools mid-session (used by the MCP discovery subagent)
 agent.rebuild(store?);            // Alias for build(store?) when re-binding to a new store post-construction
+
+// For runtimes that drive the agent without processRequest (realtime sessions):
+await agent.prepareTurn(signal?);                 // run the turn preparers at your own turn boundary
+await agent.getRuntimeContext(signal?, delivery?); // resolve the context providers, one delivery at a time
+await agent.notifySubscribers("text_delta", { text });   // deliver an event to the agent's subscribers
+const hold = await agent.holdTurns({ onEvent });  // hold the turn queue: events queue for you instead of waking the model
+await hold.takeEvents("loop");                    // queued events as one message (null when none); save it with the conversation
+await hold.historyContext();                      // "history" context that changed since it was last saved; save it before the user's turn
+await hold.release();                             // requests and wakes resume; leftover events go to the event policy
 ```
 
 The runnable returned by `build()` exposes `model`, `displayManager`, and `serverMode` as read-only fields so subagents and dynamically-folded tools (e.g. MCP discovery) can inherit them.
@@ -1397,6 +1408,60 @@ Adapters: `OpenAIRealtimeSocketAdapter` (`openai`, WS), `OpenAIRealtimeAdapter` 
 
 ---
 
+## glove-realtime
+
+The whole agent on a realtime multimodal model. Adapters own the provider's half; `RealtimeSession` owns Glove's half.
+
+```typescript
+import {
+  RealtimeSession, realtimeModel, createRealtimeAdapter,
+  OpenAIRealtimeAdapter, GeminiLiveAdapter, OpenAILiveAdapter,
+} from "glove-realtime";
+
+realtimeModel(config?: CreateRealtimeAdapterArgs & { label?: string }): RealtimeModel   // model slot carrying the config
+createRealtimeAdapter(args?: CreateRealtimeAdapterArgs): RealtimeAdapter
+// args: { provider?: "openai" | "openai-live" | "gemini", apiKey?, getToken?, model?, voice?, ...that adapter's config }
+// env: REALTIME_PROVIDER, REALTIME_MODEL, REALTIME_VOICE, OPENAI_API_KEY / GEMINI_API_KEY
+
+new RealtimeSession({
+  agent: IGloveRunnable,
+  adapter?: RealtimeAdapter,              // default: from realtimeModel on the agent
+  instructions?: string,                  // default: agent.getSystemPrompt()
+  output?: "audio" | "text",
+  voice?: string,
+  excludeTools?: string[],
+  nonBlockingTools?: string[],
+  permissions?: "display" | "deny" | "allow" | ((r: { tool: string; input: unknown }) => boolean | Promise<boolean>),
+  maxToolRetries?: number,                // default 0
+  persist?: boolean,                      // default true
+  history?: { maxItems?, maxChars?, maxToolChars? } | false,   // seed fresh sessions from the store
+  compaction?: { contextLimit?, instructions?, model?: ModelAdapter, keepRecent? } | false,
+  reconnect?: { attempts?, backoffMs?, maxBackoffMs? } | false,
+  maxDurationMs?: number,
+  resumeHandle?: string,
+  beforeTurn?: () => void | Promise<void>,   // after agent.prepareTurn(); for work not registered on the agent
+  events?: boolean,                          // default true: hold the agent's turn queue so emitEvent events join the call
+})
+
+session.start({ resumeHandle? }) / stop(reason?)
+session.say(text): Promise<void> // prepares and refreshes context before sending typed input
+session.notifyUserSpeech(speaking): Promise<void> // host input boundaries for continuous providers
+session.sendAudio(pcm) · sendImage(data, mime?) · sendVideoFrame(data, mime?) · sendMedia(media)
+session.inject({ kind: "context" | "instruction" | "user", text, respond?, key?, persist? })
+session.respond(instructions?) · interrupt() · resumeOutput() · notifyPlayback(speaking)
+session.refreshContext(force?) · refreshSession() · compact(): Promise<boolean>
+session.addSubscriber(s) / removeSubscriber(s)
+session.state · resumeHandle · tools · exposedTools · adapter
+
+// events: state, event (raw RealtimeEvent), user_delta, user_said, agent_delta, agent_said, audio(pcm, format),
+//   interrupted, user_speech_started/stopped, agent_speech_started/stopped, tool_started, tool_finished,
+//   transcript({ type, role, text, startMs, endMs }), context_refreshed, compacted, resumable(handle), usage, ended(reason), error
+```
+
+`RealtimeAdapter`: `capabilities` (input/output modalities, tool update mode, supersede, history seed, compaction apply/summarize, resumption, transcripts, speechLifecycle), `open(spec)`, `close()`, `subscribe(listener)`, `sendAudio/sendText/sendMedia`, `setTools`, `setInstructions`, `inject`, `sendToolResult`, `respond`, `interrupt` (must always emit `interrupted`), `compact`, optional `summarize`, `resumeOutput` and `notifyPlayback`. Extend `AdapterBase` for the listener set.
+
+---
+
 ## glove-voice-avatar
 
 Live avatars as a rendering layer over the S2S stack: PCM in, a talking face on a WebRTC surface. The mic path stays yours — echo/passthrough avatars have no perception.
@@ -1878,6 +1943,17 @@ interface IGloveRunnable {
   setDisplayManager(displayManager: DisplayManagerAdapter): void;
   addSubscriber(subscriber: SubscriberAdapter): void;
   removeSubscriber(subscriber: SubscriberAdapter): void;
+  /** Transient live state appended at the model-input tail; returns an unregister function. */
+  addContextProvider(provider: RuntimeContextProvider): () => void;
+  getRuntimeContext(signal?: AbortSignal): Promise<Message[]>;
+  /** Work before every turn (goals, forms register here). processRequest runs preparers first; a throw stops the turn. */
+  addTurnPreparer(preparer: (signal?: AbortSignal) => void | Promise<void>): () => void;
+  /** Run the turn preparers. For runtimes that don't call processRequest. */
+  prepareTurn(signal?: AbortSignal): Promise<void>;
+  /** Deliver an event to the subscribers added with addSubscriber. For runtimes that run the agent outside processRequest. */
+  notifySubscribers: NotifySubscribersFunction;
+  /** Hold the turn queue for a runtime that drives the agent itself; events queue for the holder instead of waking the model. */
+  holdTurns(options?: { signal?: AbortSignal; onEvent?: (event: AgentEvent) => void }): Promise<TurnHold>;
   fold<I>(args: GloveFoldArgs<I>): IGloveRunnable;
   defineHook(name: string, handler: HookHandler): IGloveRunnable;
   defineSkill(args: DefineSkillArgs): IGloveRunnable;

@@ -1,0 +1,56 @@
+{
+  "name": "glove-realtime",
+  "version": "0.0.0",
+  "description": "Run Glove agents on realtime multimodal models (OpenAI Realtime, GPT-Live, Gemini Live): provider adapters own tools, context and compaction; Glove owns the session",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/porkytheblack/glove.git",
+    "directory": "packages/glove-realtime"
+  },
+  "homepage": "https://github.com/porkytheblack/glove",
+  "bugs": "https://github.com/porkytheblack/glove/issues",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test --import tsx tests/*.test.ts",
+    "demo:live": "node --env-file=../../.env.local --import tsx examples/live-goals/server.ts",
+    "test:live": "node --env-file=../../.env.local --import tsx examples/live-goals/smoke.ts",
+    "typecheck:demo": "tsc --noEmit -p examples/live-goals/tsconfig.json"
+  },
+  "keywords": [
+    "realtime",
+    "multimodal",
+    "speech-to-speech",
+    "gemini-live",
+    "openai-realtime",
+    "agent"
+  ],
+  "dependencies": {
+    "eventemitter3": "^5.0.4",
+    "glove-core": "workspace:*",
+    "ws": "8.19.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.2.3",
+    "@types/ws": "8.18.1",
+    "glove-memory": "workspace:*",
+    "tsup": "^8.0.0",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3",
+    "zod": "^4.3.6"
+  }
+}

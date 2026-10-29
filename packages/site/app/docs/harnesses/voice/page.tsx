@@ -29,7 +29,8 @@ export default function VoiceHarnessPage() {
           "Store",
           "Forms",
           "Voice pipeline",
-          "Realtime speech and avatars",
+          "Existing voice and avatar integrations",
+          "Realtime agents",
           "Mesh",
           "Instances",
           "Conversations",
@@ -51,8 +52,10 @@ export default function VoiceHarnessPage() {
         speech-to-text, the Glove agent and text-to-speech, with barge-in and push-to-talk; any
         chat model can be the agent. A <strong>realtime</strong> model (
         <code>glove-voice-s2s</code>: OpenAI Realtime, Gemini Live, GPT-Live) owns turn-taking
-        itself, and <code>RealtimeAgent</code> hands it the same Glove tools. Either way the
-        tools are written once.
+        itself, and <code>RealtimeAgent</code> hands it the same Glove tools. To keep the rest
+        of the agent on the call (permission gates, the store, goals, camera or screen input),
+        run it with <Link href="/docs/realtime"><code>glove-realtime</code></Link>&apos;s{" "}
+        <code>RealtimeSession</code> instead. Either way the tools are written once.
       </p>
       <p>
         A caller asks for something that needs real work: &ldquo;what&apos;s the warranty on hull
@@ -66,9 +69,10 @@ export default function VoiceHarnessPage() {
       </p>
       <p>
         App state the caller should not have to repeat (who is calling, what is on screen, the
-        order status) reaches the voice model through runtime context. A realtime session gets
-        changed snapshots silently at start and after each tool; call{" "}
-        <code>refreshContext()</code> when something changes outside a tool. Forms work the same
+        order status) reaches the voice model through runtime context. <code>RealtimeAgent</code>{" "}
+        injects changed snapshots silently at start and after each tool; call{" "}
+        <code>refreshContext()</code> when something changes outside a tool.{" "}
+        <code>RealtimeSession</code> also refreshes when each user turn starts. Forms work the same
         over speech as over text, so collecting a delivery address is a form, not a prompt.
       </p>
       <HarnessDiagram
@@ -185,7 +189,9 @@ export default defineAgent({
         <li>
           <strong>A second implementation of your tools for the realtime provider.</strong>{" "}
           <Link href="/docs/realtime-voice"><code>RealtimeAgent</code></Link> reads the agent&apos;s
-          registered tools and runs each call through the same <code>Tool.run</code>.
+          registered tools and runs each call through the same <code>Tool.run</code>;{" "}
+          <Link href="/docs/realtime"><code>RealtimeSession</code></Link> runs them through the
+          Executor, with permissions and the store.
         </li>
         <li>
           <strong>Speech-to-text, agent and text-to-speech glue.</strong> The{" "}
@@ -256,6 +262,7 @@ export default defineAgent({
         <li>
           Reference: <Link href="/docs/voice">Voice pipeline</Link>,{" "}
           <Link href="/docs/realtime-voice">Realtime voice &amp; avatars</Link>,{" "}
+          <Link href="/docs/realtime">Realtime agents</Link>,{" "}
           <Link href="/docs/mesh">Mesh</Link>,{" "}
           <Link href="/foundry/docs/multi-agent#voice">Foundry voice hosts</Link>.
         </li>

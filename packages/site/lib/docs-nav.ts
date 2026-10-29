@@ -427,6 +427,13 @@ export const docsSections: DocsNavSection[] = [
           "Speech-to-speech models, live avatars, and LiveKit as the room transport.",
         packages: ["glove-voice-s2s", "glove-voice-avatar", "glove-voice-livekit"],
       },
+      {
+        label: "Realtime Agents",
+        href: "/docs/realtime",
+        summary:
+          "Run an agent on OpenAI Realtime, Gemini Live or GPT-Live with its tools, permissions, store, context and goals intact.",
+        packages: ["glove-realtime"],
+      },
     ],
   },
   {

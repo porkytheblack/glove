@@ -152,6 +152,40 @@ agent.notifyUserActivity();`}
         <code>event_dropped</code> and <code>event_wake_failed</code>.
       </p>
 
+      <h3 id="turn-preparers">Work before each turn: turn preparers</h3>
+      <p>
+        Some state has to be brought up to date before the agent takes a turn,
+        not just shown to it. Examples are resuming an interrupted goal
+        transition, preparing a form&apos;s next step, or re-applying a
+        configuration. Register that work with <code>addTurnPreparer</code>.
+        Don&apos;t wrap <code>processRequest</code> for it: a realtime session
+        never calls <code>processRequest</code>, so a wrapper would never run
+        there.
+      </p>
+      <CodeBlock
+        filename="prepare.ts"
+        language="typescript"
+        code={`const stop = agent.addTurnPreparer(async (signal) => {
+  await approvals.syncPending(signal);   // throws to stop the turn before the model runs
+});
+
+await agent.processRequest("Where are we?");   // runs preparers first, then hooks and the model (event wakes too)
+await agent.prepareTurn();                      // what a runtime without processRequest calls`}
+      />
+      <p>
+        Preparers run in registration order. A throw stops the turn. glove-memory&apos;s
+        goals and forms register here, which is why they work unchanged on a{" "}
+        <a href="/docs/realtime">realtime session</a>. A runtime that drives the
+        agent itself can also hand its activity to the agent&apos;s subscribers with{" "}
+        <code>agent.notifySubscribers(type, data)</code>, so UIs and modules
+        listening on the agent see it as they would see a text turn. To take
+        over the agent&apos;s turns for a while, such as for a call, it holds the turn queue
+        with <code>agent.holdTurns()</code>. Requests and event wakes then wait,
+        and emitted events queue for the holder (<code>hold.takeEvents()</code>)
+        instead of waking the model. <code>hold.historyContext()</code> returns the{" "}
+        <code>&quot;history&quot;</code> context a request would save.
+      </p>
+
       <h2 id="skills">Guidance on demand: skills</h2>
       <p>
         Long procedures don&apos;t belong in the system prompt. Give the agent a

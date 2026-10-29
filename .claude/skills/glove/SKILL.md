@@ -1,6 +1,6 @@
 ---
 name: glove
-description: Build agent harnesses with Glove's TypeScript primitives instead of hand-rolling them — the agent loop, tools, model adapters, stores, the display stack, runtime context, skills/hooks/subagents, inbox, memory, forms, goals, facts, MCP, JS/Python/Lisp REPLs, scratchpad, VFS, working environments, browsers and sandboxes, classifiers, voice, realtime speech, image/video workflows, mesh and continuum. Use whenever code imports glove-* packages, or when building a coding agent, personal assistant, support agent, voice agent, research agent or any other harness in TypeScript. For Foundry systems (instances, schedules, transmissions, approvals, APIs) also use glove-foundry; to deploy, use kuiper.
+description: Build agent harnesses with Glove's TypeScript primitives instead of hand-rolling them — the agent loop, tools, model adapters, stores, the display stack, runtime context, skills/hooks/subagents, inbox, memory, forms, goals, facts, MCP, JS/Python/Lisp REPLs, scratchpad, VFS, working environments, browsers and sandboxes, classifiers, voice, realtime speech and realtime multimodal sessions, image/video workflows, mesh and continuum. Use whenever code imports glove-* packages, or when building a coding agent, personal assistant, support agent, voice agent, research agent or any other harness in TypeScript. For Foundry systems (instances, schedules, transmissions, approvals, APIs) also use glove-foundry; to deploy, use kuiper.
 ---
 
 # Glove
@@ -61,6 +61,7 @@ Loop ends when the model answers with text.
 | a one-shot `generate_image` tool | Image/video workflows | `mountImage(glove, { adapter, assets, library })` · `mountVideo(...)` | `glove-image` · `glove-video` |
 | rebuilding the system prompt every turn with live state | Runtime context providers | `glove.addContextProvider(() => renderState(), { delivery? })` (`"iteration"` default · `"request"` · `"history"` + `key`) | `glove-core` ≥4 (delivery ≥4.4) |
 | webhook handlers or agent replies pushed in as fake user messages | Spontaneous events | `await glove.emitEvent({ id, source, content, whenIdle? })` · `glove.notifyUserActivity()` | `glove-core` ≥4.4 |
+| wrapping `processRequest` to prepare state before each turn | Turn preparers | `glove.addTurnPreparer(async () => prepare())` (requests, event wakes and realtime sessions all run them) | `glove-core` ≥4.4 |
 | a summariser and history trimming | Compaction | `compaction_config: { compaction_instructions, compaction_context_limit?, max_turns? }` | `glove-core` |
 | pasting every playbook into the prompt | Content skills | `useReadSkill(glove, skills)` · `loadContentSkillsFromFs(dir)` (`glove_read_skill`) | `glove-core` |
 | parsing `/commands` in your request handler | Hooks and slash skills | `glove.defineHook(name, handler)` · `glove.defineSkill({ name, description, handler, exposeToAgent? })` | `glove-core` |
@@ -81,7 +82,8 @@ Loop ends when the model answers with text.
 | a chat UI state machine | React bindings | `defineTool({ …, render, renderResult })` · `useGlove()` · `<Render />` | `glove-react` |
 | an SSE protocol between server and client | Streaming route | `export const POST = createChatHandler({...})` | `glove-next` |
 | STT + agent + TTS glue | Voice pipeline | `new GloveVoice(glove, { stt, createTTS, vad })` · `useGloveVoice` · `useGlovePTT` | `glove-voice` |
-| a second tool implementation for a realtime model | Realtime speech, avatars | `new RealtimeAgent({ agent })` with `model: s2sDrivenModel({ provider })` | `glove-voice-s2s` · `-avatar` · `-livekit` |
+| rewriting an existing S2S avatar or LiveKit integration | Compatibility voice runtime | `new RealtimeAgent({ agent })` with `model: s2sDrivenModel({ provider })` | `glove-voice-s2s` · `-avatar` · `-livekit` |
+| permissions, persistence, context and reconnects re-built for a realtime provider | Realtime agents | `new RealtimeSession({ agent })` with `model: realtimeModel({ provider })` | `glove-realtime` |
 | a router that calls other agents by hand | Subagents | `glove.defineSubAgent({ name, description, factory })` → `glove_invoke_subagent` | `glove-core` |
 | a message bus between agents | Mesh | `await mountMesh(glove, { adapter, identity })` | `glove-mesh` |
 | process supervision for long-lived agents | Continuum | `agent("name").input(schema).triggered()` · `new ContinuumRunner({ agentsDir })` | `glove-continuum-signal` |
@@ -121,7 +123,7 @@ Knowing these lets you predict the API instead of inventing one.
 - A display-stack form (`pushAndWait`) for exact input or a final Confirm that must not pass through the model (not available in voice).
 - Goals (`useGoalRunner`) for obligations across the conversation, with versioned progress and deferrals.
 
-**Which surface?** Web chat → `glove-react` + `glove-next` (or any SSE handler). CLI, backend, WebSocket → server-side `glove-core` with subscribers. Voice → `glove-voice` (pipeline) or `glove-voice-s2s` (realtime); a fast front model that talks while a heavier worker uses tools is the layered-voice pattern (https://glove.dterminal.net/docs/voice-architectures).
+**Which surface?** Web chat → `glove-react` + `glove-next` (or any SSE handler). CLI, backend, WebSocket → server-side `glove-core` with subscribers. Voice → `glove-voice` (pipeline), `glove-voice-s2s` (existing avatars, LiveKit, Foundry `voiceCall`) or `glove-realtime` (default for new realtime agents, voice-only or multimodal; the whole agent on a realtime model: enforced permissions, the call in the store, runtime context and goals, camera/screen input, text output, resumption); a fast front model that talks while a heavier worker uses tools is the layered-voice pattern (https://glove.dterminal.net/docs/voice-architectures).
 
 ## The smallest harness
 
@@ -159,7 +161,7 @@ The full list (74 items) is in [references/gotchas.md](references/gotchas.md). T
 - **`do()` returns `ToolResultData`**: `{ status: "success" | "error" | "aborted", data, message?, renderData? }`. `data` reaches the model; `renderData` never does. A raw object or string is NOT wrapped (only glove-react's `defineTool` wraps), so the model receives nothing.
 - **Event keys differ**: `tool_use` carries `{ id, name, input }`; `tool_use_result` carries `call_id`/`tool_name` (with `id`/`name` aliases on newer cores). Streaming adapters emit `model_response_complete`, not `model_response`; handle both.
 - **Permissions are keyed on (tool, input).** `requiresPermission` may be a function of the input. Without a UI, set `serverMode: true` (MCP then auto-picks and skips permission gating) or resolve permissions in your store.
-- **Runtime context needs glove-core ≥ 4.** Goals, forms, pinned context and screenshots are transient tail messages by default. Any wrapper that proxies a runnable must forward `addContextProvider` (with its `options` argument), `getRuntimeContext`, `emitEvent` and `notifyUserActivity`; a proxy that drops `options` silently falls back to per-iteration delivery.
+- **Runtime context needs glove-core ≥ 4.** Goals, forms, pinned context and screenshots are transient tail messages by default. Any wrapper that proxies a runnable must forward `addContextProvider` (with its `options` argument), `getRuntimeContext`, `emitEvent` and `notifyUserActivity` (plus `addTurnPreparer`, `prepareTurn` and `notifySubscribers` when used with a realtime session); a proxy that drops `options` silently falls back to per-iteration delivery.
 - **Turns run one at a time** (glove-core ≥ 4.4): concurrent `processRequest` calls and event wakes queue in order. Calling `processRequest` on the same Glove from inside one of its own tools waits on itself. Put pre-turn work in `addTurnPreparer`, not a `processRequest` wrapper: event wakes do not go through `processRequest`.
 - **Tool result summaries need three things**: `enableToolResultSummary: true`, `generateToolSummary` on the tool, and `generateSummaryArgs` from `do()`. Only older turns are rewritten.
 - **Subagents don't see parent context**: the child gets only the `prompt` its parent wrote. Pass `parentControls.glove.model` / `displayManager` in the factory to inherit them.
@@ -171,6 +173,7 @@ The full list (74 items) is in [references/gotchas.md](references/gotchas.md). T
 - **MCP `auth_expired` is a contract, not an exception**: refresh the token in your adapter; the framework never refreshes. `mountMcp` fails open on a broken server.
 - **Jev (`glove-classifier`) is not a chat model.** Never pass a classifier to `createAdapter`.
 - **Working environment packages must stay external to bundlers** (`serverExternalPackages` in Next, plus an explicit webpack external in pnpm monorepos). Synchronous libraries go through `definePureModule`, not `defineAdapter`.
+- **Realtime agents** (`glove-realtime`): goals and forms prepare through `addTurnPreparer`, which the session runs at each user turn. Module code that prepares per-turn state should register a turn preparer too, not wrap `processRequest`, which a session never calls. `say()` doesn't parse `/hook` or `/skill` directives.
 - **Voice**: `createTTS` is a factory; import `glove-voice/silero-vad` dynamically; `GloveVoice` speaks every `text_delta` (a `<speech>` filter is an example-level parser, not an option); GPT-Live (`provider: "openai-live"`) has continuous transcripts and host-owned playback boundaries, so Realtime VAD/final-turn assumptions don't apply.
 - **In Foundry every run is a fresh process**: a store factory that returns `new MemoryStore(...)` forgets earlier turns. Use a durable store (see the `glove-foundry` skill).
 
@@ -188,7 +191,7 @@ Read the one that matches the task; each starts with when to read it.
 | [references/mcp.md](references/mcp.md) | glove-mcp: `mountMcp`, catalogue, adapter, discovery, auth, OAuth |
 | [references/execution-and-workspace.md](references/execution-and-workspace.md) | Scratchpad, REPLs, VFS, working environment and `glove-env-*` adapters, browsers and sandboxes |
 | [references/classifier.md](references/classifier.md) | glove-classifier models, tools, cascades, REPL/env/browser/Foundry integrations |
-| [references/voice.md](references/voice.md) | glove-voice pipeline, push-to-talk, React Native, realtime S2S, GPT-Live, avatars, LiveKit |
+| [references/voice.md](references/voice.md) | glove-voice pipeline, push-to-talk, React Native, realtime S2S, GPT-Live, avatars, LiveKit, realtime multimodal sessions (glove-realtime) |
 | [references/media.md](references/media.md) | glove-image (and glove-video) pipelines, characters, scenes, lineage, cost |
 | [references/multi-agent.md](references/multi-agent.md) | glove-mesh messaging and glove-continuum-signal supervision |
 | [references/packages.md](references/packages.md) | Choosing a package: every package with a one-paragraph summary and install line |
