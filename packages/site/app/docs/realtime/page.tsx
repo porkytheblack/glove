@@ -16,21 +16,25 @@ export default function RealtimePage() {
         multimodal model: OpenAI Realtime, Gemini Live or GPT-Live. The agent
         is authored as usual. Its tools, permission gates, store, context
         providers, inbox, goals and subscribers all work on the live session.
-        The session takes audio, typed text, images and camera frames, and
-        answers in speech or text.
+        Depending on the provider, the session takes audio, typed text, images
+        and camera frames, and answers in speech or text. GPT-Live accepts
+        audio and typed text and produces audio.
       </p>
 
       <div className="docs-note">
         <span className="docs-note-icon">◆</span>
         <p>
-          <strong>Which package?</strong> <code>glove-voice-s2s</code>{" "}
+          <strong>Start new realtime agents with glove-realtime</strong>,
+          including voice-only agents. <code>glove-voice-s2s</code>{" "}
           (<a href="/docs/realtime-voice">Realtime Voice &amp; Avatars</a>) is
           the voice path that avatars, LiveKit rooms and Foundry&apos;s{" "}
           <code>voiceCall</code> build on. Use <code>glove-realtime</code> when
           the call should behave like the rest of the agent: gated tools ask
           before they run, the call is written to the store, goals and runtime
           context stay current. Also use it when you need camera, screen or
-          text output.
+          text output. These are independent runtimes: the older package is
+          not an audio layer beneath the new one, and similarly named adapters
+          are not interchangeable.
         </p>
       </div>
 
@@ -191,7 +195,8 @@ camera.on("frame", (jpeg) => session.sendVideoFrame(jpeg));`}
           delegation updates) join the call. The session holds the
           agent&apos;s turn queue, so they never wake the text model. An event
           goes in silently at the next user turn or tool result. If nobody is
-          talking when it arrives, the model speaks about it at once. Each
+          talking when it arrives, the session requests a spoken response at
+          a quiet pause; the provider decides what to say. Each
           event is saved to the store once. While the call runs,{" "}
           <code>processRequest</code> on the same agent waits.{" "}
           <code>events: false</code> leaves events to the agent&apos;s policy.
@@ -228,6 +233,53 @@ const session = new RealtimeSession({ agent });   // goals prepare on every turn
 // Per-turn work that isn't registered on the agent:
 new RealtimeSession({ agent, beforeTurn: () => syncCrm(callerId) });`}
       />
+
+      <h3 id="sales-demo">A goal-driven sales conversation</h3>
+      <p>
+        Goals can guide what the agent asks and does next. In the runnable
+        sales demo, the agent opens the conversation, discovers the prospect&apos;s
+        workflow, appointment volume and pain points, consults product tools,
+        recommends a fit, and agrees on a next step. It records progress through
+        the real <code>glove_goal_status</code> and <code>glove_goal_update</code>
+        tools, with version checks. A refusal is a valid outcome.
+      </p>
+      <CodeBlock filename="sales-goals.ts" language="typescript" code={`const { runner } = useGoalRunner(agent, goalAdapter, {
+  scope: { subject: "demo-prospect", key: "sales-discovery" },
+  delivery: "history",
+  tools: { allow: ["status", "update", "history"] },
+});
+await runner.start(salesProgram); // discover needs → recommend a fit → agree a next step
+const call = new RealtimeSession({ agent });
+await call.start();
+call.respond("Introduce yourself and ask the first discovery question.");
+
+// A product update arrives while the same call is running:
+await agent.emitEvent({
+  id: "pilot-offer:1", source: "product-catalog",
+  content: "Growth now costs 39 USD per month instead of 49 USD.",
+});`} />
+      <p>
+        With <code>delivery: &quot;history&quot;</code>, a changed goal snapshot is
+        saved before the next user turn. Progress within a turn reaches the
+        model through tool results. Events are saved once and enter the live
+        session at a user/tool boundary or a quiet pause. On GPT-Live, context
+        appends reach the voice model; backend goal tools read authoritative
+        Glove state. Appends do not remove older provider context.
+      </p>
+      <p>
+        <a href="https://github.com/porkytheblack/glove/tree/main/packages/glove-realtime/examples/live-goals">
+          Full runnable demo and source
+        </a>: browser audio, typed input, tool activity, stored goal snapshots,
+        spontaneous offer updates and a real-provider verification script.
+        The fictional sales call does not dial a phone number or schedule a
+        meeting. In-memory adapters preserve progress across provider reconnects,
+        but durable adapters are needed across server restarts.
+      </p>
+      <CodeBlock filename="terminal" language="bash" code={`# From this repository, with OPENAI_API_KEY in ignored .env.local:
+pnpm --filter glove-realtime... build
+pnpm --filter glove-realtime demo:live
+# Optional real-provider test (uses API credits):
+pnpm --filter glove-realtime test:live`} />
 
       {/* ============================================================ */}
       <h2 id="lifecycle">Session lifecycle</h2>
@@ -266,9 +318,41 @@ await session.start({ resumeHandle: loadHandle(callId) });`}
         code={`session.inject({ kind: "user", text: "The warranty check came back: covered until 2031." }); // spoken about
 session.inject({ kind: "context", text: "Caller is a VIP." });                                // silent
 session.respond("Greet the caller in one short sentence.");
-session.say("typed message from the chat box");
+await session.say("typed message from the chat box");
 session.sendImage(pngBytes, "image/png");`}
       />
+
+      <h2 id="gpt-live">GPT-Live host integration</h2>
+
+      <p>
+        Select <code>provider: &quot;openai-live&quot;</code> and{" "}
+        <code>model: &quot;gpt-live-1&quot;</code> on the server. Feed continuous,
+        paced PCM, including silence. GPT-Live emits continuous transcript
+        fragments; the host supplies speech boundaries and playback state.
+      </p>
+      <CodeBlock
+        filename="live-host.ts"
+        language="typescript"
+        code={`// Connect these to local VAD or application speech boundaries.
+await session.notifyUserSpeech(true);  // prepare goals and request/history context
+await session.notifyUserSpeech(false);
+session.notifyPlayback(true);          // actual audio playback starts
+session.notifyPlayback(false);         // playback queue drains
+session.on("transcript", ({ role, text, startMs, endMs }) => {
+  // Keep both speakers' fragments and timestamps: speech may overlap.
+});
+session.interrupt();                   // flush playback on the interrupted event
+session.resumeOutput();                // allow output again
+await session.stop();                  // wait for final cumulative usage`}
+      />
+      <p>
+        Input notifications refresh context and control when queued events
+        reach the call. They do not commit audio or cancel backend work.
+        Transcript packet gaps do not establish a speech boundary. Typed
+        messages also run preparation and refresh context before sending.
+        Startup waits for the agent&apos;s turn queue; concurrent stops wait
+        for the same finalization, and failures reject after cleanup.
+      </p>
 
       <h2 id="related">Related</h2>
 

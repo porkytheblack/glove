@@ -36,8 +36,12 @@ export default function RealtimeVoicePage() {
       <h2 id="which-package">Two ways to put an agent on a realtime model</h2>
 
       <p>
-        Both run a built Glove on OpenAI Realtime, Gemini Live or GPT-Live.
-        They differ in how much of the agent comes onto the call.
+        Start new realtime agents with <code>glove-realtime</code>, including
+        voice-only agents with goals and spontaneous events. The older
+        <code> glove-voice-s2s</code> runtime remains the compatibility path for
+        existing avatar, LiveKit and Foundry <code>voiceCall</code> integrations.
+        It is independent of the new package, not a required audio layer beneath
+        it. Similarly named provider adapters are not interchangeable.
       </p>
 
       <table>

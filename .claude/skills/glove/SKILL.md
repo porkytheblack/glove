@@ -82,7 +82,7 @@ Loop ends when the model answers with text.
 | a chat UI state machine | React bindings | `defineTool({ …, render, renderResult })` · `useGlove()` · `<Render />` | `glove-react` |
 | an SSE protocol between server and client | Streaming route | `export const POST = createChatHandler({...})` | `glove-next` |
 | STT + agent + TTS glue | Voice pipeline | `new GloveVoice(glove, { stt, createTTS, vad })` · `useGloveVoice` · `useGlovePTT` | `glove-voice` |
-| a second tool implementation for a realtime model | Realtime speech, avatars | `new RealtimeAgent({ agent })` with `model: s2sDrivenModel({ provider })` | `glove-voice-s2s` · `-avatar` · `-livekit` |
+| rewriting an existing S2S avatar or LiveKit integration | Compatibility voice runtime | `new RealtimeAgent({ agent })` with `model: s2sDrivenModel({ provider })` | `glove-voice-s2s` · `-avatar` · `-livekit` |
 | permissions, persistence, context and reconnects re-built for a realtime provider | Realtime agents | `new RealtimeSession({ agent })` with `model: realtimeModel({ provider })` | `glove-realtime` |
 | a router that calls other agents by hand | Subagents | `glove.defineSubAgent({ name, description, factory })` → `glove_invoke_subagent` | `glove-core` |
 | a message bus between agents | Mesh | `await mountMesh(glove, { adapter, identity })` | `glove-mesh` |
@@ -123,7 +123,7 @@ Knowing these lets you predict the API instead of inventing one.
 - A display-stack form (`pushAndWait`) for exact input or a final Confirm that must not pass through the model (not available in voice).
 - Goals (`useGoalRunner`) for obligations across the conversation, with versioned progress and deferrals.
 
-**Which surface?** Web chat → `glove-react` + `glove-next` (or any SSE handler). CLI, backend, WebSocket → server-side `glove-core` with subscribers. Voice → `glove-voice` (pipeline), `glove-voice-s2s` (realtime voice, avatars, LiveKit, Foundry `voiceCall`) or `glove-realtime` (the whole agent on a realtime model: enforced permissions, the call in the store, runtime context and goals, camera/screen input, text output, resumption); a fast front model that talks while a heavier worker uses tools is the layered-voice pattern (https://glove.dterminal.net/docs/voice-architectures).
+**Which surface?** Web chat → `glove-react` + `glove-next` (or any SSE handler). CLI, backend, WebSocket → server-side `glove-core` with subscribers. Voice → `glove-voice` (pipeline), `glove-voice-s2s` (existing avatars, LiveKit, Foundry `voiceCall`) or `glove-realtime` (default for new realtime agents, voice-only or multimodal; the whole agent on a realtime model: enforced permissions, the call in the store, runtime context and goals, camera/screen input, text output, resumption); a fast front model that talks while a heavier worker uses tools is the layered-voice pattern (https://glove.dterminal.net/docs/voice-architectures).
 
 ## The smallest harness
 

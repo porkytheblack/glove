@@ -4,6 +4,15 @@ Run a built Glove agent on a realtime multimodal model — OpenAI Realtime,
 GPT-Live, Gemini Live — with the agent's tools, store, permissions, context
 providers, inbox and subscribers all working on the live session.
 
+Start with the runnable [GPT-Live sales call demo](examples/live-goals/README.md)
+to see a goal-driven conversation: the agent initiates, discovers customer
+needs, consults product tools, reacts to a spontaneous offer, and records an
+agreed next step. It includes a browser UI and an opt-in real-provider test.
+
+For a complete server-side integration with context providers, typed input,
+audio transport hooks, external events and cleanup, see
+[the context call example](examples/context-call.ts).
+
 ```ts
 import { Displaymanager, Glove, MemoryStore } from "glove-core";
 import { RealtimeSession, realtimeModel } from "glove-realtime";
@@ -50,7 +59,7 @@ rest of the agent lives on the provider's side of the socket:
   rewrite it in place. Gemini needs a new session seeded with the summary.
   GPT-Live manages its context itself and can't take a summary.
 - **Modalities.** Gemini takes video frames and can answer in text. OpenAI
-  takes images. GPT-Live is audio only.
+  takes images. GPT-Live accepts audio and typed text, with audio output.
 
 No single "inject this" or "compact now" is right for all three. So here the
 **adapter owns the provider's half of the agent** (tool registration,
@@ -59,6 +68,12 @@ tools, the store, permissions, context, the inbox, subscribers, and the
 session lifecycle. They talk through a capability declaration and one
 standardized event stream. The voice-only stack (`glove-voice-s2s`, avatars,
 LiveKit rooms) is unchanged.
+
+For new realtime agents, start with `glove-realtime`. `glove-voice-s2s` remains
+the compatibility path for existing voice/avatar/LiveKit integrations; it is
+an independent runtime, not a required audio layer beneath this package.
+Provider adapter classes with the same names in these packages implement
+different interfaces and are not interchangeable.
 
 ## The split
 
@@ -105,6 +120,44 @@ createRealtimeAdapter({ provider: "openai-live", backendModel: "gpt-5.6-luna" })
 | `REALTIME_VOICE` | provider voice name |
 | `OPENAI_API_KEY` / `GEMINI_API_KEY` | the credential when no `apiKey` / `getToken` is passed |
 
+### GPT-Live host integration
+
+Select `provider: "openai-live"` with `model: "gpt-live-1"`. This uses the
+Live protocol and a Responses backend for Glove tool calls. The host feeds
+continuous, paced mono PCM at 16 or 24 kHz, including silence, and plays the
+returned audio. Keep the API key on the server.
+
+GPT-Live has no provider speech-start or final-transcript events. Connect
+your local VAD or application's speech boundaries to
+`notifyUserSpeech(true/false)`. Each new speech start runs the agent's turn
+preparers and refreshes `"request"` and `"history"` context; repeated `true`
+notifications do not start another turn. This only informs Glove's context
+and event scheduling: it does not commit audio or cancel backend work.
+Without host input boundaries, those providers refresh at open and typed
+messages; `"iteration"` context still refreshes after tools.
+
+```ts
+// Feed these from actual capture/playback state, not transcript packet gaps.
+await session.notifyUserSpeech(true);   // caller begins speaking
+await session.notifyUserSpeech(false);  // caller stops speaking
+session.notifyPlayback(true);           // audio begins playing
+session.notifyPlayback(false);          // playback queue has drained
+session.on("transcript", ({ role, text, startMs, endMs }) => {
+  // Keep both speakers' original fragments and timestamps; speech can overlap.
+});
+session.interrupt();                    // flush the host queue on "interrupted"
+session.resumeOutput();                 // explicitly allow output again
+await session.stop();                   // waits for final cumulative usage
+```
+
+The `transcript` event preserves each fragment. Stored `user_said` and
+`agent_said` groups use speaker changes, tool calls and session end as
+boundaries; they are not provider-confirmed final turns. Playback state
+must come from the audio sink. Context appends are bounded and non-atomic;
+GPT-Live manages its own compaction. Client delegation is not implemented.
+See OpenAI's [session guide](https://developers.openai.com/api/docs/guides/live-conversations)
+and [Responses delegation guide](https://developers.openai.com/api/docs/guides/live-delegation).
+
 ## How Glove primitives work on a session
 
 - **Tools** (`fold`, `replaceTools`) are registered with the provider at
@@ -132,8 +185,8 @@ createRealtimeAdapter({ provider: "openai-live", backendModel: "gpt-5.6-luna" })
   said, and the next text turn knows what was said on the call.
 - **Runtime context providers** follow their `delivery`, as in a text turn.
   `"iteration"` context (the default) is read on open, after each tool and
-  when the user starts speaking. `"request"` context is read on open and when
-  the user starts speaking, and frozen in between. The two form one snapshot,
+  when the user starts speaking or sends typed input. `"request"` context is
+  read at those turn boundaries and on open, and frozen in between. The two form one snapshot,
   skipped when it hasn't changed. On OpenAI it replaces the previous snapshot
   item. Elsewhere it is appended and says it supersedes the last one. Image
   parts are sent as media, once each, to providers that take images.
@@ -142,10 +195,11 @@ createRealtimeAdapter({ provider: "openai-live", backendModel: "gpt-5.6-luna" })
   seeded with it.
 - **Events** emitted on the agent (`agent.emitEvent`: Foundry delegation
   updates, webhooks, other agents) join the call. The session holds the
-  agent's turn queue (`holdTurns`) while it runs, so they never wake the
-  placeholder text model. An event goes in silently at the next user turn or
+  agent's turn queue (`holdTurns`) before preparation and opening, and while
+  it runs, so they never wake the placeholder text model. An event goes in silently at the next user turn or
   tool result, where the reply covers it. One that arrives while nobody is
-  talking is spoken about at once, as a wake would be. Each is saved to the
+  talking requests a spoken response at a quiet pause; actual speech is
+  provider-controlled. Each is saved to the
   store once. Speaking marks the user present (`notifyUserActivity`). While
   the call holds the queue, `processRequest` on the same agent waits for it
   to end. `events: false` leaves events to the agent's event policy.
@@ -185,6 +239,12 @@ createRealtimeAdapter({ provider: "openai-live", backendModel: "gpt-5.6-luna" })
   `beforeTurn` adds per-turn work that isn't registered on the agent. It
   runs after the agent's preparers.
 
+`await session.say(text)` runs the same preparation and context refresh before
+saving and sending typed input; concurrent calls are processed in order.
+On GPT-Live, it queues a user message on the Responses backend and silently
+mirrors the text to the voice model. Backend continuation waits for outstanding
+function results. Context appends alone are not backend user turns.
+
 Not translated: `/hook` and `/skill` directives in typed text. `say()` sends
 text as a user turn, and the directive parsing belongs to the text loop.
 
@@ -214,10 +274,12 @@ await session.start({ resumeHandle: loadHandle(callId) });   // resume after a p
   While compaction runs, writes wait for the summary, so turns said in the
   meantime follow it instead of being hidden behind it.
 - `maxDurationMs` ends the session. `stop()` waits for the adapter to close
-  (GPT-Live: until final usage arrives) and for pending store writes. A
+  (GPT-Live: until final usage arrives) and for pending store writes. Concurrent
+  stops share that completion. Finalization failures reject `stop()` after
+  cleanup and release of the turn queue, and also emit `error`. A
   `stop()` while `start()` is still connecting cancels the open: `start()`
-  rejects with an `OpenCancelled` error and no provider session is left
-  running.
+  rejects when queue acquisition or socket setup is cancelled, and no provider
+  session is left running.
 
 ## Synthetic prompts, media, and output
 
@@ -226,7 +288,7 @@ session.inject({ kind: "user", text: "The warranty check came back: covered unti
 session.inject({ kind: "context", text: "Caller is a VIP.", persist: true });                  // silent
 session.inject({ kind: "instruction", text: "Wrap up the call politely." });
 session.respond("Greet the caller in one short sentence.");
-session.say("typed message from the chat box");
+await session.say("typed message from the chat box");
 session.sendImage(pngBytes, "image/png");
 ```
 

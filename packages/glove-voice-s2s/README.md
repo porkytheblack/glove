@@ -3,6 +3,13 @@
 Speech-to-speech (realtime voice model) adapters for the Glove agent
 framework — the architecture step past the cascaded pipeline.
 
+For **new realtime agents**, start with [`glove-realtime`](../glove-realtime),
+including voice-only agents that need Glove goals, runtime context, events and
+permission-gated tools. This package remains the compatibility path for the
+existing avatar, LiveKit and Foundry voice integrations. It is an independent
+runtime, not a required layer beneath `glove-realtime`; similarly named provider
+adapters from the two packages are not interchangeable.
+
 ## Why
 
 `glove-voice`'s cascade (VAD → STT → LLM → TTS) bottoms out around

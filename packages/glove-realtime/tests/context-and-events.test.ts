@@ -232,3 +232,100 @@ test("an async requiresPermission predicate is awaited", async () => {
   assert.equal((adapter.results[1].output as any).status, "error");
   await session.stop();
 });
+
+test("typed turns prepare and refresh request/history context before input, in order", async () => {
+  const { agent, store } = buildAgent();
+  const adapter = new FakeAdapter();
+  let turn = 0;
+  agent.addTurnPreparer(async () => {
+    await tick();
+    agent.setSystemPrompt(`turn ${++turn}`);
+  });
+  agent.addContextProvider(() => `request ${turn}`, { delivery: "request" });
+  agent.addContextProvider(() => `history ${turn}`, { delivery: "history", key: "plan" });
+  const sent: number[] = [];
+  const sendText = adapter.sendText.bind(adapter);
+  adapter.sendText = (text) => {
+    assert.equal(adapter.instructionUpdates.at(-1), `turn ${turn}`);
+    assert.match(snapshots(adapter).at(-1)!, new RegExp(`request ${turn}`));
+    assert.ok(adapter.injected.some((i) => i.text.includes(`history ${turn}`)));
+    sent.push(turn);
+    sendText(text);
+  };
+  const session = new RealtimeSession({ agent, adapter });
+  await session.start();
+  await Promise.all([session.say("first"), session.say("second")]);
+  assert.deepEqual(sent, [2, 3]);
+  assert.deepEqual(adapter.texts.map((t) => t.text), ["first", "second"]);
+  await session.stop();
+  const messages = await store.getMessages();
+  for (const [index, text] of ["first", "second"].entries()) {
+    const input = messages.findIndex((m) => m.text === text);
+    const context = messages.findIndex((m) => m.text.includes(`history ${index + 2}`));
+    assert.ok(context >= 0 && context < input, "history context precedes the typed request");
+  }
+});
+
+test("opening a call waits for the running Glove turn and seeds its completed history", async () => {
+  const { agent } = buildAgent();
+  let finish!: () => void;
+  agent.setModel({
+    name: "blocked-text",
+    setSystemPrompt() {},
+    async prompt() {
+      await new Promise<void>((resolve) => { finish = resolve; });
+      return { messages: [{ sender: "agent", text: "Text turn finished" }], tokens_in: 0, tokens_out: 0 };
+    },
+  });
+  const textTurn = agent.processRequest("text first");
+  await settle();
+  let prepared = 0;
+  agent.addTurnPreparer(() => { prepared++; });
+  const adapter = new FakeAdapter();
+  const session = new RealtimeSession({ agent, adapter });
+  const opening = session.start();
+  await settle();
+  assert.equal(adapter.opens.length, 0);
+  assert.equal(prepared, 0, "preparation must also wait for queue ownership");
+  finish();
+  await textTurn;
+  await opening;
+  assert.equal(prepared, 1);
+  assert.ok(adapter.opens[0].history?.some((h) => h.text === "Text turn finished"));
+  await session.stop();
+});
+
+test("stopping while waiting for the turn queue cancels startup without opening a socket", async () => {
+  const { agent } = buildAgent();
+  const hold = await agent.holdTurns();
+  const adapter = new FakeAdapter();
+  const session = new RealtimeSession({ agent, adapter });
+  const opening = session.start();
+  const rejected = assert.rejects(opening);
+  await settle();
+  await session.stop();
+  await rejected;
+  assert.equal(adapter.opens.length, 0);
+  await hold.release();
+  await session.start();
+  assert.equal(adapter.opens.length, 1);
+  await session.stop();
+});
+
+test("stopping during typed-turn preparation does not send input to a later session", async () => {
+  const { agent } = buildAgent();
+  const adapter = new FakeAdapter();
+  const session = new RealtimeSession({ agent, adapter });
+  await session.start();
+  let finish!: () => void;
+  const unregister = agent.addTurnPreparer(() => new Promise<void>((resolve) => { finish = resolve; }));
+  const saying = session.say("stale input");
+  await settle();
+  await session.stop();
+  unregister();
+  await session.start();
+  finish();
+  await saying;
+  assert.deepEqual(adapter.texts, []);
+  await session.stop();
+});

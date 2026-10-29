@@ -236,14 +236,18 @@ test("fresh sessions are seeded from the store; resumed ones aren't", async () =
   ]);
   const { agent } = buildAgent({ store });
   const adapter = new FakeAdapter();
-  await new RealtimeSession({ agent, adapter }).start();
+  const fresh = new RealtimeSession({ agent, adapter });
+  await fresh.start();
   assert.deepEqual(adapter.opens[0].history!.map((h) => h.role), ["user", "assistant", "system", "system"]);
   assert.match(adapter.opens[0].history![3].text, /returned: shipped/);
+  await fresh.stop();
 
   const resumed = new FakeAdapter();
-  await new RealtimeSession({ agent, adapter: resumed }).start({ resumeHandle: "h9" });
+  const continued = new RealtimeSession({ agent, adapter: resumed });
+  await continued.start({ resumeHandle: "h9" });
   assert.equal(resumed.opens[0].resumeHandle, "h9");
   assert.equal(resumed.opens[0].history, undefined);
+  await continued.stop();
 });
 
 test("an unexpected close reconnects, resuming with the latest handle", async () => {
@@ -475,6 +479,7 @@ test("beforeTurn runs before opening and at each user turn, and its changes are 
   await settle();
   assert.equal(turns, 2);
   assert.deepEqual(adapter.instructionUpdates, ["You are Nova. Goal: verify identity."]);
+  await session.stop();
 
   const failing = new RealtimeSession({ agent, adapter: new FakeAdapter(), beforeTurn: () => { throw new Error("goal transition blocked"); } });
   await assert.rejects(failing.start(), /goal transition blocked/);

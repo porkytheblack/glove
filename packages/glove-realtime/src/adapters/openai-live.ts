@@ -83,6 +83,8 @@ export class OpenAILiveAdapter extends AdapterBase implements RealtimeAdapter {
   private calls = new Map<string, Batch>();
   private muted = false;
   private playing = false;
+  private typedResponse = false;
+  private responseRequested = false;
 
   constructor(private readonly cfg: OpenAILiveConfig) {
     super();
@@ -109,6 +111,8 @@ export class OpenAILiveAdapter extends AdapterBase implements RealtimeAdapter {
     this.muted = false;
     this.active.clear();
     this.calls.clear();
+    this.typedResponse = false;
+    this.responseRequested = false;
 
     const token = await this.cfg.getToken();
     const url = this.cfg.url ?? "wss://api.openai.com/v1/live/sessions";
@@ -268,7 +272,15 @@ export class OpenAILiveAdapter extends AdapterBase implements RealtimeAdapter {
 
   sendText(text: string, opts?: { respond?: boolean }): void {
     if (!this.isOpen) return;
-    this.append(opts?.respond === false ? "thinking" : "commentary", `The user typed: ${text}`);
+    if (!this.post({
+      type: "response.item.create", event_id: crypto.randomUUID(),
+      item: { type: "message", role: "user", content: [{ type: "input_text", text }] },
+    })) return;
+    // The voice frontend also needs the user's answer while the backend works.
+    // This is silent context; commentary is reserved for material to speak.
+    this.append("thinking", `The user typed: ${text}`);
+    this.typedResponse ||= opts?.respond !== false;
+    this.continueBackend();
   }
 
   sendMedia(_media: RealtimeMedia): void {
@@ -321,9 +333,19 @@ export class OpenAILiveAdapter extends AdapterBase implements RealtimeAdapter {
     batch.results.add(result.callId);
     batch.respond ||= result.respond !== false;
     // The backend continues once, after EVERY call in its batch has a result.
-    if (batch.completed && !batch.continued && batch.respond && batch.results.size === batch.calls.size) {
-      batch.continued = true;
-      this.post({ type: "response.create", event_id: crypto.randomUUID() });
+    this.continueBackend();
+  }
+
+  /** Typed messages queue behind running work and all outstanding tool results. */
+  private continueBackend(): void {
+    if (this.responseRequested || !this.isOpen) return;
+    const batches = [...this.active.values()];
+    if (batches.some(batch => !batch.completed || batch.continued || batch.results.size < batch.calls.size)) return;
+    if (!this.typedResponse && !batches.some(batch => batch.respond)) return;
+    if (this.post({ type: "response.create", event_id: crypto.randomUUID() })) {
+      this.responseRequested = true;
+      this.typedResponse = false;
+      for (const batch of batches) batch.continued = true;
     }
   }
 
@@ -428,6 +450,7 @@ export class OpenAILiveAdapter extends AdapterBase implements RealtimeAdapter {
     const delegation = envelope.delegation_id;
     const response = event.response as { id?: string; error?: { message?: string } } | undefined;
     if (event.type === "response.created" && response?.id) {
+      this.responseRequested = false;
       const prior = this.active.get(delegation);
       if (prior?.id === response.id) return;
       if (prior) for (const callId of prior.calls.keys()) this.calls.delete(callId);
@@ -445,12 +468,16 @@ export class OpenAILiveAdapter extends AdapterBase implements RealtimeAdapter {
       // Register every call before dispatching any: tools may answer synchronously.
       for (const call of batch.calls.values()) this.calls.set(call.callId, batch);
       for (const call of batch.calls.values()) this.emit({ type: "tool.call", ...call });
+      if (!batch.calls.size) this.active.delete(delegation);
+      this.continueBackend();
     } else if (
       (event.type === "response.failed" || event.type === "response.incomplete" || event.type === "response.cancelled") &&
       response?.id === batch.id
     ) {
       for (const call of batch.calls.values()) this.calls.delete(call.callId);
       this.active.delete(delegation);
+      this.responseRequested = false;
+      this.typedResponse = false;
       this.fail(response.error?.message ?? `GPT-Live backend ${event.type}`);
     }
   }

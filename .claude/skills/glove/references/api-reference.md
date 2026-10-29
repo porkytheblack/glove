@@ -1444,19 +1444,21 @@ new RealtimeSession({
 })
 
 session.start({ resumeHandle? }) / stop(reason?)
-session.sendAudio(pcm) · say(text) · sendImage(data, mime?) · sendVideoFrame(data, mime?) · sendMedia(media)
+session.say(text): Promise<void> // prepares and refreshes context before sending typed input
+session.notifyUserSpeech(speaking): Promise<void> // host input boundaries for continuous providers
+session.sendAudio(pcm) · sendImage(data, mime?) · sendVideoFrame(data, mime?) · sendMedia(media)
 session.inject({ kind: "context" | "instruction" | "user", text, respond?, key?, persist? })
-session.respond(instructions?) · interrupt() · notifyPlayback(speaking)
+session.respond(instructions?) · interrupt() · resumeOutput() · notifyPlayback(speaking)
 session.refreshContext(force?) · refreshSession() · compact(): Promise<boolean>
 session.addSubscriber(s) / removeSubscriber(s)
 session.state · resumeHandle · tools · exposedTools · adapter
 
 // events: state, event (raw RealtimeEvent), user_delta, user_said, agent_delta, agent_said, audio(pcm, format),
 //   interrupted, user_speech_started/stopped, agent_speech_started/stopped, tool_started, tool_finished,
-//   context_refreshed, compacted, resumable(handle), usage, ended(reason), error
+//   transcript({ type, role, text, startMs, endMs }), context_refreshed, compacted, resumable(handle), usage, ended(reason), error
 ```
 
-`RealtimeAdapter`: `capabilities` (input/output modalities, tool update mode, supersede, history seed, compaction apply/summarize, resumption, transcripts, speechLifecycle), `open(spec)`, `close()`, `subscribe(listener)`, `sendAudio/sendText/sendMedia`, `setTools`, `setInstructions`, `inject`, `sendToolResult`, `respond`, `interrupt` (must always emit `interrupted`), `compact`, optional `summarize` and `notifyPlayback`. Extend `AdapterBase` for the listener set.
+`RealtimeAdapter`: `capabilities` (input/output modalities, tool update mode, supersede, history seed, compaction apply/summarize, resumption, transcripts, speechLifecycle), `open(spec)`, `close()`, `subscribe(listener)`, `sendAudio/sendText/sendMedia`, `setTools`, `setInstructions`, `inject`, `sendToolResult`, `respond`, `interrupt` (must always emit `interrupted`), `compact`, optional `summarize`, `resumeOutput` and `notifyPlayback`. Extend `AdapterBase` for the listener set.
 
 ---
 

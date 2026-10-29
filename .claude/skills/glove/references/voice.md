@@ -309,6 +309,27 @@ Full API in api-reference.md ("glove-voice-s2s", "glove-voice-avatar", "glove-vo
 
 ## Realtime multimodal sessions (`glove-realtime`)
 
+Start new realtime agents here, including voice-only agents with goals and
+spontaneous events. `glove-voice-s2s` is the independent compatibility runtime
+for existing avatar/LiveKit/Foundry voiceCall integrations, not an audio layer
+under this package. Same-named provider adapters are not interchangeable.
+
+Runnable sales discovery example: `packages/glove-realtime/examples/live-goals`.
+It initiates a call, asks for missing customer needs, uses product tools, records
+progress with `glove_goal_update`, handles a spontaneous price update and records
+an agreed next step. `useGoalRunner(..., { delivery: "history" })` saves changed
+goal snapshots at user boundaries; tool results convey in-turn progress.
+The real-provider smoke test covers typed replies and voice output, including
+goal persistence across a fresh provider session. Microphone input is a manual
+check. In-memory adapters do not survive a process restart.
+
+GPT-Live `await session.say(text)` queues a Responses backend user message and
+mirrors it as silent voice context; it waits for outstanding tool results before
+backend continuation. `notifyUserSpeech` supplies host input boundaries, and
+`notifyPlayback` must describe audible playback, not continuous silent PCM.
+Listen to `transcript` for timestamped `{ role, text, startMs, endMs }` fragments
+and await `stop()` for final usage. Context delivery is not a guarantee of speech.
+
 `RealtimeAgent` runs tools directly through `Tool.run`. There are no permission prompts, nothing is written to the store and no subscriber events fire. That suits a thin voice front. Use `glove-realtime` when the call should behave like the rest of the agent, or when it needs camera/screen input or text output. The adapter owns the provider's half: tool registration, synthetic prompts, compaction and modalities. `RealtimeSession` owns Glove's half.
 
 ```typescript
@@ -333,7 +354,7 @@ await session.start();                    // or start({ resumeHandle })
 
 session.sendAudio(pcm);                   // session.adapter.inputFormat (Gemini 16 kHz, OpenAI 24 kHz)
 session.sendVideoFrame(jpeg);             // Gemini; OpenAI takes stills via sendImage
-session.say("typed text");
+await session.say("typed text");
 session.inject({ kind: "user", text: "worker result to relay" });
 ```
 
@@ -348,3 +369,5 @@ How primitives translate:
 - Not translated: `/hook` and `/skill` directives in `say()` text.
 
 Providers: `openai` (audio/text/image in, audio or text out, compacts in place and summarises itself), `gemini` (audio/text/image/video in, resumption handles and `goAway`, reconnects to change tools, `NON_BLOCKING` tools), `openai-live` (audio only, provider-managed context, server only). `createRealtimeAdapter` reads `REALTIME_PROVIDER`, `REALTIME_MODEL`, `REALTIME_VOICE` and the provider key. Avatars, LiveKit and Foundry `voiceCall` are built on `glove-voice-s2s` and still use `RealtimeAgent`. API in [api-reference.md](api-reference.md#glove-realtime).
+
+For GPT-Live on `RealtimeSession`, feed host input boundaries through `await session.notifyUserSpeech(true/false)` to run turn preparers and refresh request/history context. Use local VAD or application boundaries, never transcript packet gaps. Keep sending paced PCM including silence. Report actual playback with `notifyPlayback`, preserve overlapping timed `transcript` events, and use `resumeOutput()` after a manual interruption when ready. `say()` also prepares and refreshes context. `start()` waits for the agent turn queue; concurrent `stop()` calls wait for the same finalization, and final usage failures reject after cleanup.

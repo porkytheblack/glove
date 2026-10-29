@@ -26,7 +26,10 @@
   "scripts": {
     "build": "tsup",
     "typecheck": "tsc --noEmit",
-    "test": "node --test --import tsx tests/*.test.ts"
+    "test": "node --test --import tsx tests/*.test.ts",
+    "demo:live": "node --env-file=../../.env.local --import tsx examples/live-goals/server.ts",
+    "test:live": "node --env-file=../../.env.local --import tsx examples/live-goals/smoke.ts",
+    "typecheck:demo": "tsc --noEmit -p examples/live-goals/tsconfig.json"
   },
   "keywords": [
     "realtime",

@@ -64,6 +64,9 @@ jobs:
       - name: Voice package consumer types (Node ESM)
         run: pnpm --filter glove-voice-s2s test:types
 
+      - name: Realtime demo types (no API key or live calls)
+        run: pnpm --filter glove-realtime typecheck:demo
+
       # glovebox-core and glovebox-kit each declare the other as a dependency:
       # the `glovebox build` CLI resolves and bundles the in-container runtime,
       # and that runtime imports the wire protocol's types. pnpm reports the

@@ -29,7 +29,7 @@ export default function VoiceHarnessPage() {
           "Store",
           "Forms",
           "Voice pipeline",
-          "Realtime speech and avatars",
+          "Existing voice and avatar integrations",
           "Realtime agents",
           "Mesh",
           "Instances",

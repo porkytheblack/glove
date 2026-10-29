@@ -83,6 +83,7 @@ export function buildLlmsTxt(): string {
   out.push(`- [Primitives map](${SITE_URL}/docs/primitives): every primitive, grouped by part, with what it replaces.`);
   out.push(`- [Build it up](${SITE_URL}/docs/build/loop): eight steps from one tool to a deployed Foundry system on Kuiper.`);
   out.push(`- [Harness blueprints](${SITE_URL}/docs/harnesses): coding, personal, support, voice, research and multi-agent harnesses as bills of primitives.`);
+  out.push(`- [Realtime agents](${SITE_URL}/docs/realtime): start new realtime voice or multimodal agents with glove-realtime; includes goal-driven sales discovery, spontaneous events and GPT-Live host integration.`);
   out.push(`- [Foundry tutorial](${SITE_URL}/foundry/docs/tutorial): a complete multi-tenant support agent, step by step.`);
   out.push(`- [Deploy on Kuiper](${SITE_URL}/foundry/docs/kuiper): state on /data, an authorizer, the model gateway, email, browsers and sandboxes.`);
   out.push(`- [Glove full reference](${SITE_URL}/llms-full.txt), [Foundry index](${SITE_URL}/foundry/llms.txt) and [Foundry full reference](${SITE_URL}/foundry/llms-full.txt)`);
@@ -101,14 +102,15 @@ export function buildLlmsTxt(): string {
     "Foundry's /v1/chat/completions and /v1/responses accept an agent instance id (or a definition route with exactly one instance) as `model`; reuse `user`, `conversation_id` or the x-foundry-conversation-id header to continue a conversation.",
     "Each Foundry run executes in its own process: a store that returns a plain MemoryStore forgets earlier turns. Give agents a durable store (the starter templates ship lib/file-store.ts) — see /foundry/docs/persistence.",
     "Dynamic goals are exported by glove-memory/goals (glove-memory 1.2.0+); there is no glove-goals package. Shared evidence is glove-facts (0.1.0+).",
-    "With glove-core 4.0+, goals, forms and pinned context are live runtime snapshots appended at the model-input tail; system instructions and saved history are not rewritten. Runnable proxies forward addContextProvider and getRuntimeContext.",
+    "Runtime context defaults to transient iteration snapshots. Since glove-core 4.4, delivery can be iteration, request (frozen per request), or history (changed text saved before the next request). useGoalRunner accepts delivery; history-delivered goal progress is carried immediately by tool results and saved as a new snapshot at the next request boundary. Runnable proxies forward addContextProvider including its options, getRuntimeContext, emitEvent and notifyUserActivity.",
+    "Use glove-realtime for new realtime agents, including voice-only agents with goals and spontaneous events. glove-voice-s2s remains the independent compatibility runtime for existing avatar, LiveKit and Foundry voiceCall integrations; it is not a layer beneath glove-realtime. Same-named provider adapters are not interchangeable.",
     "Forms support opt-in skippable: true and runner.skip(field, reason), exposed as glove_form_revise action=skip.",
     "Forms do not settle goals: call goals.update from a form step or checkpoint executor. record_fact only records unverified text; actions and outcomes need verified evidence recorded by host code.",
     "GloveVoice speaks every text_delta sentence by sentence; <speech> tag filtering is an example-level parser (examples/layered-voice speech-parser.ts), not a glove-voice option. Layered voice puts a fast front model on every turn and delegates tool work to a heavy worker over glove-mesh.",
     "glove-execution mounts browser scripts (execute_browser) and persistent sandboxes (execute_sandbox) onto existing agents without replacing their model. Station 3 is the first backend; Foundry can host providers via stationDaemon from glove-foundry/station.",
     "glove-classifier adds structured-decision models (TypeSafe's Jev, open System One models, zero-shot scorers). Jev is not a chat model; never pass it to createAdapter.",
     "glove-core ships a vercel provider (Vercel AI Gateway) that reads AI_GATEWAY_API_KEY, falling back to VERCEL_OIDC_TOKEN.",
-    "Live state belongs in glove.addContextProvider(() => text), appended before every model call and never saved; do not rebuild the system prompt each turn.",
+    "Live state belongs in glove.addContextProvider(() => text): default iteration snapshots are transient; choose request or history delivery explicitly when needed. Do not rebuild the system prompt each turn.",
     "Capability packages mount onto an existing agent (mountX(glove, …) / useX(glove, …)) and never replace its model or loop, so they compose.",
     "A subagent is a tool: glove.defineSubAgent({ name, description, factory }) registers glove_invoke_subagent. In Foundry, use defineSubagent, calls or glove_foundry_spawn.",
     "On Kuiper: point FileFoundryDataAdapter, transcripts and SQLite memory at /data; define requestAuthorization (Foundry refuses a public bind without it); call models with createAdapter({ provider, model, ...kuiper.models.glove(provider) }) from @kuiper-sh/sdk. A unit with a disk runs one copy, so schedules fire once.",
@@ -321,7 +323,8 @@ provider prompt caching. Cache usage is reported on every response as
 | glove-next | createChatHandler — SSE streaming route handler |
 | glove-voice | cascade voice: VAD → STT → agent → TTS, barge-in, push-to-talk |
 | glove-voice-native | React Native / Expo mic capture, PCM playback, Silero VAD |
-| glove-voice-s2s | run an agent on realtime speech-to-speech models (OpenAI Realtime, Gemini Live, GPT-Live) |
+| glove-realtime | new realtime voice and multimodal agents: provider-owned sessions with Glove tools, goals, runtime context, events and persistence |
+| glove-voice-s2s | compatibility voice runtime used by existing avatar, LiveKit and Foundry voiceCall integrations |
 | glove-voice-avatar | live avatars over the S2S audio (Tavus echo, Anam passthrough) |
 | glove-voice-livekit | LiveKit room transport + LiveKit-native avatars |
 | glove-memory | entity graph, episodic timeline, resource filesystem, standing context, forms, dynamic goals (glove-memory/goals; no separate glove-goals package) |
@@ -533,7 +536,7 @@ InMemoryGoalAdapter is process-local; production supplies durable storage.
 
 Tools: glove_goal_status, glove_goal_start, glove_goal_update, glove_goal_revise,
 glove_goal_history. tools allow/deny only narrows model access, not the host API.
-Goals, forms, and context append transient user-role snapshots at the model-input
+By default, goals, forms, and context append transient user-role snapshots at the model-input
 tail before each iteration, including after tools, without rewriting the system
 prompt or saved history. External writes appear next iteration. refresh() runs
 preparation, transition recovery, and host configuration. injectStatus:false
@@ -1007,7 +1010,10 @@ server-side; API keys never reach the browser.
 React Native / Expo: \`withNativeAudio({ stt, createTTS, vad })\` from
 \`glove-voice-native\`, with \`SileroVADNativeAdapter\` for on-device VAD.
 
-Realtime speech-to-speech (\`glove-voice-s2s\`):
+Compatibility speech-to-speech runtime (\`glove-voice-s2s\`): existing avatar,
+LiveKit and Foundry voiceCall integrations use this package. For new realtime
+agents, including voice-only agents, use \`glove-realtime\` below. These are
+independent runtimes; same-named adapters are not interchangeable.
 
 \`\`\`ts
 import { RealtimeAgent, createS2SAdapter, s2sDrivenModel } from "glove-voice-s2s";
@@ -1056,7 +1062,7 @@ written to the store, fresh sessions are seeded from it, runtime context and the
 inbox are injected, and session subscribers get the usual SubscriberEvents.
 Providers: "openai" (audio/text/image in; compacts in place), "gemini"
 (audio/text/image/video in; resumption handles, goAway, reconnect to change
-tools), "openai-live" (audio only, provider-managed context). Goals and forms
+tools), "openai-live" (audio/text input, audio output, provider-managed context). Goals and forms
 register per-turn preparation with \`addTurnPreparer\`; the session runs
 \`agent.prepareTurn()\` before opening and at each user turn, and forwards its
 events to the agent's own subscribers via \`notifySubscribers\`. Context
@@ -1075,6 +1081,62 @@ session.sendAudio(pcm);
 session.sendVideoFrame(jpeg);
 \`\`\`
 See /docs/realtime.
+
+GPT-Live host integration (server only; OPENAI_API_KEY stays on the server):
+- Feed continuous paced mono PCM including silence at the configured 16/24 kHz.
+- Supply host input boundaries with await session.notifyUserSpeech(true/false).
+  These prepare request/history context; they neither pause PCM nor commit audio.
+- Notify actual audible playback with session.notifyPlayback(speaking). Output
+  PCM includes silence: do not equate every output packet with speaking. Do not
+  infer turn boundaries from timestamped transcript fragments.
+- session.on("transcript", ({ role, text, startMs, endMs }) => ...) preserves
+  overlapping captions. await session.say(text) prepares context and sends a
+  Responses backend user message, mirrored silently to the voice frontend;
+  backend continuation waits for outstanding tool results.
+- await session.stop() waits for final usage and rejects failed finalization.
+  session.resumeOutput() resumes manually muted output.
+
+Goals drive the conversation, not just a fixed sequence of business tools.
+For sales discovery, define goals to understand workflow/volume/pain points,
+recommend a fit using product tools, address objections, and agree on a next
+step (including a refusal). Mount useGoalRunner with delivery: "history" and
+let the model use glove_goal_status/update to record supported progress with
+version checks. No processRequest wrapper or custom goal prompt is needed.
+
+\`\`\`ts
+import { useGoalRunner, InMemoryGoalAdapter } from "glove-memory";
+// agent is built with realtimeModel({ provider: "openai-live", model: "gpt-live-1" }).
+const { runner } = useGoalRunner(agent, new InMemoryGoalAdapter(), {
+  scope: { subject: "demo-prospect", key: "sales-discovery" },
+  delivery: "history",
+  tools: { allow: ["status", "update", "history"] },
+});
+await runner.start(salesProgram);
+const call = new RealtimeSession({ agent });
+await call.start();
+call.respond("Introduce yourself and ask the first discovery question.");
+await agent.emitEvent({ id: "pilot-offer:1", source: "product-catalog",
+  content: "Growth now costs 39 USD per month instead of 49 USD." });
+// Host streams audio, reports speech/playback, then awaits call.stop().
+\`\`\`
+
+History-delivered goals are saved once per changed snapshot at a user boundary;
+in-turn progress comes from tool results. Spontaneous events enter silently at a
+user/tool boundary or request speech at a quiet pause, and are saved once per
+event ID. Delivery to a provider does not guarantee a particular spoken response.
+GPT-Live appends reach its voice context; backend goal tools read authoritative
+Glove state. Appends are non-atomic and do not remove prior provider context.
+
+Runnable source: packages/glove-realtime/examples/live-goals (README, agent.ts,
+server.ts, client.js, capture.js, smoke.ts). From the repo with dependencies built
+and OPENAI_API_KEY in ignored .env.local: pnpm --filter glove-realtime demo:live.
+The browser example initiates a fictional sales call; it does not dial a phone.
+pnpm --filter glove-realtime test:live is an opt-in paid real-provider test of
+initiation, goal tools, product tools, spontaneous offers, history/deduplication,
+fresh-session recall and final usage. It uses typed replies plus continuous PCM
+silence and checks generated voice output; microphone recognition is a separate
+manual check. MemoryStore and InMemoryGoalAdapter survive provider reconnects
+only while retained in the process; use durable adapters for process restarts.
 
 ## 10. Gotchas
 

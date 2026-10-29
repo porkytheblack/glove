@@ -305,6 +305,8 @@ export interface RealtimeAdapter {
   respond(opts?: { instructions?: string }): void;
   /** Stop the agent's current output. MUST emit `interrupted`. */
   interrupt(): void;
+  /** Resume output muted by a manual interrupt (continuous providers). */
+  resumeOutput?(): void;
 
   /** Apply a summary in place of the conversation so far. */
   compact(request: RealtimeCompaction): Promise<RealtimeCompactionOutcome>;

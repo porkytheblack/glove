@@ -187,6 +187,8 @@ export type RealtimeSessionEvents = {
   user_said: [text: string];
   agent_delta: [text: string];
   agent_said: [text: string];
+  /** Continuous captions with the provider's timestamps; speakers may overlap. */
+  transcript: [fragment: Extract<RealtimeEvent, { type: "transcript.fragment" }>];
   /** Agent audio for the host to play, in `format`. */
   audio: [pcm: Int16Array, format: RealtimeAudioFormat];
   /** Flush queued playback. */
@@ -244,6 +246,8 @@ export class RealtimeSession extends EventEmitter<RealtimeSessionEvents> {
   private writes: Promise<void> = Promise.resolve();
   private lastContext: string | undefined;
   private contextRefresh: Promise<void> | null = null;
+  /** Serializes per-turn preparation and typed input, independently of tool work. */
+  private turnPreparation: Promise<void> = Promise.resolve();
   private sentImages = new Set<string>();
   private toolSignature = "";
   private instructions = "";
@@ -251,6 +255,7 @@ export class RealtimeSession extends EventEmitter<RealtimeSessionEvents> {
   private compacting: Promise<boolean> | null = null;
   private compactWhenIdle = false;
   private reconnecting: Promise<void> | null = null;
+  private stopping: Promise<void> | null = null;
   private durationTimer: ReturnType<typeof setTimeout> | undefined;
   private subagentDepth = 0;
   /** This session's turns, for compaction when nothing is persisted. */
@@ -407,9 +412,12 @@ export class RealtimeSession extends EventEmitter<RealtimeSessionEvents> {
     this.unsubscribe = this.adapter.subscribe((event) => this.onEvent(event));
     this.agent.addSubscriber(this.gloveBridge);
     try {
-      this.acquireHold();
+      await this.acquireHold();
+      if (this.stateNow() !== "connecting") return;
       await this.prepareTurn();
+      if (this.stateNow() !== "connecting") return;
       await this.adapter.open(await this.buildSpec(true));
+      await this.turnPreparation;
     } catch (error) {
       // stop() ran while this was starting and cleans up itself.
       if (this.stateNow() === "closing" || this.stateNow() === "closed") throw error;
@@ -424,18 +432,29 @@ export class RealtimeSession extends EventEmitter<RealtimeSessionEvents> {
       return;
     }
     if (this.cfg.maxDurationMs) {
-      this.durationTimer = setTimeout(() => void this.stop("time limit"), this.cfg.maxDurationMs);
+      this.durationTimer = setTimeout(() => void this.stop("time limit").catch(() => {}), this.cfg.maxDurationMs);
     }
   }
 
-  async stop(reason = "stopped"): Promise<void> {
-    if (this._state === "idle" || this._state === "closed" || this._state === "closing") return;
+  stop(reason = "stopped"): Promise<void> {
+    if (this.stopping) return this.stopping;
+    if (this._state === "idle" || this._state === "closed") return Promise.resolve();
+    const run = this.doStop(reason).finally(() => {
+      if (this.stopping === run) this.stopping = null;
+    });
+    this.stopping = run;
+    return run;
+  }
+
+  private async doStop(reason: string): Promise<void> {
     this.setState("closing");
+    this.holdRequest?.abort();
     for (const call of this.pending.values()) call.controller.abort();
     try {
       await this.adapter.close();
     } catch (error) {
       this.emit("error", asError(error));
+      throw error;
     } finally {
       // Continuous providers keep transcribing until the close completes.
       this.flushFragment();
@@ -461,6 +480,7 @@ export class RealtimeSession extends EventEmitter<RealtimeSessionEvents> {
     this.sentImages.clear();
     this.subagentDepth = 0;
     this.fragment = null;
+    this.turnPreparation = Promise.resolve();
     this.holds.clear();
     this.held = [];
     clearTimeout(this.transcriptTimer);
@@ -513,7 +533,7 @@ export class RealtimeSession extends EventEmitter<RealtimeSessionEvents> {
     if (this._state !== "open" || this.reconnecting) return;
     const policy = this.cfg.reconnect;
     if (policy === false) {
-      void this.stop(reason ?? "provider closed the session");
+      void this.stop(reason ?? "provider closed the session").catch(() => {});
       return;
     }
     this.setState("reconnecting");
@@ -591,9 +611,10 @@ export class RealtimeSession extends EventEmitter<RealtimeSessionEvents> {
         // A resumed conversation still holds its last snapshot: only a change
         // is worth sending. Events that waited for the user's next message
         // (deferred while the agent was idle) go in silently.
-        void this.contextTurn(!event.resumed, "request")
-          .then(() => this.flushEventsWhenQuiet())
-          .catch((error) => this.emit("error", asError(error)));
+        void this.queueTurn(async () => {
+          await this.contextTurn(!event.resumed, "request");
+          this.flushEventsWhenQuiet();
+        });
         break;
       case "session.closed":
         if (!event.expected) this.recover(event.reason);
@@ -612,7 +633,7 @@ export class RealtimeSession extends EventEmitter<RealtimeSessionEvents> {
         this.emit("user_speech_started");
         // The start of a user turn is the last moment new state can land
         // before the model answers it.
-        void this.startTurn();
+        void this.queueTurn(() => this.startTurn());
         break;
       case "input.speech_stopped":
         this.userSpeaking = false;
@@ -660,6 +681,8 @@ export class RealtimeSession extends EventEmitter<RealtimeSessionEvents> {
         }
         break;
       case "transcript.fragment":
+        this.emit("transcript", event);
+        if (event.role === "user") this.agent.notifyUserActivity?.();
         this.onFragment(event.role, event.text);
         break;
 
@@ -939,13 +962,25 @@ export class RealtimeSession extends EventEmitter<RealtimeSessionEvents> {
   }
 
   private async startTurn(): Promise<void> {
+    const epoch = this.epoch;
     try {
       await this.prepareTurn();
+      if (epoch !== this.epoch || this._state !== "open") return;
       await this.syncSession();
     } catch (error) {
       this.emit("error", asError(error));
     }
+    if (epoch !== this.epoch || this._state !== "open") return;
     try { await this.contextTurn(false, "loop"); } catch (error) { this.emit("error", asError(error)); }
+  }
+
+  private queueTurn(work: () => Promise<void>): Promise<void> {
+    const epoch = this.epoch;
+    const run = this.turnPreparation.then(async () => {
+      if (epoch === this.epoch && this._state === "open") await work();
+    });
+    this.turnPreparation = run.catch((error) => { this.emit("error", asError(error)); });
+    return this.turnPreparation;
   }
 
   /**
@@ -984,26 +1019,22 @@ export class RealtimeSession extends EventEmitter<RealtimeSessionEvents> {
   // ── events ────────────────────────────────────────────────────────────────
 
   /**
-   * Ask for the agent's turn queue without waiting for it: the call opens at
-   * once. A text turn already running keeps the events that arrive until it
-   * ends; then the call holds the queue and takes what waits.
+   * Own the agent's turn queue before preparing or opening the call. A text
+   * turn already running finishes first, including its history writes.
    */
-  private acquireHold(): void {
+  private async acquireHold(): Promise<void> {
     if (this.cfg.events === false || typeof this.agent.holdTurns !== "function") return;
     const request = new AbortController();
     this.holdRequest = request;
-    this.agent.holdTurns({ signal: request.signal, onEvent: () => this.onAgentEvent() }).then((hold) => {
-      if (request.signal.aborted || this.holdRequest !== request) {
-        void hold.release();
-        return;
-      }
-      this.holdRequest = null;
-      this.hold = hold;
-      // Events deferred before the call (or queued behind the turn it waited
-      // for) go in now; an open session takes them silently.
-      this.eventsWaiting = true;
-      if (this.adapter.isOpen) void this.deliverEvents("request", false).catch((error) => this.emit("error", asError(error)));
-    }, () => {});
+    const hold = await this.agent.holdTurns({ signal: request.signal, onEvent: () => this.onAgentEvent() });
+    if (request.signal.aborted || this.holdRequest !== request) {
+      await hold.release();
+      return;
+    }
+    this.holdRequest = null;
+    this.hold = hold;
+    // Events deferred before the call go in silently when it opens.
+    this.eventsWaiting = true;
   }
 
   private onAgentEvent(): void {
@@ -1283,14 +1314,40 @@ export class RealtimeSession extends EventEmitter<RealtimeSessionEvents> {
     this.adapter.sendAudio(pcm);
   }
 
-  /** A typed message from the user: saved and answered. */
-  say(text: string): void {
-    this.flushFragment();
+  /** A typed message: prepare and refresh context before saving and sending it. */
+  say(text: string): Promise<void> {
+    if (this._state !== "open") return Promise.resolve();
     this.agent.notifyUserActivity?.();
     this.expectResponse();
-    this.remember({ role: "user", text });
-    this.persist([{ sender: "user", text }]);
-    this.adapter.sendText(text);
+    const epoch = this.epoch;
+    return this.queueTurn(async () => {
+      this.flushFragment();
+      await this.startTurn();
+      if (epoch !== this.epoch || this._state !== "open") return;
+      this.remember({ role: "user", text });
+      this.persist([{ sender: "user", text }]);
+      this.adapter.sendText(text);
+    });
+  }
+
+  /**
+   * Host-detected input speech for continuous providers such as GPT-Live.
+   * Use a local VAD or application boundary, not transcript packet timing.
+   * This prepares context and gates event delivery; it neither commits audio
+   * nor interrupts the provider. Keep sending paced PCM, including silence.
+   */
+  notifyUserSpeech(speaking: boolean): Promise<void> {
+    if (this._state !== "open" || this.adapter.capabilities.transcripts !== "continuous") return Promise.resolve();
+    if (speaking === this.userSpeaking) return this.turnPreparation;
+    this.userSpeaking = speaking;
+    if (speaking) {
+      this.agent.notifyUserActivity?.();
+      this.emit("user_speech_started");
+      return this.queueTurn(() => this.startTurn());
+    }
+    this.expectResponse();
+    this.emit("user_speech_stopped");
+    return this.turnPreparation;
   }
 
   /** An image (a screenshot, a photo), or a camera frame. */
@@ -1327,6 +1384,11 @@ export class RealtimeSession extends EventEmitter<RealtimeSessionEvents> {
   /** Stop the agent's current output (manual barge-in). */
   interrupt(): void {
     this.adapter.interrupt();
+  }
+
+  /** Resume host-muted output after a manual interruption, where supported. */
+  resumeOutput(): void {
+    this.adapter.resumeOutput?.();
   }
 
   /** For providers whose `speechLifecycle` is `host`: real playback state. */
