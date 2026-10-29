@@ -391,8 +391,11 @@ Automation API: POST /v1/runs, GET /v1/runs/:id, GET /v1/runs/:id/events,
 POST /v1/runs/:id/stop, POST /v1/runs/:id/steer, GET /v1/capabilities,
 GET /v1/approvals, POST /v1/approvals/:id.
 JSON bodies are limited to 1 MB by default (413 when exceeded); raise
-server.messageBodyBytes for media. Runs, events and pending approvals are held in
-the Foundry process's memory and are lost on restart; /health and /health/detailed
+server.messageBodyBytes for media. Runs and events are held in the Foundry
+process and are lost on restart. Pending approvals are stored on the data adapter
+(FileFoundryDataAdapter keeps them across a restart; MemoryFoundryDataAdapter keeps
+them until the process exits) and do not expire unless defineApplication sets
+approvals.timeoutMs. /health and /health/detailed
 return 200 when ok is true and 503 with the same body when it is false
 (client.health() returns the body either way). Activations are read-only over HTTP.
 Installing an unknown id returns 400.
@@ -416,10 +419,17 @@ role is rejected.
 A Glove tool with requiresPermission: true (or a function of its input), or an
 outbound transmission with requiresPermission, pauses the run on an approval
 record: status pending | approved | denied | expired | cancelled; identity = instance
-+ conversation + run + tool + serialized input; expires after 5 minutes; fails
-closed (deny) on expiry, cancellation or channel loss. Approval records live in a
-private temp directory of the Foundry process: they do not survive a restart, and
-the mechanism does not engage if defineAgent supplies its own displayManager. Resolve with
++ conversation + run + tool + serialized input; expiresAt is null unless
+defineApplication({ approvals: { timeoutMs } }) sets a millisecond limit (at least
+1s, no maximum); fails closed (deny) on expiry, explicit cancellation, steering, or
+channel loss. Shutdown, redeploy and a run timeout leave a pending approval in place.
+Resolving it after the waiting run is gone starts a continuation run in the same
+conversation (payload.foundryApproval carries the decision). Records are stored by
+the data adapter (putApproval, listApprovals, settleApproval, noteApprovalResume;
+FileFoundryDataAdapter and MemoryFoundryDataAdapter implement them). An adapter
+without those methods keeps a temporary directory that is deleted on stop and does
+not survive a restart. The mechanism does not engage if defineAgent supplies its own
+displayManager. Other display pushAndWait prompts are not approval records. Resolve with
 client.approvals({ runId, status: "pending" }) and client.resolveApproval(id,
 "approve" | "deny"), the /api/approvals or /v1/approvals routes, or the inspector.
 Steering (handle.steer(message), /api/runs/:id/steer, /v1/runs/:id/steer, WebChat

@@ -457,7 +457,9 @@ await foundry.resolveApproval(approval.id, "approve"); // or "deny"
 const done = await run.wait({ timeoutMs: 120_000 });
 console.log(done.status, done.output?.value);`} />
       <p>
-        Approval records expire after 5 minutes and do not survive a runtime restart. Approvals
+        Approval records do not expire unless <code>defineApplication</code> sets{" "}
+        <code>approvals.timeoutMs</code>, and a durable data adapter keeps a pending one across a
+        restart. Resolving it then starts a new run in the same conversation. Approvals
         only work through Foundry’s default display manager, so leave{" "}
         <code>displayManager</code> unset on the definition. A denial, an expired request and an
         unavailable

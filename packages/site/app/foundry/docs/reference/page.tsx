@@ -182,9 +182,9 @@ const groups: ReadonlyArray<Group> = [
     title: "Approvals",
     guide: { href: "/foundry/docs/approvals", label: "Approvals & steering" },
     values: [
-      ["FoundryApprovalDisplayManager", "class", "Default display manager inside agent runs; turns a permission prompt into an expiring approval record and waits for the decision."],
+      ["FoundryApprovalDisplayManager", "class", "Default display manager inside agent runs. Turns a permission prompt into an approval record and waits for the decision. A continuation run carries `resume` and applies the stored decision."],
       ["withFoundryPermissions", "function", "Wrap a store that lacks `getPermission`/`setPermission` with a per-run, exact-input permission overlay."],
-      ["createFoundryApproval, listFoundryApprovals, resolveFoundryApproval", "function", "File-directory approval records shared by job processes and the control process. Hosts use `client.approvals()` and `client.resolveApproval(id, \"approve\" | \"deny\")` instead."],
+      ["createFoundryApproval, listFoundryApprovals, resolveFoundryApproval", "function", "Directory wake-up channel shared by a live run and the control process. Durable copies live on the data adapter. Hosts use `client.approvals()` and `client.resolveApproval(id, \"approve\" | \"deny\")` instead. `timeoutMs` omitted or null does not expire."],
     ],
     types: ["FoundryApproval", "FoundryApprovalDecision", "FoundryApprovalStatus"],
   },

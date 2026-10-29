@@ -48,6 +48,14 @@ export interface FoundryApplicationOptions {
   readonly routes?: ReadonlyArray<Route>;
   readonly bindings?: ReadonlyArray<AgentBinding>;
   readonly data?: FoundryDataAdapter;
+  /**
+   * How long a pending approval stays open. Omit or set null to wait until a
+   * person decides, the run is cancelled, or the process is steered away.
+   * A positive number is a millisecond limit (at least one second).
+   */
+  readonly approvals?: {
+    readonly timeoutMs?: number | null;
+  };
   readonly conversationStore?: (scope: {
     readonly definitionId: string;
     readonly agentId: string;

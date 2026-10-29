@@ -125,11 +125,18 @@ import {
 } from "./core-command-result.js";
 import {
   FOUNDRY_APPROVAL_DIRECTORY_ENV,
+  FOUNDRY_APPROVAL_DURABLE_ENV,
+  FOUNDRY_APPROVAL_RESUME_KEY,
+  FOUNDRY_APPROVAL_TIMEOUT_ENV,
+  approvalResumeMessage,
+  approvalStoreFrom,
+  foundryApprovalRecord,
   listFoundryApprovals,
   resolveFoundryApproval,
   type FoundryApproval,
   type FoundryApprovalDecision,
   type FoundryApprovalStatus,
+  type FoundryApprovalStore,
 } from "./approval.js";
 import {
   MemoryFoundryDataAdapter,
@@ -381,6 +388,11 @@ export class FoundryRuntime {
   private readonly pendingInboundByRun = new Map<string, Set<string>>();
   /** Recently settled runs, for a record assigned to a run that already finished. */
   private readonly settledRuns = new Set<string>();
+  /** Cancels requested through the runtime (user cancel and steer), not timeouts or shutdown. */
+  private readonly explicitCancels = new Set<string>();
+  private readonly approvalResumeChains = new Map<string, Promise<void>>();
+  /** Milliseconds, or null when a pending approval waits until a person decides. */
+  private readonly approvalTimeoutMs: number | null;
   private started = false;
   private stopping = false;
   private disposed = false;
@@ -448,6 +460,10 @@ export class FoundryRuntime {
         maxEvents: options.config?.observability?.maxEvents,
       });
     this.data = this.application.data ?? new MemoryFoundryDataAdapter();
+    const configuredTimeout = this.application.approvals?.timeoutMs;
+    this.approvalTimeoutMs = configuredTimeout === undefined || configuredTimeout === null
+      ? null
+      : Math.max(1_000, configuredTimeout);
 
     for (const discovered of this.agents) {
       this.byRoute.set(discovered.route, discovered);
@@ -477,6 +493,14 @@ export class FoundryRuntime {
           void this.gate.claim(conversationId, runId)
             .then(() => writeConversationLease(this.mailboxDirectory, runId))
             .catch((cause) => this.reportDeliveryFailure(conversationId, cause));
+          return;
+        }
+        if (event.type === "foundry.approval.requested") {
+          void this.rememberApproval(event.data).catch((cause) => this.reportApprovalFailure(cause));
+          return;
+        }
+        if (event.type === "foundry.approval.settled") {
+          void this.rememberApprovalSettlement(event.data).catch((cause) => this.reportApprovalFailure(cause));
           return;
         }
         if (event.type === FOUNDRY_CORE_COMMAND_EVENT) {
@@ -558,6 +582,8 @@ export class FoundryRuntime {
       observer: this.observer,
       env: {
         [FOUNDRY_APPROVAL_DIRECTORY_ENV]: this.approvalDirectory,
+        [FOUNDRY_APPROVAL_TIMEOUT_ENV]: this.approvalTimeoutMs === null ? "none" : String(this.approvalTimeoutMs),
+        [FOUNDRY_APPROVAL_DURABLE_ENV]: this.approvalStore() ? "1" : "0",
         [FOUNDRY_CORE_COMMAND_DIRECTORY_ENV]: this.coreCommandDirectory,
         [FOUNDRY_MAILBOX_DIRECTORY_ENV]: this.mailboxDirectory,
         ...(this.applicationFilePath ? { [FOUNDRY_APPLICATION_ENV]: this.applicationFilePath } : {}),
@@ -652,6 +678,7 @@ export class FoundryRuntime {
         await this.reconcileApplicationConnections();
         void this.redeliverDelegations().catch((cause) => this.reportDeliveryFailure("startup", cause));
         void this.redeliverInbound().catch((cause) => this.reportDeliveryFailure("startup", cause));
+        void this.rehydrateApprovals().catch((cause) => this.reportApprovalFailure(cause));
       } catch (cause) {
         try {
           await this.stop();
@@ -1113,7 +1140,10 @@ export class FoundryRuntime {
   }
 
   cancel(runId: string): Promise<boolean> {
-    return this.signalRunner.cancel(runId);
+    this.explicitCancels.add(runId);
+    return this.signalRunner.cancel(runId).finally(() => {
+      void this.failCloseApprovals(runId).catch((cause) => this.reportApprovalFailure(cause));
+    });
   }
 
   private trackRunProcess(runId: string, state: "acquired" | "released"): void {
@@ -1228,22 +1258,46 @@ export class FoundryRuntime {
     return { fromRunId: runId, interrupted, run };
   }
 
-  listApprovals(filter: {
+  async listApprovals(filter: {
     readonly runId?: string;
     readonly status?: FoundryApprovalStatus;
   } = {}): Promise<ReadonlyArray<FoundryApproval>> {
-    return listFoundryApprovals(this.approvalDirectory, filter);
+    await this.importDirectoryApprovals();
+    const store = this.approvalStore();
+    const approvals = store
+      ? await store.list()
+      : await listFoundryApprovals(this.approvalDirectory);
+    return approvals
+      .filter((approval) => !filter.runId || approval.runId === filter.runId)
+      .filter((approval) => !filter.status || approval.status === filter.status)
+      .sort((left, right) => left.requestedAt.localeCompare(right.requestedAt));
   }
 
   async resolveApproval(
     approvalId: string,
     decision: FoundryApprovalDecision,
   ): Promise<FoundryApproval> {
-    const approval = await resolveFoundryApproval(
-      this.approvalDirectory,
-      approvalId,
-      decision,
-    );
+    await this.importDirectoryApprovals();
+    const store = this.approvalStore();
+    let approval: FoundryApproval;
+    if (store) {
+      const waiting = await this.approvalRunIsWaiting(approvalId, store);
+      try {
+        await resolveFoundryApproval(this.approvalDirectory, approvalId, decision);
+      } catch (cause) {
+        const message = cause instanceof Error ? cause.message : String(cause);
+        if (!message.includes("was not found")) throw cause;
+      }
+      approval = await store.settle(
+        approvalId,
+        decision === "approve" ? "approved" : "denied",
+        !waiting,
+      );
+      if (!waiting) await this.resumeApprovalOnce(approval);
+      approval = (await store.list()).find((item) => item.id === approvalId) ?? approval;
+    } else {
+      approval = await resolveFoundryApproval(this.approvalDirectory, approvalId, decision);
+    }
     this.observability.append({
       type: "approval.resolved",
       category: "system",
@@ -1254,9 +1308,164 @@ export class FoundryRuntime {
         toolName: approval.toolName,
         decision,
         status: approval.status,
+        resumed: approval.needsResume === true,
       },
     });
     return approval;
+  }
+
+  private approvalStore(): FoundryApprovalStore | undefined {
+    return approvalStoreFrom(this.data);
+  }
+
+  private reportApprovalFailure(cause: unknown): void {
+    this.observability.append({
+      type: "approval.failed",
+      category: "system",
+      data: { error: cause instanceof Error ? cause.message : String(cause) },
+    });
+  }
+
+  private async rememberApproval(data: unknown): Promise<void> {
+    const approval = foundryApprovalRecord(data);
+    const store = this.approvalStore();
+    if (!approval || !store) return;
+    await store.put(approval);
+  }
+
+  private async rememberApprovalSettlement(data: unknown): Promise<void> {
+    if (!data || typeof data !== "object") return;
+    const record = data as { approvalId?: unknown; status?: unknown };
+    const status = record.status;
+    if (typeof record.approvalId !== "string" || typeof status !== "string") return;
+    if (status !== "approved" && status !== "denied" && status !== "expired" && status !== "cancelled") return;
+    // Shutdown aborts the run. That must not decide an approval that should outlive the process.
+    if (this.stopping && status === "cancelled") return;
+    const store = this.approvalStore();
+    if (!store) return;
+    await store.settle(record.approvalId, status, false).catch(() => undefined);
+  }
+
+  private async importDirectoryApprovals(): Promise<void> {
+    const store = this.approvalStore();
+    if (!store) return;
+    let listed: ReadonlyArray<FoundryApproval> = [];
+    try {
+      listed = await listFoundryApprovals(this.approvalDirectory);
+    } catch {
+      return;
+    }
+    const known = new Map((await store.list()).map((item) => [item.id, item]));
+    for (const approval of listed) {
+      const current = known.get(approval.id);
+      if (!current) {
+        await store.put(approval);
+        continue;
+      }
+      if (
+        current.status === "pending"
+        && approval.status !== "pending"
+        && approval.status !== "expired"
+      ) {
+        await store.settle(approval.id, approval.status, false).catch(() => undefined);
+      }
+    }
+  }
+
+  private async approvalRunIsWaiting(approvalId: string, store: FoundryApprovalStore): Promise<boolean> {
+    const current = (await store.list()).find((item) => item.id === approvalId);
+    if (!current) return false;
+    try {
+      const run = await this.signalRunner.getRun(current.runId);
+      return run?.status === "pending" || run?.status === "running";
+    } catch {
+      return false;
+    }
+  }
+
+  private async failCloseApprovals(runId: string): Promise<void> {
+    if (this.stopping) return;
+    const store = this.approvalStore();
+    if (!store) return;
+    for (const approval of await store.list()) {
+      if (approval.runId !== runId || approval.status !== "pending") continue;
+      await store.settle(approval.id, "cancelled", false).catch(() => undefined);
+    }
+  }
+
+  /** A run ended. Explicit cancels deny; anything else may still resume a decision. */
+  private async noteApprovalRunEnded(
+    runId: string,
+    status: "completed" | "failed" | "cancelled",
+  ): Promise<void> {
+    if (this.stopping) return;
+    if (status === "cancelled" && this.explicitCancels.has(runId)) {
+      await this.failCloseApprovals(runId);
+      return;
+    }
+    const store = this.approvalStore();
+    if (!store) return;
+    for (const approval of await store.list()) {
+      if (approval.runId !== runId || !approval.needsResume || approval.resumeRunId) continue;
+      await this.resumeApprovalOnce(approval);
+    }
+  }
+
+  private async rehydrateApprovals(): Promise<void> {
+    await this.importDirectoryApprovals();
+    const store = this.approvalStore();
+    if (!store) return;
+    for (const approval of await store.list()) {
+      if (approval.status === "expired") {
+        await store.settle(approval.id, "expired", false).catch(() => undefined);
+        continue;
+      }
+      if (approval.needsResume && !approval.resumeRunId) await this.resumeApprovalOnce(approval);
+    }
+  }
+
+  private resumeApprovalOnce(approval: FoundryApproval): Promise<void> {
+    const prior = this.approvalResumeChains.get(approval.id) ?? Promise.resolve();
+    const next = prior.then(() => this.resumeApprovalUnlocked(approval.id));
+    this.approvalResumeChains.set(approval.id, next.then(() => undefined, () => undefined));
+    return next;
+  }
+
+  private async resumeApprovalUnlocked(approvalId: string): Promise<void> {
+    if (this.stopping || !this.started) return;
+    const store = this.approvalStore();
+    if (!store) return;
+    const approval = (await store.list()).find((item) => item.id === approvalId);
+    if (!approval || !approval.needsResume || approval.resumeRunId) return;
+    if (approval.status === "pending" || approval.status === "cancelled") return;
+    const run = await Effect.runPromise(this.requestEffect(approval.definitionId, {
+      agentId: approval.agentId,
+      conversationId: approval.conversationId,
+      workspaceId: approval.workspaceId,
+      message: approvalResumeMessage(approval),
+      payload: {
+        [FOUNDRY_APPROVAL_RESUME_KEY]: {
+          id: approval.id,
+          status: approval.status,
+          toolName: approval.toolName,
+          toolInput: approval.toolInput,
+        },
+      },
+      source: { kind: "direct", id: approval.id },
+    }));
+    await store.noteResume?.(approval.id, run.id);
+    this.observability.append({
+      type: "approval.resumed",
+      category: "system",
+      agent: approval.definitionId,
+      runId: run.id,
+      data: {
+        approvalId: approval.id,
+        fromRunId: approval.runId,
+        toolName: approval.toolName,
+        status: approval.status,
+      },
+    });
   }
 
   capabilityManifest(definitionId: string): FoundryCapabilityManifest {
@@ -2876,6 +3085,7 @@ export class FoundryRuntime {
     readonly output?: string;
     readonly error?: string;
   }): Promise<void> {
+    await this.noteApprovalRunEnded(event.run.id, event.status).catch((cause) => this.reportApprovalFailure(cause));
     this.releaseConversationRun(event.run.id);
     // The conversation's next run starts once this one's process has let go.
     void this.waitForRunProcessRelease(this.toFoundryRun(event.run), event.route)

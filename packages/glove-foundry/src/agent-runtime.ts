@@ -90,7 +90,11 @@ import {
 } from "./workbench.js";
 import {
   FOUNDRY_APPROVAL_DIRECTORY_ENV,
+  FOUNDRY_APPROVAL_DURABLE_ENV,
   FoundryApprovalDisplayManager,
+  approvalResumeFrom,
+  approvalStoreFrom,
+  approvalTimeoutFromEnv,
   withFoundryPermissions,
 } from "./approval.js";
 import {
@@ -435,6 +439,7 @@ async function executeDefinition(
             field,
           );
 
+    const approvalResume = approvalResumeFrom(request.payload);
     const [model, systemPrompt, displayManager, compactionLimit, compactionInstructions, maxTurns] =
       await Promise.all([
         resolveOptional("model", definition.model, HANDLER_ONLY_MODEL),
@@ -444,12 +449,16 @@ async function executeDefinition(
           definition.displayManager,
           new FoundryApprovalDisplayManager({
             directory: process.env[FOUNDRY_APPROVAL_DIRECTORY_ENV],
+            store: approvalStoreFrom(data),
             runId,
             definitionId: id,
             agentId: request.agentId,
             conversationId: request.conversationId,
             workspaceId: request.workspaceId,
             signal: abortController.signal,
+            timeoutMs: approvalTimeoutFromEnv(),
+            preserveOnAbort: process.env[FOUNDRY_APPROVAL_DURABLE_ENV] === "1",
+            ...(approvalResume ? { resume: approvalResume } : {}),
             emit: controls.emit,
           }),
         ),

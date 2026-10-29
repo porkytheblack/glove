@@ -127,7 +127,7 @@ A definition never declares request input/output (Foundry owns them) and is neve
 3. **Structured memory**: glove-memory adapters, e.g. `createSqliteMemoryAdapters({ file, namespace, schema })` from `glove-memory/sqlite` (Node 22.13+), scoped by trusted instance identity.
 4. **Working-environment files**: `foundryDataEnvironmentPersistence({ scope })` or a persistent `Vfs`.
 
-Persisting one does not persist the others. Run **one runtime per data store** (every runtime arms the schedules it finds). Runs, events and pending approvals live in the Foundry process and are lost on restart; activations are rebuilt from the data adapter.
+Persisting one does not persist the others. Run **one runtime per data store** (every runtime arms the schedules it finds). Runs and events live in the Foundry process and are lost on restart; activations and pending approvals are rebuilt from the data adapter. Approvals do not expire unless the application sets `approvals.timeoutMs`.
 
 ## Calling and operating
 
@@ -143,7 +143,7 @@ const done = await run.wait({ timeoutMs: 120_000 }); // also run.cancel(), run.s
 ```
 
 - **OpenAI SDKs**: `model` is an instance id (or a route with exactly one instance); instances are never created implicitly. Reuse `user`, `conversation_id` or the returned `x-foundry-conversation-id` header to continue a conversation.
-- **Approvals** expire after 5 minutes and fail closed; they do not engage if `defineAgent` supplies its own `displayManager`.
+- **Approvals** wait until a person decides (set `approvals.timeoutMs` to expire them) and fail closed; a durable data adapter keeps a pending one across a restart. They do not engage if `defineAgent` supplies its own `displayManager`.
 - **Steering** is interrupt-and-restart in the same conversation; it never injects text mid side effect.
 - **Health**: `GET /health` and `/health/detailed` answer 200 when `ok` is true, 503 with the same body otherwise.
 - **Security**: Foundry binds loopback by default and refuses a public interface without `requestAuthorization`. Foundry never acquires, stores or refreshes credentials; accounts carry an opaque `accessRef` your adapter resolves.

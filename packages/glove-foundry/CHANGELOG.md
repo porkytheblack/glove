@@ -4,6 +4,14 @@
 
 ### Minor Changes
 
+- Durable approvals. A pending approval is stored on the data adapter (`putApproval`, `listApprovals`, `settleApproval`, `noteApprovalResume`), which `FileFoundryDataAdapter` and `MemoryFoundryDataAdapter` implement. A file-backed adapter still has the record after a process restart or redeploy. Resolving it then starts a continuation run in the same conversation; the tool runs only when the decision is approve. Deny, expiry, an explicit cancel, and steer still fail closed. Shutdown and the run timeout do not decide the approval, so the wait is not capped by the five-minute run timeout.
+
+  - `defineApplication({ approvals: { timeoutMs } })` sets a millisecond limit (at least one second, no maximum). Omit it, or pass `null`, and the approval does not expire. `FoundryApproval.expiresAt` is `null` in that case. This replaces the fixed five-minute expiry and the ten-minute cap.
+  - `needsResume` and `resumeRunId` record that the original run is gone and name the continuation. The continuation request payload is `{ foundryApproval: { id, status, toolName, toolInput } }`.
+  - A custom `FoundryDataAdapter` that does not implement the new methods keeps the temporary-directory channel. That directory is still deleted when the runtime stops, so those approvals do not survive a restart. `MemoryFoundryDataAdapter` implements the methods but does not survive a process exit.
+  - `createFoundryApproval` no longer defaults to five minutes or clamps the timeout at ten. Omitting `timeoutMs` means no expiry.
+  - Permission prompts are the approval wait. Other `pushAndWait` renderers stay on the in-memory display stack.
+
 - [#215](https://github.com/porkytheblack/glove/pull/215) [`92eb292`](https://github.com/porkytheblack/glove/commit/92eb292314d0420fa73a8ad868b7066e6c192d37) Thanks [@porkytheblack](https://github.com/porkytheblack)! - One run at a time per conversation, and durable inbound events.
 
   - A conversation never has two runs acting on it at once. A run asked for while another holds the conversation (a second message, a schedule firing, a flushed delivery) waits in arrival order and starts once the run ahead has settled and its process has let go. Different conversations still run in parallel.
