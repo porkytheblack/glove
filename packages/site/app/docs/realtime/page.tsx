@@ -163,7 +163,7 @@ camera.on("frame", (jpeg) => session.sendVideoFrame(jpeg));`}
           <strong>
             <code>requiresPermission</code>
           </strong>{" "}
-          is enforced. The store&apos;s decision comes first. Otherwise the{" "}
+          is enforced, async predicates included. The store&apos;s decision comes first. Otherwise the{" "}
           <code>permissions</code> policy decides: <code>&quot;display&quot;</code>{" "}
           (the display stack&apos;s <code>permission_request</code>),{" "}
           <code>&quot;deny&quot;</code>, <code>&quot;allow&quot;</code>, or a
@@ -176,10 +176,25 @@ camera.on("frame", (jpeg) => session.sendVideoFrame(jpeg));`}
           is seeded from it, so text turns and calls share one history.
         </li>
         <li>
-          <strong>Runtime context and the inbox</strong> are injected on open,
-          after tools, and when the user starts speaking. On OpenAI each
-          snapshot replaces the last one. Resolved inbox items are announced
-          once and consumed.
+          <strong>Runtime context</strong> follows each provider&apos;s{" "}
+          <a href="/docs/build/context">delivery</a>.{" "}
+          <code>&quot;iteration&quot;</code> context is read on open, after
+          tools and when the user starts speaking.{" "}
+          <code>&quot;request&quot;</code> context is read on open and when
+          the user starts speaking, and is frozen in between. On OpenAI each
+          snapshot replaces the last one. <code>&quot;history&quot;</code>{" "}
+          context is saved to the store when it changes and told to the call
+          once. Resolved inbox items are announced once and consumed.
+        </li>
+        <li>
+          <strong>Events</strong> (<code>agent.emitEvent</code>, Foundry
+          delegation updates) join the call. The session holds the
+          agent&apos;s turn queue, so they never wake the text model. An event
+          goes in silently at the next user turn or tool result. If nobody is
+          talking when it arrives, the model speaks about it at once. Each
+          event is saved to the store once. While the call runs,{" "}
+          <code>processRequest</code> on the same agent waits.{" "}
+          <code>events: false</code> leaves events to the agent&apos;s policy.
         </li>
         <li>
           <strong>Subscribers</strong> on the agent (<code>agent.addSubscriber</code>)

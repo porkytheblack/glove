@@ -118,7 +118,7 @@ createRealtimeAdapter({ provider: "openai-live", backendModel: "gpt-5.6-luna" })
   denials and errors. `renderData` and summaries are stripped first.
   `excludeTools` withholds tools. `nonBlockingTools` lets the conversation go
   on while they run, where the provider supports it.
-- **`requiresPermission`** is enforced. The store's existing decision comes
+- **`requiresPermission`** is enforced, async predicates included. The store's existing decision comes
   first. Otherwise `permissions` decides: `"display"` asks through the
   agent's display stack (the same `permission_request` renderer a text turn
   uses), `"deny"` / `"allow"` are fixed and not remembered, and a function
@@ -130,11 +130,25 @@ createRealtimeAdapter({ provider: "openai-live", backendModel: "gpt-5.6-luna" })
   `is_compaction` form core uses. A fresh provider session is seeded from
   the store, so a call that starts after a text conversation knows what was
   said, and the next text turn knows what was said on the call.
-- **Runtime context providers** are injected on open, after each tool, and
-  when the user starts speaking. A snapshot is skipped when it hasn't
-  changed. On OpenAI it replaces the previous snapshot item. Elsewhere it is
-  appended and says it supersedes the last one. Image parts are sent as
-  media, once each, to providers that take images.
+- **Runtime context providers** follow their `delivery`, as in a text turn.
+  `"iteration"` context (the default) is read on open, after each tool and
+  when the user starts speaking. `"request"` context is read on open and when
+  the user starts speaking, and frozen in between. The two form one snapshot,
+  skipped when it hasn't changed. On OpenAI it replaces the previous snapshot
+  item. Elsewhere it is appended and says it supersedes the last one. Image
+  parts are sent as media, once each, to providers that take images.
+  `"history"` context is saved to the store when its value changes, as a
+  request saves it, and told to the call once. Fresh provider sessions are
+  seeded with it.
+- **Events** emitted on the agent (`agent.emitEvent`: Foundry delegation
+  updates, webhooks, other agents) join the call. The session holds the
+  agent's turn queue (`holdTurns`) while it runs, so they never wake the
+  placeholder text model. An event goes in silently at the next user turn or
+  tool result, where the reply covers it. One that arrives while nobody is
+  talking is spoken about at once, as a wake would be. Each is saved to the
+  store once. Speaking marks the user present (`notifyUserActivity`). While
+  the call holds the queue, `processRequest` on the same agent waits for it
+  to end. `events: false` leaves events to the agent's event policy.
 - **The inbox**: resolved items are injected and marked consumed, as a text
   turn would. Pending blocking items join the snapshot.
 - **Skills and subagents** the agent invokes (`glove_invoke_skill`,

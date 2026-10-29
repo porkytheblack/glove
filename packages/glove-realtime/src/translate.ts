@@ -68,7 +68,9 @@ export function toHistory(messages: ReadonlyArray<Message>, options: HistoryOpti
   const items: RealtimeHistoryItem[] = [];
 
   for (const message of messages) {
-    if (message.framework_context === "runtime" || message.is_compaction_request) continue;
+    // Transient runtime snapshots never reached history; context saved with
+    // `delivery: "history"` (keyed, not transient) did, and a text turn reads it.
+    if ((message.framework_context === "runtime" && (message.transient || !message.context_key)) || message.is_compaction_request) continue;
     if (message.is_compaction) {
       items.push({ role: "system", text: message.text });
       continue;
@@ -91,7 +93,7 @@ export function toHistory(messages: ReadonlyArray<Message>, options: HistoryOpti
     }
     const text = message.text?.trim();
     if (!text) continue;
-    if (message.framework_context === "inbox" || message.is_skill_injection) {
+    if (message.framework_context || message.is_skill_injection) {
       items.push({ role: "system", text });
     } else {
       items.push({ role: message.sender === "agent" ? "assistant" : "user", text });

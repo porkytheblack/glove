@@ -1059,7 +1059,11 @@ Providers: "openai" (audio/text/image in; compacts in place), "gemini"
 tools), "openai-live" (audio only, provider-managed context). Goals and forms
 register per-turn preparation with \`addTurnPreparer\`; the session runs
 \`agent.prepareTurn()\` before opening and at each user turn, and forwards its
-events to the agent's own subscribers via \`notifySubscribers\`.
+events to the agent's own subscribers via \`notifySubscribers\`. Context
+follows each provider's delivery ("request" read per user turn, "history"
+saved to the store when it changes). The session holds the agent's turn queue
+(\`holdTurns\`), so \`emitEvent\` events (Foundry delegation updates) join the
+call at the next turn, tool result or pause instead of waking the text model.
 
 \`\`\`ts
 import { RealtimeSession, realtimeModel } from "glove-realtime";

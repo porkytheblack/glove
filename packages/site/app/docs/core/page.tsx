@@ -440,6 +440,11 @@ const result = await agent.processRequest("What is the weather in Tokyo?");`}
             "Deliver an event to the subscribers added with addSubscriber, so activity from another runtime reaches them like a text turn's.",
           ],
           [
+            "holdTurns(options?)",
+            "({ signal?, onEvent? }) => Promise<TurnHold>",
+            "Wait for the turns ahead, then hold the turn queue until release(). Requests and event wakes wait; emitted events queue for the holder (takeEvents) instead of waking the model. historyContext() returns the \"history\" context a request would save.",
+          ],
+          [
             "displayManager",
             "DisplayManagerAdapter",
             "Read-only reference to the active display manager.",

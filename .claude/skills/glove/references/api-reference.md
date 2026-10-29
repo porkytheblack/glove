@@ -69,8 +69,12 @@ agent.rebuild(store?);            // Alias for build(store?) when re-binding to 
 
 // For runtimes that drive the agent without processRequest (realtime sessions):
 await agent.prepareTurn(signal?);                 // run the turn preparers at your own turn boundary
-await agent.getRuntimeContext(signal?);           // resolve the context providers
+await agent.getRuntimeContext(signal?, delivery?); // resolve the context providers, one delivery at a time
 await agent.notifySubscribers("text_delta", { text });   // deliver an event to the agent's subscribers
+const hold = await agent.holdTurns({ onEvent });  // hold the turn queue: events queue for you instead of waking the model
+await hold.takeEvents("loop");                    // queued events as one message (null when none); save it with the conversation
+await hold.historyContext();                      // "history" context that changed since it was last saved; save it before the user's turn
+await hold.release();                             // requests and wakes resume; leftover events go to the event policy
 ```
 
 The runnable returned by `build()` exposes `model`, `displayManager`, and `serverMode` as read-only fields so subagents and dynamically-folded tools (e.g. MCP discovery) can inherit them.
@@ -1436,6 +1440,7 @@ new RealtimeSession({
   maxDurationMs?: number,
   resumeHandle?: string,
   beforeTurn?: () => void | Promise<void>,   // after agent.prepareTurn(); for work not registered on the agent
+  events?: boolean,                          // default true: hold the agent's turn queue so emitEvent events join the call
 })
 
 session.start({ resumeHandle? }) / stop(reason?)
@@ -1945,6 +1950,8 @@ interface IGloveRunnable {
   prepareTurn(signal?: AbortSignal): Promise<void>;
   /** Deliver an event to the subscribers added with addSubscriber. For runtimes that run the agent outside processRequest. */
   notifySubscribers: NotifySubscribersFunction;
+  /** Hold the turn queue for a runtime that drives the agent itself; events queue for the holder instead of waking the model. */
+  holdTurns(options?: { signal?: AbortSignal; onEvent?: (event: AgentEvent) => void }): Promise<TurnHold>;
   fold<I>(args: GloveFoldArgs<I>): IGloveRunnable;
   defineHook(name: string, handler: HookHandler): IGloveRunnable;
   defineSkill(args: DefineSkillArgs): IGloveRunnable;

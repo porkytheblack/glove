@@ -18,8 +18,15 @@
 //                                Messages, so the next text turn knows what
 //                                was said on the call — and a fresh session
 //                                is seeded from what the store holds
-//   runtime context providers    injected as superseding context: on open,
-//                                after tools, when the user starts speaking
+//   runtime context providers    "iteration" and "request" deliveries
+//                                injected as one superseding snapshot ("request"
+//                                read only at open and each user turn);
+//                                "history" saved to the store when it changes
+//                                and injected once, as a text turn saves it
+//   events (emitEvent)           the call holds the agent's turn queue, so
+//                                events join the call instead of waking the
+//                                text model: silently at the next turn or tool
+//                                result, spoken about at the next pause
 //   inbox                        resolved items injected and consumed, pending
 //                                blocking items in the context snapshot
 //   subscribers                  receive the same SubscriberEvents a text
@@ -49,6 +56,7 @@ import {
   type ToolCall,
   type ToolResult,
   type ToolResultData,
+  type TurnHold,
 } from "glove-core";
 import { createRealtimeAdapter, isRealtimeModel } from "./create-adapter";
 import {
@@ -153,6 +161,14 @@ export interface RealtimeSessionConfig {
    * turn goes ahead.
    */
   beforeTurn?: () => void | Promise<void>;
+  /**
+   * Hold the agent's turn queue for the call (`holdTurns`). Events emitted on
+   * the agent (`emitEvent`: delegation updates, webhooks, other agents) then
+   * join the call instead of waking the text model, and text requests on the
+   * same agent wait until the call ends. Default true. False leaves events to
+   * the agent's event policy.
+   */
+  events?: boolean;
   /** Resume a provider session from a stored handle. */
   resumeHandle?: string;
 }
@@ -254,6 +270,23 @@ export class RealtimeSession extends EventEmitter<RealtimeSessionEvents> {
   private transcriptTimer: ReturnType<typeof setTimeout> | undefined;
   /** Tool results and injections waiting for a provider session to come back. */
   private deferred: Array<{ epoch: number; send: () => void }> = [];
+  /** The agent's turn queue, held for the call. */
+  private hold: TurnHold | null = null;
+  private holdRequest: AbortController | null = null;
+  /** Events queued on the agent that haven't reached the call yet. */
+  private eventsWaiting = false;
+  private eventDelivery: Promise<void> | null = null;
+  /** "request"-delivered context, read at open and at each user turn. */
+  private requestContext = "";
+  /** "history"-delivered context last told to the call, by key. A save can
+   *  still be held back (a late transcript) when the next turn compares. */
+  private historySent = new Map<string, string>();
+  /** Who is talking, to deliver events at a pause. */
+  private userSpeaking = false;
+  private agentBusy = false;
+  /** A response was asked for and hasn't started yet. */
+  private expectingResponse = false;
+  private expectTimer: ReturnType<typeof setTimeout> | undefined;
 
   /** Forwards the Glove's own subscriber events (skills, subagent runs) into this session's subscribers. */
   private readonly gloveBridge: SubscriberAdapter = {
@@ -374,6 +407,7 @@ export class RealtimeSession extends EventEmitter<RealtimeSessionEvents> {
     this.unsubscribe = this.adapter.subscribe((event) => this.onEvent(event));
     this.agent.addSubscriber(this.gloveBridge);
     try {
+      this.acquireHold();
       await this.prepareTurn();
       await this.adapter.open(await this.buildSpec(true));
     } catch (error) {
@@ -408,6 +442,8 @@ export class RealtimeSession extends EventEmitter<RealtimeSessionEvents> {
       this.releaseHold("transcript");
       this.releaseHold("compaction");
       await this.writes;
+      // The agent's turn queue is free by the time stop() resolves.
+      await this.hold?.release();
       this.teardown();
       this.setState("closed");
       this.emit("ended", reason);
@@ -429,6 +465,17 @@ export class RealtimeSession extends EventEmitter<RealtimeSessionEvents> {
     this.held = [];
     clearTimeout(this.transcriptTimer);
     this.deferred = [];
+    this.holdRequest?.abort();
+    this.holdRequest = null;
+    void this.hold?.release();
+    this.hold = null;
+    this.eventsWaiting = false;
+    this.requestContext = "";
+    this.historySent.clear();
+    this.userSpeaking = false;
+    this.agentBusy = false;
+    this.expectingResponse = false;
+    clearTimeout(this.expectTimer);
     ++this.epoch;
   }
 
@@ -542,8 +589,11 @@ export class RealtimeSession extends EventEmitter<RealtimeSessionEvents> {
         if (this._state === "connecting" || this._state === "reconnecting") this.setState("open");
         if (event.resumed) this.flushDeferred();
         // A resumed conversation still holds its last snapshot: only a change
-        // is worth sending.
-        void this.refreshContext(!event.resumed).catch((error) => this.emit("error", asError(error)));
+        // is worth sending. Events that waited for the user's next message
+        // (deferred while the agent was idle) go in silently.
+        void this.contextTurn(!event.resumed, "request")
+          .then(() => this.flushEventsWhenQuiet())
+          .catch((error) => this.emit("error", asError(error)));
         break;
       case "session.closed":
         if (!event.expected) this.recover(event.reason);
@@ -557,12 +607,17 @@ export class RealtimeSession extends EventEmitter<RealtimeSessionEvents> {
         break;
 
       case "input.speech_started":
+        this.userSpeaking = true;
+        this.agent.notifyUserActivity?.();
         this.emit("user_speech_started");
         // The start of a user turn is the last moment new state can land
         // before the model answers it.
         void this.startTurn();
         break;
       case "input.speech_stopped":
+        this.userSpeaking = false;
+        // Server-side turn detection answers what was just said.
+        this.expectResponse();
         this.emit("user_speech_stopped");
         if (this.adapter.capabilities.transcripts === "turns") {
           this.holds.add("transcript");
@@ -580,10 +635,20 @@ export class RealtimeSession extends EventEmitter<RealtimeSessionEvents> {
         this.emit("audio", event.pcm, event.format);
         break;
       case "output.speech_started":
+        this.responseStarted();
         this.emit("agent_speech_started");
         break;
       case "output.speech_stopped":
+        this.agentBusy = false;
         this.emit("agent_speech_stopped");
+        this.flushEventsWhenQuiet();
+        break;
+      case "response.started":
+        this.responseStarted();
+        break;
+      case "response.done":
+        this.agentBusy = false;
+        this.flushEventsWhenQuiet();
         break;
       case "output.transcript":
       case "output.text":
@@ -742,7 +807,7 @@ export class RealtimeSession extends EventEmitter<RealtimeSessionEvents> {
       if (badJson) throw new ToolRefusal("Arguments were not valid JSON.");
       const tools = this.tools as Tool<unknown>[];
       const tool = tools.find((t) => t.name.toLowerCase() === name.toLowerCase());
-      if (tool && gated(tool, input) && !(await this.permit(tool, input, controller.signal))) {
+      if (tool && await gated(tool, input) && !(await this.permit(tool, input, controller.signal))) {
         throw new ToolRefusal(`Permission denied for tool "${tool.name}". The user has not granted permission to run this tool.`);
       }
 
@@ -788,7 +853,11 @@ export class RealtimeSession extends EventEmitter<RealtimeSessionEvents> {
       // here must not relabel a tool that already succeeded.
       await this.syncSession();
       try { await this.refreshContext(); } catch (error) { this.emit("error", asError(error)); }
+      // Events that arrived during the call join here, as they join a text
+      // turn at its tool-step boundary; the result's response covers them.
+      try { await this.deliverEvents("loop", false); } catch (error) { this.emit("error", asError(error)); }
       if (live()) {
+        this.expectResponse();
         this.deliver(epoch, () => this.adapter.sendToolResult({ callId, name, output: toWireResult(result.result) }));
       }
     }
@@ -876,7 +945,124 @@ export class RealtimeSession extends EventEmitter<RealtimeSessionEvents> {
     } catch (error) {
       this.emit("error", asError(error));
     }
-    try { await this.refreshContext(); } catch (error) { this.emit("error", asError(error)); }
+    try { await this.contextTurn(false, "loop"); } catch (error) { this.emit("error", asError(error)); }
+  }
+
+  /**
+   * A turn boundary (open, or the user starting to speak): what a text
+   * request reads once — history-delivered context, "request" context, events
+   * waiting — then the snapshot.
+   */
+  private async contextTurn(force: boolean, phase: "loop" | "request"): Promise<void> {
+    await this.saveHistoryContext();
+    await this.refresh(force, true);
+    await this.deliverEvents(phase, false);
+  }
+
+  /**
+   * Context registered with `delivery: "history"` is saved to the store when
+   * its value changes, exactly as a request saves it, and told to the call
+   * once. Without a hold (an older glove-core, `events: false`), it rides in
+   * the snapshot instead.
+   */
+  private async saveHistoryContext(): Promise<void> {
+    const hold = this.hold;
+    if (!hold || !this.adapter.isOpen) return;
+    // Compared against the store's visible history: let earlier writes land.
+    await this.writes;
+    const saved = (await hold.historyContext())
+      .filter((message) => !message.context_key || this.historySent.get(message.context_key) !== message.text);
+    if (!saved.length) return;
+    for (const message of saved) if (message.context_key) this.historySent.set(message.context_key, message.text);
+    this.persist(saved);
+    const epoch = this.epoch;
+    for (const message of saved) {
+      this.deliver(epoch, () => this.adapter.inject({ kind: "context", text: message.text }));
+    }
+  }
+
+  // ── events ────────────────────────────────────────────────────────────────
+
+  /**
+   * Ask for the agent's turn queue without waiting for it: the call opens at
+   * once. A text turn already running keeps the events that arrive until it
+   * ends; then the call holds the queue and takes what waits.
+   */
+  private acquireHold(): void {
+    if (this.cfg.events === false || typeof this.agent.holdTurns !== "function") return;
+    const request = new AbortController();
+    this.holdRequest = request;
+    this.agent.holdTurns({ signal: request.signal, onEvent: () => this.onAgentEvent() }).then((hold) => {
+      if (request.signal.aborted || this.holdRequest !== request) {
+        void hold.release();
+        return;
+      }
+      this.holdRequest = null;
+      this.hold = hold;
+      // Events deferred before the call (or queued behind the turn it waited
+      // for) go in now; an open session takes them silently.
+      this.eventsWaiting = true;
+      if (this.adapter.isOpen) void this.deliverEvents("request", false).catch((error) => this.emit("error", asError(error)));
+    }, () => {});
+  }
+
+  private onAgentEvent(): void {
+    this.eventsWaiting = true;
+    this.flushEventsWhenQuiet();
+  }
+
+  private responseStarted(): void {
+    this.agentBusy = true;
+    this.expectingResponse = false;
+    clearTimeout(this.expectTimer);
+  }
+
+  /** A response was asked for: don't start another before it begins. */
+  private expectResponse(): void {
+    this.expectingResponse = true;
+    clearTimeout(this.expectTimer);
+    // A response that never starts (nothing to say, a provider without
+    // response events) must not hold events back for good.
+    this.expectTimer = setTimeout(() => {
+      this.expectingResponse = false;
+      this.flushEventsWhenQuiet();
+    }, 5_000);
+  }
+
+  /**
+   * An event that arrives while nobody is talking is like a wake in a text
+   * agent: the model hears it and may speak. Otherwise it waits for the
+   * pause, or goes in silently at the next user turn or tool result.
+   */
+  private flushEventsWhenQuiet(): void {
+    if (!this.eventsWaiting || this.eventDelivery) return;
+    const quiet = this._state === "open" && this.adapter.isOpen && !this.userSpeaking && !this.agentBusy &&
+      !this.expectingResponse && this.pending.size === 0;
+    if (!quiet) return;
+    const run = this.deliverEvents("loop", true)
+      .catch((error) => { this.emit("error", asError(error)); })
+      .finally(() => { this.eventDelivery = null; });
+    this.eventDelivery = run;
+  }
+
+  /** Take the agent's queued events and give them to the call. */
+  private async deliverEvents(phase: "loop" | "request", respond: boolean): Promise<void> {
+    const hold = this.hold;
+    if (!hold || !this.adapter.isOpen) return;
+    this.eventsWaiting = false;
+    const message = await hold.takeEvents(phase);
+    if (!message) return;
+    // Saved once, where a text turn saves it. A fresh provider session is
+    // seeded from the store, so a reconnect can't lose it.
+    this.persist([message]);
+    const epoch = this.epoch;
+    if (this.adapter.capabilities.input.includes("image")) {
+      for (const image of runtimeImages([message])) {
+        this.deliver(epoch, () => this.adapter.sendMedia({ kind: "image", mimeType: image.source!.media_type, data: image.source!.data! }));
+      }
+    }
+    if (respond) this.expectResponse();
+    this.deliver(epoch, () => this.adapter.inject({ kind: "context", text: message.text, respond }));
   }
 
   /**
@@ -917,26 +1103,43 @@ export class RealtimeSession extends EventEmitter<RealtimeSessionEvents> {
    * supersedes. Identical snapshots are not re-sent.
    */
   async refreshContext(force = false): Promise<void> {
+    return this.refresh(force, false);
+  }
+
+  /** `request`: a turn boundary, where "request" context is read again. */
+  private async refresh(force: boolean, request: boolean): Promise<void> {
     if (this.contextRefresh) {
       await this.contextRefresh;
-      if (!force) return;
+      if (!force && !request) return;
     }
-    const run = this.doRefreshContext(force).finally(() => {
+    const run = this.doRefreshContext(force, request).finally(() => {
       if (this.contextRefresh === run) this.contextRefresh = null;
     });
     this.contextRefresh = run;
     return run;
   }
 
-  private async doRefreshContext(force: boolean): Promise<void> {
+  private async doRefreshContext(force: boolean, request: boolean): Promise<void> {
     if (!this.adapter.isOpen) return;
     const epoch = this.epoch;
     const store = this.agent.store;
     const parts: string[] = [];
 
-    const messages = await this.agent.getRuntimeContext();
+    // "request" context is frozen between user turns, as a text request
+    // freezes it between tool steps; "iteration" context is read every time.
+    const messages: Message[] = [];
+    if (request) {
+      const frozen = await this.agent.getRuntimeContext(undefined, "request");
+      // Without a hold, history-delivered context can't be saved: it rides here.
+      if (!this.hold) frozen.push(...await this.agent.getRuntimeContext(undefined, "history"));
+      if (epoch !== this.epoch) return;
+      this.requestContext = runtimeText(frozen);
+      messages.push(...frozen);
+    }
+    const iteration = await this.agent.getRuntimeContext(undefined, "iteration");
     if (epoch !== this.epoch) return;
-    const text = runtimeText(messages);
+    messages.push(...iteration);
+    const text = [this.requestContext, runtimeText(iteration)].filter(Boolean).join("\n\n");
     if (text) parts.push(text);
 
     if (store.getResolvedInboxItems && store.updateInboxItem) {
@@ -1083,6 +1286,8 @@ export class RealtimeSession extends EventEmitter<RealtimeSessionEvents> {
   /** A typed message from the user: saved and answered. */
   say(text: string): void {
     this.flushFragment();
+    this.agent.notifyUserActivity?.();
+    this.expectResponse();
     this.remember({ role: "user", text });
     this.persist([{ sender: "user", text }]);
     this.adapter.sendText(text);
@@ -1132,9 +1337,9 @@ export class RealtimeSession extends EventEmitter<RealtimeSessionEvents> {
 
 class ToolRefusal extends Error {}
 
-function gated(tool: Tool<unknown>, input: unknown): boolean {
+async function gated(tool: Tool<unknown>, input: unknown): Promise<boolean> {
   return typeof tool.requiresPermission === "function"
-    ? Boolean(tool.requiresPermission(input))
+    ? Boolean(await tool.requiresPermission(input))
     : Boolean(tool.requiresPermission);
 }
 

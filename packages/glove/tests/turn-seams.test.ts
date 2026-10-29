@@ -57,3 +57,68 @@ test("notifySubscribers delivers to the agent's subscribers", async () => {
   await agent.notifySubscribers("tool_use", { id: "c1", name: "lookup", input: {} });
   assert.deepEqual(events, [["text_delta", { text: "hello" }], ["tool_use", { id: "c1", name: "lookup", input: {} }]]);
 });
+
+test("holdTurns: events queue for the holder instead of waking, requests wait, release hands the queue back", async () => {
+  const seen: string[] = [];
+  const agent = make(echo(seen)).build();
+  const arrived: string[] = [];
+  const hold = await agent.holdTurns({ onEvent: (event) => arrived.push(event.id) });
+
+  assert.equal(await agent.emitEvent({ id: "e1", source: "app", content: "first" }), "queued");
+  assert.deepEqual(arrived, ["e1"]);
+  assert.deepEqual(seen, [], "no wake while held");
+
+  const message = await hold.takeEvents();
+  assert.equal(message?.framework_context, "event");
+  assert.match(message!.text, /first/);
+  assert.equal(await hold.takeEvents(), null);
+  assert.equal(await agent.emitEvent({ id: "e1", source: "app", content: "again" }), "duplicate", "taken counts as delivered");
+
+  let answered = false;
+  const request = agent.processRequest("hi").then(() => { answered = true; });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(answered, false, "requests wait behind the hold");
+
+  await hold.release();
+  await request;
+  assert.deepEqual(seen, ["model"]);
+  assert.equal(await hold.takeEvents(), null, "a released hold takes nothing");
+});
+
+test("holdTurns waits for the running turn, can be aborted while waiting, and saves history context like a request", async () => {
+  let finish!: () => void;
+  const slow: ModelAdapter = {
+    name: "slow",
+    setSystemPrompt() {},
+    async prompt() {
+      await new Promise<void>((resolve) => { finish = resolve; });
+      return { messages: [{ sender: "agent", text: "ok" }], tokens_in: 0, tokens_out: 0 };
+    },
+  };
+  const agent = make(slow).build();
+  let plan = "step one";
+  agent.addContextProvider(() => plan, { delivery: "history", key: "plan" });
+  const turn = agent.processRequest("go");
+  await new Promise((resolve) => setImmediate(resolve));
+
+  const controller = new AbortController();
+  const aborted = agent.holdTurns({ signal: controller.signal });
+  controller.abort();
+  await assert.rejects(aborted);
+
+  let held = false;
+  const pending = agent.holdTurns().then((hold) => { held = true; return hold; });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(held, false);
+  finish();
+  await turn;
+  const hold = await pending;
+
+  // The request saved "step one"; only a change is returned.
+  assert.deepEqual(await hold.historyContext(), []);
+  plan = "step two";
+  const saved = await hold.historyContext();
+  assert.equal(saved.length, 1);
+  assert.match(saved[0].text, /^<context key="plan">\nstep two/);
+  await hold.release();
+});

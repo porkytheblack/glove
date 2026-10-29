@@ -178,7 +178,12 @@ await agent.prepareTurn();                      // what a runtime without proces
         <a href="/docs/realtime">realtime session</a>. A runtime that drives the
         agent itself can also hand its activity to the agent&apos;s subscribers with{" "}
         <code>agent.notifySubscribers(type, data)</code>, so UIs and modules
-        listening on the agent see it as they would see a text turn.
+        listening on the agent see it as they would see a text turn. To take
+        over the agent&apos;s turns for a while, such as for a call, it holds the turn queue
+        with <code>agent.holdTurns()</code>. Requests and event wakes then wait,
+        and emitted events queue for the holder (<code>hold.takeEvents()</code>)
+        instead of waking the model. <code>hold.historyContext()</code> returns the{" "}
+        <code>&quot;history&quot;</code> context a request would save.
       </p>
 
       <h2 id="skills">Guidance on demand: skills</h2>

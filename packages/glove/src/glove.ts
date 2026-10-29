@@ -112,6 +112,37 @@ export interface RuntimeContextOptions {
 /** Work that must finish before any turn starts (a request or an event wake). */
 export type TurnPreparer = (signal?: AbortSignal) => void | Promise<void>;
 
+export interface TurnHoldOptions {
+  /** Stop waiting for the turns ahead; `holdTurns` rejects. */
+  signal?: AbortSignal;
+  /** Called for each event queued while the hold is in place. */
+  onEvent?: (event: AgentEvent) => void;
+}
+
+/** The turn queue, held by a runtime that drives the agent itself. */
+export interface TurnHold {
+  /**
+   * Take the queued events as one message, or null when none wait. `phase`
+   * is passed to the formatter: `"request"` for events that waited for the
+   * user's next message, `"loop"` (default) for ones that arrived during the
+   * hold. Taken events count as delivered; save the message with the
+   * conversation.
+   */
+  takeEvents: (phase?: "loop" | "request") => Promise<Message | null>;
+  /**
+   * History-delivered context (`delivery: "history"`) whose value differs
+   * from the one last saved in the store's visible history: the messages a
+   * request would save before its own message. Save them before the user's
+   * next turn.
+   */
+  historyContext: (signal?: AbortSignal) => Promise<Array<Message>>;
+  /**
+   * Give the queue back. Events left queued go to the event policy. Resolves
+   * once the queue is free.
+   */
+  release: () => Promise<void>;
+}
+
 export interface IGloveRunnable {
   /**
    * Run `prepare` at the start of every turn, inside the turn queue: before a
@@ -133,6 +164,14 @@ export interface IGloveRunnable {
    * the agent see that activity as they would a text turn's.
    */
   notifySubscribers: NotifySubscribersFunction
+  /**
+   * Hold the turn queue for a runtime that drives the agent itself (a
+   * realtime call). Waits for the turns ahead, then holds the queue until
+   * `release`: requests and event wakes wait behind it, and events emitted
+   * meanwhile are queued for the holder (`onEvent`, `takeEvents`) instead of
+   * waking the model.
+   */
+  holdTurns: (options?: TurnHoldOptions) => Promise<TurnHold>
   /** Supply context for the model; `options.delivery` decides when and how. Returns an unregister function. */
   addContextProvider: (provider: RuntimeContextProvider, options?: RuntimeContextOptions) => () => void
   /**
@@ -317,6 +356,7 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
   private subscribers: Array<SubscriberAdapter> = []
   private contextProviders = new Map<RuntimeContextProvider, RegisteredContextProvider>()
   private turnPreparers = new Set<TurnPreparer>()
+  private turnHolds = new Set<(event: AgentEvent) => void>()
   private compactionConfig: CompactionConfig
 
   // Turns (requests and event wakes) run one at a time, in arrival order.
@@ -405,6 +445,39 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
 
   notifySubscribers: NotifySubscribersFunction = (event_name, event_data) =>
     this.notifyExtensionEvent(event_name, event_data)
+
+  async holdTurns(options: TurnHoldOptions = {}): Promise<TurnHold> {
+    if (!this.built) throw new Error("Call build before holdTurns")
+    let started!: () => void
+    const holding = new Promise<void>((resolve) => { started = resolve })
+    let release!: () => void
+    const released = new Promise<void>((resolve) => { release = resolve })
+    // Rejects only if the signal aborts while waiting for the turns ahead.
+    const turn = this.runTurn(async () => {
+      started()
+      await released
+    }, options.signal)
+    await Promise.race([holding, turn])
+    const listener = options.onEvent
+    if (listener) this.turnHolds.add(listener)
+    let held = true
+    return {
+      takeEvents: async (phase = "loop") => {
+        if (!held) return null
+        const [message] = await this.drainEvents(phase)
+        return message ?? null
+      },
+      historyContext: async (signal) => this.resolveHistoryContext(await this.context.getMessages(), signal),
+      release: () => {
+        if (held) {
+          held = false
+          if (listener) this.turnHolds.delete(listener)
+          release()
+        }
+        return turn
+      },
+    }
+  }
 
   addContextProvider(provider: RuntimeContextProvider, options?: RuntimeContextOptions): () => void {
     const delivery = options?.delivery ?? "iteration"
@@ -525,6 +598,11 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
       // The turn may have finished while the push was in flight; make sure
       // the idle path sees the event rather than leaving it stranded.
       if (pushed && this.pendingTurns === 0) this.dispatchIdleQuietly()
+      if (pushed) {
+        for (const listener of [...this.turnHolds]) {
+          try { listener(received) } catch { /* a holder's listener can't fail the emit */ }
+        }
+      }
       return report(pushed ? "queued" : "duplicate")
     }
 
