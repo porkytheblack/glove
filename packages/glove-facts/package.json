@@ -1,6 +1,6 @@
 {
   "name": "glove-facts",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Scoped, revisioned evidence and model preparation shared by Glove workflows.",
   "type": "module",
   "license": "MIT",

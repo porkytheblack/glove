@@ -1,5 +1,12 @@
 # glove-server-voice-web
 
+## 1.0.8
+
+### Patch Changes
+
+- Updated dependencies []:
+  - glove-voice@3.6.7
+
 ## 1.0.7
 
 ### Patch Changes

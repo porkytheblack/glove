@@ -1,5 +1,57 @@
 # glove-foundry
 
+## 0.6.0
+
+### Minor Changes
+
+- [#215](https://github.com/porkytheblack/glove/pull/215) [`92eb292`](https://github.com/porkytheblack/glove/commit/92eb292314d0420fa73a8ad868b7066e6c192d37) Thanks [@porkytheblack](https://github.com/porkytheblack)! - One run at a time per conversation, and durable inbound events.
+
+  - A conversation never has two runs acting on it at once. A run asked for while another holds the conversation (a second message, a schedule firing, a flushed delivery) waits in arrival order and starts once the run ahead has settled and its process has let go. Different conversations still run in parallel.
+    - A run the runtime starts waits parked in the execution queue. It has an id and stays `pending`, holds no concurrency slot, and starts from an envelope built when its turn comes. Time spent waiting does not count against `waitForRun` timeouts, so the OpenAI-compatible endpoint no longer fails on a queued request.
+    - A run created inside the execution queue (a schedule firing) asks for the conversation in its process and waits there before it reads any history.
+    - Steering holds the conversation through the cancel, and its replacement goes ahead of anything already waiting. Cancelling a waiting run removes it.
+  - An inbound transmission event for a thread whose run is still working no longer starts a second run beside it. It joins that run's turn at the next tool step as the same `<transmission>` message. If it arrives during the final answer, it starts the thread's next run once the thread is free, together with anything else that arrived meanwhile (`source.kind` `"transmission"`). `dispatchInbound` returns the run handling the event, which for a busy thread is the one that holds it.
+  - Every run now listens on its conversation, so anything delivered to it can join its turn.
+  - Pending inbound events: from dispatch until the run that handled it settles, an event is kept in the data adapter, and on startup any still pending are delivered again in arrival order. Runs stopped by shutdown keep theirs. `FileFoundryDataAdapter` and `MemoryFoundryDataAdapter` implement it. The new `FoundryDataAdapter` methods `putPendingInbound`, `deletePendingInbound` and `listPendingInbound` are optional, so custom adapters without them work as before, minus the restart guarantee. New exported types: `FoundryPendingInbound`, `FoundryTransmissionDelivery`.
+  - Deliveries held until a run starts listening are now marked handed over. Before, a delegation update delivered that way could be handed over again after a restart.
+
+- [#197](https://github.com/porkytheblack/glove/pull/197) [`91a8254`](https://github.com/porkytheblack/glove/commit/91a82546168dbf2f170d2e9fb2727ce70912f19b) Thanks [@porkytheblack](https://github.com/porkytheblack)! - Layered agents and voice calls.
+
+  - `defineAgent({ delegates })` names sibling agents by route. The delegating agent gets `glove_foundry_delegate` and `glove_foundry_reply`. A run working on a delegated task gets `glove_foundry_ask`. Each delegation runs as its own conversation on a worker instance, one per delegating instance and route.
+  - Results, questions and failures come back to the conversation that delegated. They go straight into a run that listens with `ctx.onDelegationUpdate`. Otherwise they wait until the conversation is free and start one run, as `<delegation>` messages.
+  - A worker's question waits `answerWaitMs` (90 s by default) inside its run, then the run suspends with `suspension.kind: "question"`.
+  - Open delegations appear in the delegating agent's runtime context. `runtime.listDelegations()` lists them all.
+  - Deliveries that are still owed are recorded on the delegation and handed over again when the runtime restarts.
+  - New `glove-foundry/voice` subpath. `voiceCall({ room, greeting })` runs an agent as a live call over `RealtimeAgent`: it saves the transcript, speaks delegation updates at the next pause, and keeps Foundry's bookkeeping tools and approval-gated tools off the call. `webSocketRoom({ port, token })` is a built-in room serving PCM16 over one WebSocket.
+
+- [#215](https://github.com/porkytheblack/glove/pull/215) [`f90dabf`](https://github.com/porkytheblack/glove/commit/f90dabffa1d2e4071c6ce8401a2379d903cc5725) Thanks [@porkytheblack](https://github.com/porkytheblack)! - Delegation updates join the turn that is still working. A run with delegates, open delegations or a delegated task of its own now listens on its conversation for as long as it lasts. A result, question or failure that arrives while the delegating turn is still calling tools joins it at the next tool step as a Glove event, which reads as the same `<delegation>` message a new run would start with and is saved after the tool results. The open-delegations runtime context stops listing a delegation once its result is in. Follow-up replies reach a worker that is still working the same way, and an answer that reaches a worker's turn after `glove_foundry_ask` gave up no longer leaves the run suspended. Updates the run did not read go back to the runtime when it ends and start one new run, as before. `ctx.onDelegationUpdate` handlers take updates first, including any that arrived before they registered. Every listener in a run now shares one mailbox reader, so a worker's reply is no longer lost to an update handler reading the same mailbox.
+
+  Foundry's per-run Glove never wakes itself: events emitted while no turn runs wait for the run's next request.
+
+### Patch Changes
+
+- [#211](https://github.com/porkytheblack/glove/pull/211) [`d1d9508`](https://github.com/porkytheblack/glove/commit/d1d95086ce5738619e3eddaa66dfbd1abfe4d2e1) Thanks [@porkytheblack](https://github.com/porkytheblack)! - `contextProviders` entries can be `{ provider, delivery: "request" | "history", key }` as well as bare providers (`FoundryContextProvider`). `goals` and `forms` options accept glove-memory's new `delivery`. `outbound.requiresPermission` and programmatic-workflow tool gates accept async predicates.
+
+- [#214](https://github.com/porkytheblack/glove/pull/214) [`8f23ff0`](https://github.com/porkytheblack/glove/commit/8f23ff02cae75d1cbf447e8b601349ba70154a08) Thanks [@porkytheblack](https://github.com/porkytheblack)! - Mesh messages can arrive as Glove events instead of inbox items.
+
+  - `mountMesh` takes `delivery: "inbox" | "events"`. The default stays `"inbox"`, so existing integrations are unchanged; `"events"` needs a runnable with `emitEvent` and `addContextProvider` (glove-core 4.4).
+  - With events, an incoming message or broadcast is emitted as a Glove event (`source: "mesh:<from>"`, `kind: "direct" | "broadcast" | "reply"`). It joins a running loop at the next tool step. An idle agent wakes for it, or it waits for the user's next message, per the Glove's event policy and the new `whenIdle` option. The model sees it as escaped XML marked as outside information, and re-deliveries of a message id are dropped. Blocking sends wait in memory and show as `<mesh_waiting>` runtime context until the ack or reply, which arrives as an event. No inbox methods are needed on the store.
+  - Agents can now react to each other without a person prompting them. Use a Glove `events.policy` (by `source`) or `whenIdle: "defer"` to keep them from waking each other in a loop.
+  - `ToolContext` has `waits` (a `PendingWaits`) instead of `store` and `pending`. `inboxWaits` and `EventWaits` are exported for custom tool composition.
+  - Foundry mounts mesh with `delivery: "inbox"`: it builds a runnable per run, so messages that arrive between runs must wait in the conversation store.
+
+- Updated dependencies [[`d1d9508`](https://github.com/porkytheblack/glove/commit/d1d95086ce5738619e3eddaa66dfbd1abfe4d2e1), [`d1d9508`](https://github.com/porkytheblack/glove/commit/d1d95086ce5738619e3eddaa66dfbd1abfe4d2e1), [`c6f6cb4`](https://github.com/porkytheblack/glove/commit/c6f6cb4bb1c81357ca16f9fa043890cc0a9ff325), [`8f23ff0`](https://github.com/porkytheblack/glove/commit/8f23ff02cae75d1cbf447e8b601349ba70154a08)]:
+  - glove-core@4.4.0
+  - glove-memory@2.3.0
+  - glove-mesh@0.2.0
+  - glove-facts@0.1.5
+  - glove-js@0.5.3
+  - glove-lisp@0.5.3
+  - glove-mcp@1.2.3
+  - glove-python@0.4.3
+  - glove-voice-s2s@0.4.3
+  - glove-working-environment@0.7.0
+
 ## 0.5.2
 
 ### Patch Changes

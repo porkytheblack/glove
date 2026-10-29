@@ -1,5 +1,15 @@
 # glove-react
 
+## 4.0.7
+
+### Patch Changes
+
+- [#211](https://github.com/porkytheblack/glove/pull/211) [`d1d9508`](https://github.com/porkytheblack/glove/commit/d1d95086ce5738619e3eddaa66dfbd1abfe4d2e1) Thanks [@porkytheblack](https://github.com/porkytheblack)! - History hydration skips saved runtime context and delivered events, so they do not show as user messages: `framework_context` `"runtime"` or `"event"`, or, for stores that drop that field, text matching Glove's complete `<context key>` or `<events>` wrapper (a user message that merely starts with the same tag stays visible). A final model answer is flushed into the timeline when it completes, so a turn an event started shows its reply. `requiresPermission` on `defineTool` and tool types accepts async predicates.
+
+- Updated dependencies [[`d1d9508`](https://github.com/porkytheblack/glove/commit/d1d95086ce5738619e3eddaa66dfbd1abfe4d2e1), [`c6f6cb4`](https://github.com/porkytheblack/glove/commit/c6f6cb4bb1c81357ca16f9fa043890cc0a9ff325)]:
+  - glove-core@4.4.0
+  - glove-voice@3.6.7
+
 ## 4.0.6
 
 ### Patch Changes

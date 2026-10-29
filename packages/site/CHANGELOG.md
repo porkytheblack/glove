@@ -1,5 +1,12 @@
 # glove-site
 
+## 3.0.8
+
+### Patch Changes
+
+- Updated dependencies [[`d1d9508`](https://github.com/porkytheblack/glove/commit/d1d95086ce5738619e3eddaa66dfbd1abfe4d2e1)]:
+  - glove-react@4.0.7
+
 ## 3.0.7
 
 ### Patch Changes
