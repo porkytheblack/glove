@@ -1,5 +1,21 @@
 # glove-foundry
 
+## 0.6.1
+
+### Patch Changes
+
+- Updated dependencies [[`6f04d7e`](https://github.com/porkytheblack/glove/commit/6f04d7e1db19b30676254753c6a2a68c04d427cb), [`b9d4eda`](https://github.com/porkytheblack/glove/commit/b9d4eda4a932ed0b8502f0a1c3b41755990597db)]:
+  - glove-core@4.5.0
+  - glove-voice-s2s@0.4.4
+  - glove-facts@0.1.6
+  - glove-js@0.5.4
+  - glove-lisp@0.5.4
+  - glove-mcp@1.2.4
+  - glove-memory@2.3.1
+  - glove-mesh@0.2.1
+  - glove-python@0.4.4
+  - glove-working-environment@0.7.0
+
 ## 0.6.0
 
 ### Minor Changes

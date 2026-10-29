@@ -1,5 +1,16 @@
 # glovebox-pdf-extractor
 
+## 0.0.9
+
+### Patch Changes
+
+- Updated dependencies [[`6f04d7e`](https://github.com/porkytheblack/glove/commit/6f04d7e1db19b30676254753c6a2a68c04d427cb)]:
+  - glove-core@4.5.0
+  - glove-sqlite@3.0.10
+  - glovebox-core@0.6.8
+  - glovebox-kit@0.5.9
+  - glovebox-client@0.5.9
+
 ## 0.0.8
 
 ### Patch Changes

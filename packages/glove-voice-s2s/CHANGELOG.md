@@ -1,5 +1,14 @@
 # glove-voice-s2s
 
+## 0.4.4
+
+### Patch Changes
+
+- [#210](https://github.com/porkytheblack/glove/pull/210) [`b9d4eda`](https://github.com/porkytheblack/glove/commit/b9d4eda4a932ed0b8502f0a1c3b41755990597db) Thanks [@porkytheblack](https://github.com/porkytheblack)! - Gemini Live: nullable tool parameters no longer send a `null` type. `z.toJSONSchema()` writes `.nullable()` as `anyOf: [T, { type: "null" }]`, and `geminiSchema` passed the `{ type: "null" }` branch through to the setup frame. Gemini's Schema has no null type. The null branch now becomes `nullable: true`, folded into `T` when it is the only other branch.
+
+- Updated dependencies [[`6f04d7e`](https://github.com/porkytheblack/glove/commit/6f04d7e1db19b30676254753c6a2a68c04d427cb)]:
+  - glove-core@4.5.0
+
 ## 0.4.3
 
 ### Patch Changes
