@@ -698,9 +698,11 @@ during active work through the typed steering operation.
 ## Effect approvals
 
 A Glove tool can set `requiresPermission: true` or return a boolean from
-`requiresPermission(input)`. In Foundry, an unset decision becomes a public,
-expiring approval record rather than an unresolved in-process display promise.
-The worker pauses; a trusted host lists and resolves the exact request:
+`requiresPermission(input)`. In Foundry, an unset decision becomes a public
+approval record on the data adapter rather than an unresolved in-process display
+promise. The record does not expire unless `defineApplication` sets
+`approvals.timeoutMs` (milliseconds, at least one second). The worker pauses; a
+trusted host lists and resolves the exact request:
 
 ```ts
 const [approval] = await client.approvals({
@@ -715,7 +717,10 @@ if (approval) {
 
 Approval identity includes the agent instance, conversation, run, tool name, and
 serialized tool input. Decisions are fail-closed when the channel is unavailable,
-the run is cancelled, or the request expires. A custom conversation store that
+the run is cancelled or steered, or the request expires. A restart does not decide
+a pending approval. Resolving it afterwards starts a continuation run in the same
+conversation; the tool runs only for `approve`. `FileFoundryDataAdapter` keeps the
+record across that restart. A custom conversation store that
 omits permission methods receives a per-run exact-input overlay; stores that
 implement Glove permissions may persist the decision under their own policy.
 The inspector shows pending decisions on its overview and on the blocked run, with

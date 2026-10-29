@@ -161,6 +161,21 @@ consistently for every writer to a coordinated key; an unconditional
 `putWorkspaceEntry` is not a compare-and-set. Workspace entries are shared
 coordination data, not private memory or credentials.
 
+## Approvals
+
+A permission prompt (`requiresPermission` on a tool, or on an outbound transmission)
+becomes an approval record on the data adapter: `putApproval`, `listApprovals`,
+`settleApproval`, and `noteApprovalResume`. The memory and file adapters implement
+them. A custom adapter that omits them keeps a temporary directory shared with the
+live run; that directory is deleted when the runtime stops. `expiresAt` is null
+unless the application sets `approvals.timeoutMs`.
+
+The live run waits in process. Explicit cancel and steer fail closed. Shutdown,
+redeploy, and the run timeout do not decide the approval. When a decision arrives
+after that run is gone, Foundry admits a continuation run in the same conversation.
+The continuation's payload (`foundryApproval`) is the decision, and the tool runs
+only when that status is `approved`.
+
 Session loops and goal continuation are composable
 agent policy over this data and normal scheduled activations. They do not introduce
 a second scheduler, memory store, filesystem, or agent loop.

@@ -3,6 +3,7 @@ import { mkdir, open, readFile, rename, stat, unlink } from "node:fs/promises";
 import { dirname } from "node:path";
 import { Effect } from "effect";
 import type { EnvSnapshot } from "glove-working-environment";
+import { foundryApprovalStatus, type FoundryApproval, type FoundryApprovalTerminalStatus } from "./approval.js";
 import {
   createAgentInstance,
   reconstructAgentInstance,
@@ -35,6 +36,7 @@ interface FileFoundryState {
   subscriptions: PlaybookSubscription[];
   inboundDeliveries: InboundDeliveryClaim[];
   pendingInbound: FoundryPendingInbound[];
+  approvals: FoundryApproval[];
   activations: FoundryActivationRecord[];
   conversations: Conversation[];
   workspaceEntries: WorkspaceEntry[];
@@ -66,6 +68,7 @@ function emptyState(environment: ReadonlyArray<EnvironmentValue>): FileFoundrySt
     subscriptions: [],
     inboundDeliveries: [],
     pendingInbound: [],
+    approvals: [],
     activations: [],
     conversations: [],
     workspaceEntries: [],
@@ -74,6 +77,40 @@ function emptyState(environment: ReadonlyArray<EnvironmentValue>): FileFoundrySt
     tasks: [],
     environment: structuredClone([...environment]),
   };
+}
+
+function settleStoredApproval(
+  state: FileFoundryState,
+  id: string,
+  status: FoundryApprovalTerminalStatus,
+  needsResume: boolean,
+): FoundryApproval {
+  const index = state.approvals.findIndex((item) => item.id === id);
+  const current = state.approvals[index];
+  if (!current) throw new Error(`Foundry approval "${id}" was not found.`);
+  const displayed = foundryApprovalStatus(current);
+  if (current.status !== "pending") {
+    if (current.status === status) {
+      if (!needsResume && current.needsResume) {
+        const cleared = { ...current, needsResume: false };
+        state.approvals[index] = cleared;
+        return { ...cleared, status: displayed };
+      }
+      return { ...current, status: displayed };
+    }
+    throw new Error(`Foundry approval "${id}" is already ${current.status}.`);
+  }
+  if (displayed === "expired" && status !== "expired") {
+    throw new Error(`Foundry approval "${id}" is already expired.`);
+  }
+  const settled: FoundryApproval = {
+    ...current,
+    status,
+    resolvedAt: new Date().toISOString(),
+    ...(needsResume ? { needsResume: true } : { needsResume: false }),
+  };
+  state.approvals[index] = settled;
+  return settled;
 }
 
 function replaceById<T extends { readonly id: string }>(values: T[], value: T): void {
@@ -119,7 +156,7 @@ export class FileFoundryDataAdapter implements FoundryDataAdapter {
   private readonly lockFile: string;
   private readonly lockTimeoutMs: number;
   private readonly staleLockMs: number;
-  private readonly seeds: Omit<FileFoundryState, "version" | "inboundDeliveries" | "pendingInbound" | "workspaceEntries" | "workingEnvironments" | "inbox" | "tasks">;
+  private readonly seeds: Omit<FileFoundryState, "version" | "inboundDeliveries" | "pendingInbound" | "approvals" | "workspaceEntries" | "workingEnvironments" | "inbox" | "tasks">;
   private initialized: Promise<void> | undefined;
   private queue: Promise<unknown> = Promise.resolve();
 
@@ -192,6 +229,7 @@ export class FileFoundryDataAdapter implements FoundryDataAdapter {
         subscriptions: parsed.subscriptions ?? [],
         inboundDeliveries: parsed.inboundDeliveries ?? [],
         pendingInbound: parsed.pendingInbound ?? [],
+        approvals: parsed.approvals ?? [],
         activations: parsed.activations ?? [],
         conversations: parsed.conversations ?? [],
         workspaceEntries: parsed.workspaceEntries ?? [],
@@ -380,6 +418,37 @@ export class FileFoundryDataAdapter implements FoundryDataAdapter {
 
   listPendingInbound() { return effect(async () =>
     structuredClone((await this.snapshot()).pendingInbound)); }
+
+  putApproval(approval: FoundryApproval) { return effect(async () => {
+    await this.ensureInitialized();
+    await this.mutate((state) => {
+      if (state.approvals.some((item) => item.id === approval.id)) return;
+      state.approvals.push(structuredClone(approval));
+    });
+  }); }
+
+  listApprovals() { return effect(async () =>
+    structuredClone((await this.snapshot()).approvals).map((approval) => ({
+      ...approval,
+      status: foundryApprovalStatus(approval),
+    }))); }
+
+  settleApproval(id: string, status: FoundryApprovalTerminalStatus, needsResume = false) {
+    return effect(async () => {
+      await this.ensureInitialized();
+      return this.mutate((state) => settleStoredApproval(state, id, status, needsResume));
+    });
+  }
+
+  noteApprovalResume(id: string, resumeRunId: string) { return effect(async () => {
+    await this.ensureInitialized();
+    await this.mutate((state) => {
+      const index = state.approvals.findIndex((item) => item.id === id);
+      const current = state.approvals[index];
+      if (!current) return;
+      state.approvals[index] = { ...current, needsResume: false, resumeRunId };
+    });
+  }); }
 
   releaseInboundDelivery(key: string) { return effect(async () => {
     await this.ensureInitialized();

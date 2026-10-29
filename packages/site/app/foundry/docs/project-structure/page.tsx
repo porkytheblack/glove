@@ -254,7 +254,7 @@ tools/*.tool.ts       tools an instance installs`}
         <thead><tr><th>Option</th><th>Purpose</th></tr></thead>
         <tbody>
           <tr><td><code>name</code></td><td>Required, non-empty</td></tr>
-          <tr><td><code>data</code></td><td><code>FoundryDataAdapter</code> for instances, conversations, installations, playbooks, subscriptions, activations, workspace entries, inbox, tasks and VFS snapshots. Default <code>MemoryFoundryDataAdapter</code> (lost on restart); <code>FileFoundryDataAdapter</code> for one host</td></tr>
+          <tr><td><code>data</code></td><td><code>FoundryDataAdapter</code> for instances, conversations, installations, playbooks, subscriptions, activations, approvals, workspace entries, inbox, tasks and VFS snapshots. Default <code>MemoryFoundryDataAdapter</code> (lost on restart); <code>FileFoundryDataAdapter</code> for one host</td></tr>
           <tr><td><code>conversationStore</code></td><td><code>(scope) =&gt; StoreAdapter</code> used for transcripts when a definition has no <code>store</code> of its own</td></tr>
           <tr><td><code>requestAuthorization</code></td><td><code>{"{"} identifier, challenge?, authorize(request) {"}"}</code> returning <code>Effect&lt;boolean&gt;</code>; gates every HTTP request and is required to bind a non-loopback host</td></tr>
           <tr><td><code>accounts</code>, <code>routes</code>, <code>bindings</code></td><td>Integration topology from <code>defineAccount</code>, <code>defineInboundRoute</code>/<code>defineOutboundRoute</code>, <code>defineBinding</code>; duplicate ids throw</td></tr>

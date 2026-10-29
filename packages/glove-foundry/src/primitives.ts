@@ -12,6 +12,11 @@ import {
   type PlaybookSubscription,
 } from "./subscription.js";
 import type { FoundryAgentDefinition } from "./definition.js";
+import {
+  foundryApprovalStatus,
+  type FoundryApproval,
+  type FoundryApprovalTerminalStatus,
+} from "./approval.js";
 import type { FoundryScheduleTiming } from "./schedule.js";
 
 export interface AgentInstance {
@@ -158,6 +163,21 @@ export interface FoundryDataAdapter {
   putPendingInbound?(record: FoundryPendingInbound): Effect.Effect<void, unknown, never>;
   deletePendingInbound?(id: string): Effect.Effect<void, unknown, never>;
   listPendingInbound?(): Effect.Effect<ReadonlyArray<FoundryPendingInbound>, unknown, never>;
+  /**
+   * Pending human approvals (optional). With these, a permission wait survives
+   * a restart for as long as this adapter's own storage does. Without them,
+   * approvals stay in the runtime's temporary directory and are lost on stop.
+   * `settleApproval` is first-decision-wins. `needsResume` asks the runtime to
+   * start a continuation run; `noteApprovalResume` records that it did.
+   */
+  putApproval?(approval: FoundryApproval): Effect.Effect<void, unknown, never>;
+  listApprovals?(): Effect.Effect<ReadonlyArray<FoundryApproval>, unknown, never>;
+  settleApproval?(
+    id: string,
+    status: FoundryApprovalTerminalStatus,
+    needsResume?: boolean,
+  ): Effect.Effect<FoundryApproval, unknown, never>;
+  noteApprovalResume?(id: string, resumeRunId: string): Effect.Effect<void, unknown, never>;
   getActivation(id: string): Effect.Effect<FoundryActivationRecord | null, unknown, never>;
   putActivation(activation: FoundryActivationRecord): Effect.Effect<void, unknown, never>;
   listActivations(workspaceId?: string): Effect.Effect<ReadonlyArray<FoundryActivationRecord>, unknown, never>;
@@ -309,6 +329,7 @@ export class MemoryFoundryDataAdapter implements FoundryDataAdapter {
   private readonly subscriptions = new Map<string, PlaybookSubscription>();
   private readonly inboundDeliveries = new Map<string, InboundDeliveryClaim>();
   private readonly pendingInbound = new Map<string, FoundryPendingInbound>();
+  private readonly approvals = new Map<string, FoundryApproval>();
   private readonly activations = new Map<string, FoundryActivationRecord>();
   private readonly conversations = new Map<string, Conversation>();
   private readonly workspace = new Map<string, WorkspaceEntry>();
@@ -433,6 +454,55 @@ export class MemoryFoundryDataAdapter implements FoundryDataAdapter {
   deletePendingInbound(id: string) { return Effect.sync(() => { this.pendingInbound.delete(id); }); }
   listPendingInbound() { return Effect.sync(() =>
     [...this.pendingInbound.values()].map((record) => structuredClone(record))); }
+  putApproval(approval: FoundryApproval) { return Effect.sync(() => {
+    if (this.approvals.has(approval.id)) return;
+    this.approvals.set(approval.id, structuredClone(approval));
+  }); }
+  listApprovals() { return Effect.sync(() =>
+    [...this.approvals.values()].map((approval) => ({
+      ...structuredClone(approval),
+      status: foundryApprovalStatus(approval),
+    }))); }
+  settleApproval(id: string, status: FoundryApprovalTerminalStatus, needsResume = false) {
+    return Effect.sync(() => this.settleStoredApproval(id, status, needsResume));
+  }
+  noteApprovalResume(id: string, resumeRunId: string) { return Effect.sync(() => {
+    const current = this.approvals.get(id);
+    if (!current) return;
+    this.approvals.set(id, { ...current, needsResume: false, resumeRunId });
+  }); }
+
+  private settleStoredApproval(
+    id: string,
+    status: FoundryApprovalTerminalStatus,
+    needsResume: boolean,
+  ): FoundryApproval {
+    const current = this.approvals.get(id);
+    if (!current) throw new Error(`Foundry approval "${id}" was not found.`);
+    const displayed = foundryApprovalStatus(current);
+    if (current.status !== "pending") {
+      if (current.status === status) {
+        if (!needsResume && current.needsResume) {
+          const cleared = { ...current, needsResume: false };
+          this.approvals.set(id, cleared);
+          return { ...cleared, status: displayed };
+        }
+        return { ...current, status: displayed };
+      }
+      throw new Error(`Foundry approval "${id}" is already ${current.status}.`);
+    }
+    if (displayed === "expired" && status !== "expired") {
+      throw new Error(`Foundry approval "${id}" is already expired.`);
+    }
+    const settled: FoundryApproval = {
+      ...current,
+      status,
+      resolvedAt: new Date().toISOString(),
+      ...(needsResume ? { needsResume: true } : { needsResume: false }),
+    };
+    this.approvals.set(id, settled);
+    return settled;
+  }
   getActivation(id: string) { return Effect.succeed(this.activations.get(id) ?? null); }
   putActivation(activation: FoundryActivationRecord) { return Effect.sync(() => {
     this.activations.set(activation.id, reconstructActivation(activation));

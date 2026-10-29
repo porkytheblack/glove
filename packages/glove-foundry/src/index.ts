@@ -249,14 +249,22 @@ export {
 } from "./runtime.js";
 export {
   FOUNDRY_APPROVAL_DIRECTORY_ENV,
+  FOUNDRY_APPROVAL_DURABLE_ENV,
+  FOUNDRY_APPROVAL_RESUME_KEY,
+  FOUNDRY_APPROVAL_TIMEOUT_ENV,
   FoundryApprovalDisplayManager,
+  approvalResumeFrom,
+  approvalStoreFrom,
   createFoundryApproval,
+  foundryApprovalStatus,
   listFoundryApprovals,
   resolveFoundryApproval,
   withFoundryPermissions,
   type FoundryApproval,
   type FoundryApprovalDecision,
+  type FoundryApprovalResume,
   type FoundryApprovalStatus,
+  type FoundryApprovalStore,
 } from "./approval.js";
 export {
   FoundryServer,

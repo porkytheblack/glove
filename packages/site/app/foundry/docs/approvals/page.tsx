@@ -14,8 +14,10 @@ export default function ApprovalsPage() {
       <h1>Approvals &amp; steering</h1>
       <p className="blog-lede">
         Keep a human in the loop for the calls that matter. A permission-gated tool call
-        pauses its run and becomes an expiring approval record that you approve or deny from
-        the inspector, your own app or a single HTTP call. When an agent heads the wrong way,
+        pauses its run and becomes an approval record that you approve or deny from
+        the inspector, your own app or a single HTTP call. The record lives in the data
+        adapter, so it can wait as long as you need and still be there after a restart.
+        When an agent heads the wrong way,
         steer it: Foundry stops the run at a safe boundary and restarts it in the same
         conversation with your new direction.
       </p>
@@ -24,7 +26,7 @@ export default function ApprovalsPage() {
       <ol>
         <li>A tool declares <code>requiresPermission</code>. For this call it evaluates to <code>true</code>.</li>
         <li>Glove asks the conversation store for a saved decision for this exact tool and input. None is saved.</li>
-        <li>Foundry writes a <code>pending</code> approval record that expires in 5 minutes, emits <code>agent.foundry.approval.requested</code>, and the run waits (it stays <code>running</code>).</li>
+        <li>Foundry writes a <code>pending</code> approval record on the data adapter, emits <code>agent.foundry.approval.requested</code>, and the run waits (it stays <code>running</code>). By default the record does not expire.</li>
         <li>Someone approves or denies it: the inspector, <code>client.resolveApproval</code>, or <code>POST /api/approvals/:id</code>.</li>
         <li><strong>Approved</strong>: the tool runs with that input. <strong>Anything else</strong> (denied, expired, run cancelled): the tool is not called and the model receives the result <code>Permission denied for tool &quot;…&quot;. The user has not granted permission to run this tool.</code>, then the run carries on.</li>
       </ol>
@@ -116,7 +118,8 @@ export default defineTransmission({
           <tr><td><code>runId</code>, <code>definitionId</code>, <code>agentId</code>, <code>conversationId</code>, <code>workspaceId</code></td><td>Exactly which run, instance and conversation is asking.</td></tr>
           <tr><td><code>toolName</code>, <code>toolInput</code></td><td>The tool and the JSON-serialized input that will run if approved.</td></tr>
           <tr><td><code>status</code></td><td>See below.</td></tr>
-          <tr><td><code>requestedAt</code>, <code>expiresAt</code>, <code>resolvedAt?</code></td><td>ISO timestamps; <code>expiresAt</code> is 5 minutes after <code>requestedAt</code>.</td></tr>
+          <tr><td><code>requestedAt</code>, <code>expiresAt</code>, <code>resolvedAt?</code></td><td>ISO timestamps. <code>expiresAt</code> is <code>null</code> unless you set <code>approvals.timeoutMs</code>.</td></tr>
+          <tr><td><code>needsResume?</code>, <code>resumeRunId?</code></td><td>Set when the waiting run is already gone, so resolving starts a continuation run. <code>resumeRunId</code> is that run once it has been admitted.</td></tr>
         </tbody>
       </table>
       <table>
@@ -132,8 +135,8 @@ export default defineTransmission({
       <ul>
         <li><strong>Exact-input identity.</strong> One record per gated call, bound to its run, instance, conversation, tool and serialized input. Approving <code>{"{ amountUsd: 80 }"}</code> never approves <code>{"{ amountUsd: 800 }"}</code>.</li>
         <li><strong>First decision wins.</strong> Resolution is an atomic create; a second <code>resolveApproval</code> on the same id fails with <code>Foundry approval &quot;…&quot; is already approved.</code> (HTTP <code>400</code>). So does resolving an expired one.</li>
-        <li><strong>Fixed expiry.</strong> 5 minutes, not configurable from <code>defineAgent</code>.</li>
-        <li><strong>Local to one process.</strong> Records are files in a private directory under the OS temp dir, created fresh by each Foundry runtime. They are not shared between Foundry processes and do not survive a restart; runs waiting on them stop with the process.</li>
+        <li><strong>No expiry, unless you set one.</strong> <code>defineApplication</code> takes <code>{"{ approvals: { timeoutMs } }"}</code>. Omit it, or pass <code>null</code>, and the approval waits until a person decides. A positive number is a millisecond limit of at least one second. There is no maximum. This is application configuration, not a <code>defineAgent</code> field.</li>
+        <li><strong>Durable with the data adapter.</strong> <code>FileFoundryDataAdapter</code> and <code>MemoryFoundryDataAdapter</code> store approvals. A file adapter (or any adapter that implements <code>putApproval</code>, <code>listApprovals</code>, <code>settleApproval</code> and <code>noteApprovalResume</code>) still has a pending approval after a restart or redeploy. <code>MemoryFoundryDataAdapter</code> keeps them only until the process exits. An adapter that omits the methods keeps the old temporary-directory channel, which is deleted when the runtime stops.</li>
       </ul>
 
       <h3 id="fail-closed">Fail-closed</h3>
@@ -141,8 +144,11 @@ export default defineTransmission({
         Only an explicit <code>approve</code> runs the tool. Foundry denies when the approval
         channel is unavailable (<code>agent.foundry.approval.unavailable</code>), when the record
         cannot be written or read (<code>agent.foundry.approval.failed</code>), on expiry, and when
-        the run is cancelled. <code>GET /v1/capabilities</code> advertises this as{" "}
-        <code>approvals.default: &quot;deny&quot;</code>.
+        the run is cancelled or steered. Shutting down or redeploying does not decide the approval:
+        it stays pending, and resolving it later starts a new run in the same conversation that
+        performs the decision. A run that times out while it is waiting leaves the approval pending
+        too, so the wait is not capped by the run timeout. <code>GET /v1/capabilities</code> advertises
+        the default as <code>approvals.default: &quot;deny&quot;</code>.
       </p>
       <div className="docs-note"><span className="docs-note-icon">!</span><p>
         Foundry routes permission prompts through its own display manager. If you set{" "}
