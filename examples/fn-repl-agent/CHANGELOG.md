@@ -1,5 +1,15 @@
 # glove-fn-repl-example
 
+## 1.0.8
+
+### Patch Changes
+
+- Updated dependencies [[`d1d9508`](https://github.com/porkytheblack/glove/commit/d1d95086ce5738619e3eddaa66dfbd1abfe4d2e1), [`c6f6cb4`](https://github.com/porkytheblack/glove/commit/c6f6cb4bb1c81357ca16f9fa043890cc0a9ff325)]:
+  - glove-core@4.4.0
+  - glove-js@0.5.3
+  - glove-lisp@0.5.3
+  - glove-scratchpad@3.0.3
+
 ## 1.0.7
 
 ### Patch Changes
