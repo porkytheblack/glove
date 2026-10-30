@@ -1,146 +1,233 @@
 import Link from "next/link";
 import { CodeBlock } from "@/components/code-block";
-import { durableResearchFiles as files } from "@/lib/foundry-durable-example";
 
 export const metadata = {
-  title: "Durable subagents: realtime front and researcher",
-  description: "A complete Foundry example with a realtime front, a long-running durable researcher, explicit inheritance, restricted apps, direct messages, task delegation and durable event policies.",
+  title: "Durable subagents",
+  description: "Compose persistent workers owned by each agent instance. Understand provisioning, identity, inheritance, memory and app permissions, addressed events, task delegation, delivery policies and data lifecycle.",
 };
-const source = "https://github.com/porkytheblack/glove/tree/main/examples/foundry-durable-research";
-const supportFiles = ["package.json", "tsconfig.json", "foundry.application.ts", "foundry.config.ts", "agents/front/personal.memory.ts", "agents/front/library.app.ts", "agents/front/tools.ts", "lib/models.ts", "lib/corpus.ts", "lib/paths.ts", "lib/file-store.ts", "lib/room.ts", "lib/room.html", "scripts/verify.ts", "scripts/verify-live.ts", "scripts/live-controller.ts"] as const;
 
 export default function DurableSubagentsPage() {
   return <article className="docs-content">
     <span className="foundry-doc-kicker">Design your system / Durable subagents</span>
-    <h1>A realtime front, a durable researcher</h1>
-    <p className="blog-lede">Keep the conversation responsive while another agent does substantial work. A named durable worker keeps its identity and data across runs. Direct messages and delegated tasks reach an exact runtime context through the same persistent event-delivery layer.</p>
-    <p>This complete <a href={source}>runnable example</a> uses <Link href="/docs/realtime">glove-realtime</Link> for the front and a text model for the researcher. The browser uses typed input and text output to keep transport code small; it is a provider-owned realtime session, not repeated text-model calls. Voice can use the same session with audio capture and playback. File listings below are read from the example source at build time.</p>
-    <p>The example requires the durable-subagent APIs in this checkout; an older registry release may not include them. The fictional vendor corpus is small and finishes quickly. The researcher has a four-hour run allowance, not an artificial four-hour delay.</p>
+    <h1>Durable subagents</h1>
+    <p className="blog-lede">A durable subagent is an agent instance owned by another agent instance. You declare a named worker in <code>defineAgent</code>; Foundry creates that worker on first use and keeps its identity, conversations and owned data available for future work.</p>
+    <p>Use durable subagents when one agent needs several intelligent workers with separate responsibilities. Each worker can have its own model, instructions, tools, memory access and run limits. A worker can handle many tasks over time, receive events independently, and own further workers. The parent can keep serving requests while that work proceeds.</p>
+    <p>This composition works for chat agents, background services, scheduled work and applications with no conversational front at all. What connects the agents is an ownership relationship and durable, addressed event delivery. A live conversation is one possible place to receive the results.</p>
 
-    <h2 id="flow">What stays alive, and what persists</h2>
-    <CodeBlock language="text" code={`Browser ↔ front / demo-live (RealtimeSession, up to 30 minutes)
-             │
-             ├─ delegate("research", task) → owned worker / task conversation
-             │                              └─ question or result → demo-live
-             │
-             └─ message("research", update) → worker's stable event conversation
-                                            └─ explicit message → demo-live
-
-Foundry event journal: exact target + event ID + policy + receipt
-No live front? A new text turn handles the event in demo-live.
-Next live session: seed from that same persisted transcript.`} />
-    <p>Each parent instance owns a separate <code>research</code> instance. Reusing a definition creates an owned worker; it does not adopt another tenant&apos;s agent. One parent can own several named workers with different tools, memory scopes, models and deadlines.</p>
-
-    <h2 id="run">Run the complete example</h2>
-    <p>Use Node 22.13 or newer for SQLite memory. From the repository root:</p>
-    <CodeBlock language="bash" code={`pnpm install
-pnpm -r --filter 'glove-foundry-durable-research^...' build
-cd examples/foundry-durable-research
-# Create .env containing your server-side GEMINI_API_KEY.
-# Optional: REALTIME_MODEL, RESEARCH_TEXT_MODEL, RESEARCH_DATA_DIR.
-pnpm typecheck
-pnpm verify # offline: discovery, inheritance, journal, transcripts and transport
-pnpm start`} />
-    <p>For OpenAI, set <code>RESEARCH_PROVIDER=openai</code> and <code>OPENAI_API_KEY</code> instead. The default models are <code>gpt-realtime</code> and <code>gpt-4.1-mini</code>. The opt-in <code>pnpm verify:live</code> command uses OpenAI, loads the repository&apos;s ignored <code>.env.local</code> when present, and tests messaging and delegation across separate controller processes using isolated temporary data. All app data stays fictional; only model calls are remote. Set <code>RESEARCH_DOCUMENT_DELAY_MS</code> between 0 and 10000 to simulate a slow document service.</p>
-    <p>Open the local room URL printed after the provider connects. The Foundry API is at <code>127.0.0.1:4143</code>; this local example permits one live room at <code>127.0.0.1:8787</code>. The session token is ephemeral and the API key stays on the server. Ending the live room leaves the controller and worker running; Ctrl-C stops the controller.</p>
-    <p>Ask: “Compare Atlas, Birch and Cedar. I need EU hosting. Delegate the research and keep talking to me.” Then ask the front another question while the worker runs. The slot below can defer an idle worker for up to 30 seconds, so delegation does not require an immediate worker turn.</p>
-
-    <h2 id="definition">Define the front and select inheritance</h2>
-    <CodeBlock filename="agents/front/agent.ts" code={files["agents/front/agent.ts"]} />
-    <table><thead><tr><th>Selection</th><th>Effective access</th></tr></thead><tbody>
-      <tr><td><code>context: true</code></td><td>Copies parent instance context once, when provisioning. It does not copy transcripts or track subsequent parent-context edits.</td></tr>
-      <tr><td><code>tools</code></td><td>Inherits the named always-on tool, resolved in the child&apos;s context. Permission requirements remain.</td></tr>
-      <tr><td><code>memory: shared / reader</code></td><td>Reads the selected parent-scoped profile. It cannot mutate pinned context. Choose <code>scope: &quot;isolated&quot;</code> for a child namespace; curator access cannot exceed the parent&apos;s access.</td></tr>
-      <tr><td><code>restrictApp(library, …)</code></td><td>Only the installed parent library&apos;s read tool is available. The write tool, account operations and transmissions are denied. Removing the parent installation revokes the inherited app.</td></tr>
+    <h2 id="ownership">What exists in code, and what exists in storage</h2>
+    <p>The declaration describes a relationship between agent definitions. The running application creates a separate instance of that relationship for each parent. These identities matter when deciding which state is shared and where a message will arrive:</p>
+    <table><thead><tr><th>Concept</th><th>Meaning</th></tr></thead><tbody>
+      <tr><td>Worker definition</td><td>A normal <code>defineAgent</code> value: the model, instructions and capabilities from which workers are assembled. Several parents or slots can reuse it.</td></tr>
+      <tr><td>Named slot</td><td>A key in <code>durableSubagents</code>, such as <code>analysis</code>. It selects the definition, inheritance and delivery defaults for that relationship.</td></tr>
+      <tr><td>Owned worker instance</td><td>One persisted agent for a particular parent instance and slot name. It has its own instance ID in the parent&apos;s workspace.</td></tr>
+      <tr><td>Conversation</td><td>A thread owned by the worker. A worker can have a default event conversation and separate conversations for individual tasks.</td></tr>
+      <tr><td>Run</td><td>An execution that assembles the worker and processes work in one conversation. The same worker instance can be used by many runs.</td></tr>
     </tbody></table>
-    <p>The app is local in this example, so no account is acquired and no account operation is granted. With an account-backed app, explicitly allow operation names used by <code>withAccountSession</code>; a modifier cannot grant credentials or outbound routes. These are capability boundaries for trusted application code, not a sandbox for hostile tool implementations.</p>
-    <p>The startup script installs the library on the parent. <code>composeAgent</code> alone only makes an app available for installation. The cleanup hook deletes the worker&apos;s private transcripts; shared parent memory and workspace notes remain.</p>
+    <p>If two customer agents use the same parent definition, each gets its own <code>analysis</code> worker. If one parent declares two slots using the same worker definition, it gets two distinct workers. Reusing a definition does not attach an unrelated existing agent instance to the parent.</p>
+    <p>The durable part is the identity and persisted state. Foundry assembles an agent for each run; it does not keep a JavaScript process alive simply because the worker exists. An idle worker can remain available for months without a continuous model session.</p>
 
-    <h2 id="researcher">Reuse an ordinary researcher definition</h2>
-    <CodeBlock filename="agents/researcher/agent.ts" code={files["agents/researcher/agent.ts"]} />
-    <p>A durable slot can use an imported definition or an inline <code>defineAgent</code>. This researcher uses inherited search and document-reading tools when mounted under the front. Its standalone route does not automatically receive those inherited capabilities. <code>maxConcurrentRuns: 1</code> limits this definition&apos;s work; the runtime has four execution slots so a background worker does not consume all capacity available to fronts. This is capacity planning, not a preemption or latency guarantee.</p>
+    <h2 id="definition">Declare the workers an agent owns</h2>
+    <p>Keep the worker as an ordinary agent definition, then import it into the parent. Model and storage adapters remain normal Foundry configuration; there is no special worker harness to construct.</p>
+    <CodeBlock filename="agents/worker/agent.ts" code={`import { defineAgent } from "glove-foundry";
+import { workerModel } from "../../lib/models.js";
 
-    <h2 id="realtime">Bridge native events into the live runtime</h2>
-    <CodeBlock filename="agents/front/live.ts" code={files["agents/front/live.ts"]} />
-    <p><code>RealtimeSession.start()</code> holds the agent&apos;s turn queue. Native events join the live session at a tool/user-turn boundary or a quiet pause; they do not wake the placeholder text model. Runtime-context providers, including the list of open delegated tasks, refresh through the same session. There is no mesh inbox, relay polling loop or separate delegation callback.</p>
-    <p>Only an explicit direct request with <code>payload.mode = &quot;live&quot;</code> opens the room. When a result arrives after the session ends, the model resolver selects a normal text model and <code>ctx.defaultRun()</code> handles the event. That output is persisted in <code>demo-live</code>; reopening the realtime session seeds it from the stored history. The browser/provider socket itself is not durable.</p>
-    <p>The front denies approval-gated tools during realtime sessions. To enable them in another application, supply a real permission decision flow. The transport handles typed input, incremental event delivery, disconnects and cleanup; the <Link href="/docs/realtime">realtime guide</Link> covers audio capture, output formats and playback notifications.</p>
+export default defineAgent({
+  description: "Analyze assigned work and report useful findings",
+  model: workerModel,
+  systemPrompt: "Complete assigned work. Ask for missing information when needed.",
+});`} />
+    <CodeBlock filename="agents/coordinator/agent.ts" code={`import { defineAgent } from "glove-foundry";
+import worker from "../worker/agent.js";
+import { primaryModel } from "../../lib/models.js";
 
-    <h2 id="delegate">Task delegation and spontaneous messages</h2>
-    <p>These are the generated model-tool calls, not functions imported into your application:</p>
-    <CodeBlock language="typescript" code={`// Front: create tracked work on the owned worker.
-glove_foundry_delegate({
-  to: "research",
-  task: "Compare the three vendor briefs for EU hosting and a $50/user budget. Cite IDs.",
+export default defineAgent({
+  description: "Coordinate requests and ongoing work",
+  model: primaryModel,
+  systemPrompt: "Help with incoming requests and coordinate your workers.",
+  durableSubagents: {
+    analysis: {
+      agent: worker,
+      description: "Detailed analysis that can continue independently",
+      eventDelivery: { whenIdle: "wake" },
+    },
+  },
+});`} />
+    <p>An inline <code>defineAgent</code> also works as the slot&apos;s <code>agent</code>. The reused definition keeps its own explicit capabilities; the slot can add selected inheritance and replace its event-delivery defaults. The source definition is not mutated, so using it elsewhere does not grant the parent&apos;s capabilities there.</p>
+    <p>Slots are declared statically. Names are lowercase slugs; <code>parent</code> is reserved. Foundry derives a definition route such as <code>coordinator/workers/analysis</code>. Workers can declare their own <code>durableSubagents</code>, but cyclic definition graphs and route collisions fail discovery. See <Link href="/foundry/docs/composition">agent assembly</Link> for the ordinary definition fields.</p>
+
+    <h2 id="provisioning">When a worker is created and reused</h2>
+    <p>Declaring a slot makes a worker available. It does not create every possible instance at startup. Foundry provisions the owned instance atomically when a message or delegated task first needs it. Your application can also ensure the instance explicitly:</p>
+    <CodeBlock language="typescript" code={`import { createFoundryClient } from "glove-foundry/client";
+
+const client = createFoundryClient({ baseUrl: process.env.FOUNDRY_URL! });
+const parent = await client.agent("coordinator").create({
+  workspaceId: "workspace-a",
 });
 
-// Worker: ask about its current task; the front answers or asks the person.
-glove_foundry_ask({ question: "Does the budget include SSO add-ons?" });
-glove_foundry_reply({ delegationId: "<returned task ID>", message: "Yes, include SSO." });
-// The worker's final answer returns to the originating conversation automatically.
+const worker = client.subagent(parent.id, "analysis"); // a client handle; no request yet
+const instance = await worker.ensure();              // create once, or return the existing instance
+await worker.send("Review the current plan.");       // also ensures the worker if needed`} />
+    <p>The ownership key is the parent instance ID plus the slot name. Repeated sends, new tasks and controller restarts reuse that worker when the application data adapter is persistent. Ensuring it does not start a model run. Listing workers with <code>client.subagents(parent.id)</code> and inspecting <code>worker.data()</code> do not provision or reactivate workers.</p>
+    <p>A new parent instance gets new workers even if it uses the same definition. Changing a slot name identifies a different worker; it is not a rename of the stored instance. Keep names stable when you intend to retain the same state.</p>
 
-// Front: update the worker without creating another task.
+    <h2 id="inheritance">Choose what the worker inherits</h2>
+    <p>Parenthood does not automatically grant access to the parent&apos;s context, tools, memory or installed apps. The worker starts with the capabilities in its own definition. The slot&apos;s <code>inherit</code> field adds the specific parent surfaces it needs:</p>
+    <CodeBlock language="typescript" code={`// Within durableSubagents. documents is a parent app definition.
+analysis: {
+  agent: worker,
+  inherit: {
+    context: true,
+    tools: ["lookup_status"],
+    memory: { scope: "shared", access: "reader", profiles: ["case-notes"] },
+    apps: [restrictApp(documents, {
+      tools: ["search", "read_document"],
+      operations: ["documents.read"],
+    })],
+  },
+}`} />
+    <p>Import <code>restrictApp</code> from <code>glove-foundry</code>. The selected app and memory profiles must be in the parent&apos;s capability catalogue, and the parent must have selected or installed them as appropriate. <Link href="/foundry/docs/applications">Applications</Link> explains availability versus installation.</p>
+    <table><thead><tr><th>Selection</th><th>What the worker receives</th></tr></thead><tbody>
+      <tr><td><code>context: true</code></td><td>A copy of parent instance context when the worker is first provisioned. Later parent edits do not overwrite worker context.</td></tr>
+      <tr><td><code>tools</code></td><td>Always-on parent tools selected by exact name. The parent tool resolver runs in the child&apos;s context, and approval requirements remain in force.</td></tr>
+      <tr><td><code>memory</code></td><td>Selected parent memory profile definitions, with explicit storage scope and reader or curator access.</td></tr>
+      <tr><td><code>apps</code></td><td>Restricted views of apps currently installed on the parent, using the parent&apos;s selected account and installation configuration.</td></tr>
+    </tbody></table>
+    <p>Transcripts are not inherited. Neither are the parent&apos;s schedules, playbooks, outbound route grants or MCP installations. Installed shared tools are not selected by <code>inherit.tools</code>; declare them on the worker or expose the needed operations through an app.</p>
+
+    <h3 id="memory">Shared and isolated memory</h3>
+    <p><code>scope: &quot;shared&quot;</code> gives the worker access to the selected parent-scoped memory. It is the same underlying memory, so changes by an authorized curator can become visible to both agents. <code>scope: &quot;isolated&quot;</code> uses the same profile definitions under the child&apos;s storage identity. Omit memory inheritance when only the worker&apos;s own profiles should be available.</p>
+    <p>Inherited memory is read-only by default. Explicit <code>access: &quot;curator&quot;</code> can preserve curator abilities the parent already has; it cannot upgrade a parent reader. Reader inheritance also removes pinned-context mutation tools. Shared memory is scoped to the parent agent, not to whichever parent chat happens to be active.</p>
+    <p>Memory adapters must namespace storage by the identity supplied to their factories. Foundry cannot isolate an adapter that always opens the same global namespace. Profiles with custom <code>mount</code> functions are rejected for inheritance because Foundry cannot inspect their permissions. See <Link href="/foundry/docs/capabilities#memory">memory profiles</Link> for configuration.</p>
+
+    <h3 id="apps">App permissions and revocation</h3>
+    <p><code>{"restrictApp(app, { tools, operations, transmissions })"}</code> narrows an existing app. Each list is an exact allowlist; omitted lists grant nothing. <code>tools</code> selects contributed tools, <code>operations</code> gates <code>withAccountSession</code>, and <code>transmissions</code> selects the app&apos;s transmission surfaces. Chaining restrictions intersects access.</p>
+    <p>App inheritance borrows a current installation rather than copying it permanently into the worker&apos;s desired state. Foundry resolves it on each run and rechecks borrowed app authority before tool and account-session operations. Removing the parent installation revokes future use, including in a long-running worker; revocation cannot undo an external effect already in progress.</p>
+    <p>A modifier cannot acquire credentials, grant an outbound route or bypass tool approval. Route grants and bindings remain separate, and API calls still use the application&apos;s request-authorization adapter. These controls constrain model-visible capabilities; tool implementations, app installers and memory factories remain trusted application code.</p>
+
+    <h2 id="communication">Direct messages and delegated tasks</h2>
+    <p>A durable worker is a place to send work over time. Task delegation is one way to organize that work. It adds task status, questions and a correlated result to the worker&apos;s independent lifetime.</p>
+    <table><thead><tr><th>Operation</th><th>Use it for</th><th>What comes back</th></tr></thead><tbody>
+      <tr><td>Direct message</td><td>A new fact, a changed priority, a spontaneous finding, or coordination without opening a tracked task.</td><td>A durable acceptance receipt. A response is separate work; there is no automatic reply loop.</td></tr>
+      <tr><td>Task delegation</td><td>An assignment whose progress, clarification questions and final outcome should be associated with the caller.</td><td>A task ID immediately; questions and the final result return to the originating conversation.</td></tr>
+    </tbody></table>
+    <p>Both operations use the same durable event-delivery layer. Neither requires a mesh inbox. Existing sibling <code>delegates</code> still work; a declared durable slot is automatically a delegation target, so you do not repeat its name in <code>delegates</code>.</p>
+
+    <h3 id="direct">Send a message to a worker or parent</h3>
+    <p>Foundry exposes the following model tools. These calls describe what the agent can do; they are not functions to import into application code:</p>
+    <CodeBlock language="typescript" code={`// Parent → its named worker.
 glove_foundry_message({
-  to: "research",
-  message: "Reliability now matters most. Report important findings to parent conversation demo-live.",
-  delivery: { id: "priority-v1", whenIdle: "wake" },
+  to: "analysis",
+  message: "The source data has changed. Use revision 12 for future work.",
+  delivery: { id: "source-revision-12", whenIdle: "wake" },
 });
 
-// Worker: explicitly address the live front conversation.
+// Worker → its actual parent, in a specific parent conversation.
 glove_foundry_message({
   to: "parent",
-  message: "Cedar has the strongest support SLA, but exceeds the budget.",
-  delivery: { conversationId: "demo-live", whenIdle: "wake" },
+  message: "A finding needs attention.",
+  delivery: { conversationId: "<parent conversation ID>", whenIdle: "wake" },
 });`} />
-    <p>A task gets its own conversation on the same persistent worker. Direct messages without a conversation ID use the recipient&apos;s stable default event conversation. They do not automatically enter an active task or the latest parent chat. To steer a particular task, use <code>glove_foundry_reply</code> with its delegation ID, or explicitly address its conversation.</p>
-    <p>Messages sent by the tool carry a host-readable <code>metadata.replyTo</code> address in <code>ctx.events</code>. The example includes the desired parent conversation ID in the message content too, so the model can target it. The tool permits declared children and the actual parent; the runtime validates conversation ownership and workspace.</p>
-    <p>Existing sibling <code>delegates</code> remain available. You do not repeat a durable name in <code>delegates</code>; the durable slot already makes it a delegation target. <Link href="/foundry/docs/layered-agents">Layered agents</Link> explains the sibling-only form.</p>
+    <p>The model tool can address declared children and the actual parent, rather than arbitrary instance IDs. Messages include a host-readable <code>metadata.replyTo</code> address in <code>ctx.events</code>. Application code can use that origin when choosing where a reply belongs.</p>
+    <p>Your application can contact the worker directly through the client, even when its parent has no active run. Use a stable ID when retrying the same message:</p>
+    <CodeBlock language="typescript" code={`const worker = client.subagent(parentId, "analysis");
+const receipt = await worker.send("Use revision 12 for future work.", {
+  id: "source-revision-12",
+  whenIdle: "wake",
+});
 
-    <h2 id="direct">Message a worker directly from your application</h2>
-    <p>While the controller is running, use another terminal:</p>
-    <CodeBlock language="bash" code="node --import tsx scripts/message.ts" />
-    <CodeBlock filename="scripts/message.ts" code={files["scripts/message.ts"]} />
-    <p>The first send explicitly wakes the worker. The second uses the exact agent/conversation address returned by the first and defers a budget update. Keep the IDs unchanged when retrying the same events; use new IDs for new updates. Reusing an ID with different content or policy fails. A receipt means accepted durably, not that the model has finished responding.</p>
+// An app can also publish an event to an exact existing conversation.
+await client.emitEvent(
+  { agentId: receipt.agentId, conversationId: receipt.conversationId },
+  { id: "revision-13", source: "app:documents", kind: "source.changed", content: "Revision 13 is available." },
+  { whenIdle: "defer", deferTimeoutMs: 30_000 },
+);`} />
 
-    <h2 id="policies">Configure delivery at three levels</h2>
-    <p>The reused agent supplies its default <code>eventDelivery</code>. A durable slot can replace that default. Each send can override the effective recipient policy. The front and worker can therefore have different responsiveness without coupling their run lifetimes.</p>
-    <table><thead><tr><th>Effective policy</th><th>Idle recipient</th></tr></thead><tbody>
-      <tr><td><code>{'{ whenIdle: "wake" }'}</code></td><td>Starts an event turn. This is the default.</td></tr>
-      <tr><td><code>{'{ whenIdle: "defer" }'}</code>, no effective timeout</td><td>Waits for another turn.</td></tr>
-      <tr><td><code>{'{ whenIdle: "defer", deferTimeoutMs: 30_000 }'}</code></td><td>Joins the next turn or wakes after 30 seconds from acceptance, including across restarts.</td></tr>
-      <tr><td><code>expiresAt</code> on a message/event</td><td>Discards an event that expires before it is consumed.</td></tr>
-    </tbody></table>
-    <CodeBlock language="typescript" code={`await worker.send("A temporary offer is available.", {
-  id: "offer-v1",
-  conversationId: workerConversationId, // must already belong to this worker
-  whenIdle: "defer",
-  deferTimeoutMs: 15_000,
-  expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    <h3 id="targeting">Choose the conversation that should receive it</h3>
+    <p>An instance ID identifies the worker. A conversation ID identifies the particular context in which it will process the event. A direct message without <code>delivery.conversationId</code> uses the recipient&apos;s stable default event conversation, created when needed. It does not select the latest chat or the currently running task.</p>
+    <p>Set <code>delivery.conversationId</code> to reach an existing conversation belonging to that recipient. Foundry validates instance ownership and workspace. This applies in both directions: a worker&apos;s message to <code>parent</code> needs an explicit conversation ID to reach a particular user chat. To update a delegated task, address its conversation or use the task reply tool.</p>
+    <p>A message receipt contains <code>messageId</code>, <code>agentId</code>, <code>conversationId</code> and a <code>runId</code> when one is handling the event. Acceptance means the journal owns the event, not that a model has answered it. Reusing an ID with different content or policy fails; new information should get a new ID.</p>
+
+    <h3 id="delegate">Delegate a tracked task</h3>
+    <CodeBlock language="typescript" code={`// Parent: start a task on the existing owned worker.
+glove_foundry_delegate({ to: "analysis", task: "Assess the proposed change and report risks." });
+
+// Worker, while handling that task: request clarification.
+glove_foundry_ask({ question: "Which constraints are mandatory?" });
+
+// Parent: answer or add instructions to the task.
+glove_foundry_reply({ delegationId: "<task ID>", message: "Preserve the existing API." });
+
+// The worker's final answer returns to the originating conversation automatically.`} />
+    <p>Each task creates a separate conversation on the same owned worker instance. A new task does not create a new worker. Questions and results retain their task correlation and return to the conversation that delegated the work. Direct messages to the worker&apos;s default conversation remain separate from those tasks.</p>
+    <p>For delegation between separately managed sibling agents, see <Link href="/foundry/docs/layered-agents">layered agents</Link>. For a transient nested tool invocation, see the <Link href="/foundry/docs/multi-agent">multi-agent composition guide</Link>.</p>
+
+    <h2 id="policies">Configure how events reach a runtime</h2>
+    <p>Delivery is addressed to an agent and conversation before any model is invoked. Foundry first persists the event, target and policy. If that conversation has a live run, the event joins its native event stream at the next available boundary. Otherwise, the idle policy determines when a new event turn starts.</p>
+    <p>There are three configuration levels: the worker definition&apos;s <code>eventDelivery</code> supplies defaults; a slot&apos;s <code>eventDelivery</code> replaces that default object for the owned worker; an individual send overrides fields of the effective recipient policy.</p>
+    <CodeBlock language="typescript" code={`// On an ordinary agent definition:
+eventDelivery: { whenIdle: "wake" }
+
+// In one parent's durableSubagents slot:
+analysis: {
+  agent: worker,
+  eventDelivery: { whenIdle: "defer", deferTimeoutMs: 60_000 },
+}
+
+// For a particular message:
+await workerHandle.send("Handle this update promptly.", {
+  id: "update-42",
+  whenIdle: "wake",
+  expiresAt: new Date(Date.now() + 120_000).toISOString(),
 });`} />
-    <p>These policies govern idle targets. Busy targets receive events at native event boundaries; a live realtime session controls when it can respond. A waking event may carry deferred events into the same turn. <code>whenIdle</code> does not interrupt a tool call or infer user presence. Defaults also apply to task starts and updates; the front&apos;s wake policy makes task results promptly actionable.</p>
-
-    <h2 id="persistence">Durability and data lifecycle</h2>
-    <p>The shared journal persists accepted events, explicit targets, policies and consumed-event receipts. Direct messages, task starts, questions, replies and results use it. A stopped controller replays pending delivery and retains deduplication IDs for acknowledged or expired events. A successful receiving run acknowledges what it consumed; until a long live run closes, consumed events can still be pending in the journal.</p>
-    <p>Recovery is <strong>at least once</strong>. A crash between an external effect and its receipt can repeat work, even if an event is already in the transcript. Use event IDs for idempotent effects. Recovery restarts a run; it does not checkpoint arbitrary tool code or promise exactly-once speech.</p>
-    <table><thead><tr><th>Data</th><th>Storage in this example</th></tr></thead><tbody>
-      <tr><td>Instances, conversations, tasks, events, receipts</td><td><code>.data/foundry.json</code> through <code>FileFoundryDataAdapter</code></td></tr>
-      <tr><td>Native message history</td><td><code>.data/transcripts</code> through the supplied <code>FileStore</code></td></tr>
-      <tr><td>Parent memory</td><td><code>.data/personal.sqlite</code>, namespaced by workspace and parent instance</td></tr>
-      <tr><td>Workspace notes</td><td><code>.data/notes</code>; shared workspace data, not worker-owned</td></tr>
+    <table><thead><tr><th>Policy</th><th>Idle conversation</th></tr></thead><tbody>
+      <tr><td><code>whenIdle: &quot;wake&quot;</code></td><td>Starts an event turn. This is the default when no policy is supplied.</td></tr>
+      <tr><td><code>whenIdle: &quot;defer&quot;</code>, no effective timeout</td><td>Waits for the next turn in that conversation.</td></tr>
+      <tr><td><code>defer</code> with <code>deferTimeoutMs</code></td><td>Joins the next turn, or wakes at the deadline measured from durable acceptance. Restarting the controller does not reset that deadline.</td></tr>
+      <tr><td><code>expiresAt</code> on the message or event</td><td>Discards stale input before consumption, including during recovery.</td></tr>
     </tbody></table>
-    <CodeBlock language="typescript" code={`const worker = client.subagent("demo-front", "research");
-const state = await worker.data(); // includes event journal records and conversations
-await worker.archive();           // stop work; retain pending events and private data
-await worker.resume();            // recover pending work; schedules/descendants stay paused
+    <p>These policies do not interrupt an executing tool or infer whether a user is present. A waking event can bring deferred events into the same turn. Different conversations can run independently within the configured execution limits. Task starts, questions, replies and results use the same delivery layer and recipient defaults.</p>
+
+    <h2 id="runtime-context">Spontaneous delivery into runtime context</h2>
+    <p>A delivered message becomes a native <code>AgentEvent</code>. During a normal model/tool loop it joins the context at an event boundary and is saved to history. An idle event turn uses <code>processEvents()</code>. Custom Foundry handlers can read <code>ctx.events</code> or call <code>ctx.defaultRun()</code> to use the normal loop.</p>
+    <p>Standing state, such as the current list of open tasks, is supplied as live runtime-context snapshots. Arriving messages are events. This lets a worker report new information while the parent is doing other work, without turning every arrival into a synthetic user request.</p>
+    <p>A realtime runtime can hold the turn queue and consume native events as part of its session. It decides when a response can be spoken or displayed, for example at a quiet pause. The controller still owns durable targeting and delivery; a provider socket or live room is not what makes the worker durable.</p>
+    <p>Use <code>client.emitEvent</code>, <code>runtime.emitEvent</code> or the Foundry messaging tool for durable acceptance. A direct <code>glove.emitEvent</code> call inside a process does not create a Foundry journal record. Optional live mesh transport has its own configuration and is not required here. See <Link href="/docs/runtime-context">runtime context and spontaneous events</Link> for the native primitives.</p>
+
+    <h2 id="responsiveness">Give workers different execution budgets</h2>
+    <p>A worker&apos;s run is independent of the run that delegated to it. A parent can finish a request while its worker continues, and a later question or result can wake the originating parent conversation. You can choose different models and run limits for each responsibility:</p>
+    <CodeBlock language="typescript" code={`// On the worker's defineAgent:
+runTimeoutMs: 4 * 60 * 60 * 1000,
+maxConcurrentRuns: 1`} />
+    <p><code>runTimeoutMs</code> is the run deadline; the default is five minutes. <code>maxConcurrentRuns</code> limits simultaneous runs of that definition. Plan the runtime&apos;s <code>execution.maxConcurrent</code> alongside those limits so background work leaves capacity for responsive agents.</p>
+    <p>A durable identity does not give a worker an unlimited run or a scheduling priority. These settings control time and capacity; they do not guarantee latency or preempt a slow tool.</p>
+
+    <h2 id="persistence">What survives a restart</h2>
+    <p>The shared journal retains accepted direct messages, delegated task deliveries, questions, replies and results until a successful receiving run reports consumption. Startup reconciles completed-run receipts and replays unfinished delivery to the stored target. A long live run may have heard an event while its journal receipt remains pending until that run successfully closes.</p>
+    <p>Delivery is <strong>at least once</strong>. A crash after a side effect or transcript write but before acknowledgment can repeat work. Use stable event IDs for idempotent external effects. Recovery starts a new execution of pending work; it does not restore a JavaScript stack, arbitrary tool checkpoints or a provider session.</p>
+    <table><thead><tr><th>State</th><th>Persistence boundary</th></tr></thead><tbody>
+      <tr><td>Instances, ownership, conversation records, events and receipts</td><td>The application&apos;s <code>FoundryDataAdapter</code>. Use <code>FileFoundryDataAdapter</code> or a persistent adapter implementing the event-journal methods.</td></tr>
+      <tr><td>Message history</td><td>The application <code>conversationStore</code> or agent <code>store</code>. An instance record alone does not save native transcripts.</td></tr>
+      <tr><td>Structured memory</td><td>The selected memory adapters, with the intended parent or child namespaces.</td></tr>
+      <tr><td>Files and external application data</td><td>The configured working-environment persistence or application-owned storage.</td></tr>
+    </tbody></table>
+    <p>The in-memory adapter does not survive a process restart. Completed and expired event IDs remain as deduplication receipts until owned-data purge; there is no automatic receipt expiry. Transcript writes and journal acknowledgments are separate transactions. Run one controller per data store, and read <Link href="/foundry/docs/persistence">persistence</Link> before deploying.</p>
+
+    <h2 id="lifecycle">Inspect, archive, resume and purge</h2>
+    <p>The worker&apos;s data belongs to its ownership relationship, so lifecycle operations address the parent and slot. The client exposes these operations on the same handle used for messaging:</p>
+    <CodeBlock language="typescript" code={`const worker = client.subagent(parentId, "analysis");
+const state = await worker.data(); // existing instance, conversations, events, children and owned records
+await worker.archive();           // stop work and retain its data
+await worker.resume();            // activate this worker and recover pending events
 await worker.archive();
-await worker.purge();             // explicit cleanup, owned records removed, tombstone retained`} />
-    <p>Purge requires archival and an idempotent cleanup hook. It does not delete received copies in the parent&apos;s history, shared memory, app accounts, or execution/observability logs. A purged slot cannot silently recreate itself; use a new worker name for a replacement. Run one controller per data store. For deployment, add request authorization, an authenticated per-session transport and persistent storage.</p>
+await worker.purge();             // remove owned data after explicit cleanup`} />
+    <p>Archival marks the worker inactive, archives its existing descendants, pauses schedules and stops queued/running work. Messages, delegation and direct runs are rejected while it is archived. Pending events and private data remain available for inspection or recovery.</p>
+    <p>Resume activates the selected worker and recovers its pending events. Descendants and paused schedules need explicit resumption. Removing a slot from code detaches its existing worker; it does not erase its records. You can still inspect and archive that data.</p>
+    <p>Purge requires an archived worker, no running work, already-purged descendants and an explicit idempotent <code>cleanup</code> hook on the slot. The hook deletes private transcripts, memory and external files through your application&apos;s adapters. Hook failure leaves the archived Foundry records available for a retry; keep the declaration until cleanup finishes. A no-op hook is appropriate only when no application-owned private data exists.</p>
+    <p>The bundled adapters then remove owned conversations, event records and deduplication receipts, pending deliveries, activations, VFS snapshots, tasks, inbox items and scoped environment data. Shared parent memory, shared workspace entries and app accounts are preserved. Copies already received in another agent&apos;s history, execution logs, observability and third-party records have separate retention.</p>
+    <p>A minimal tombstone keeps the worker&apos;s ownership and provisioning identity. Old retries cannot silently recreate a purged worker. Declare a new slot name when you intentionally want a replacement.</p>
 
-    <h2 id="files">Startup and all supporting files</h2>
-    <p>The startup script installs the parent app, reuses stable instance/conversation IDs and opens only the front session. Worker provisioning stays lazy.</p>
-    <CodeBlock filename="scripts/start.ts" code={files["scripts/start.ts"]} />
-    <p>Copy these files alongside the definitions above, or use <a href={source}>the repository example</a>. The document catalogue is fixture data; replace it with your app&apos;s authenticated sources for real research.</p>
-    {supportFiles.map((path) => <details key={path}><summary><code>{path}</code></summary><CodeBlock filename={path} language={path.endsWith(".json") ? "json" : path.endsWith(".html") ? "html" : "typescript"} code={files[path]} /></details>)}
-    <p>Continue with <Link href="/foundry/docs/persistence">persistence</Link>, <Link href="/foundry/docs/applications">applications and permissions</Link>, or <Link href="/docs/runtime-context">native runtime context and spontaneous events</Link>.</p>
+    <h2 id="run">A complete worked example</h2>
+    <p>The <Link href="/foundry/docs/durable-subagents/realtime-example">realtime front and durable researcher walkthrough</Link> puts these primitives together in a runnable project. It includes persistent stores, memory and app inheritance, direct messaging, delegation, delivery policies and restart verification. It is one application of durable workers; the ownership and delivery model above applies regardless of how your agents receive work.</p>
+    <p>Continue with <Link href="/foundry/docs/definitions-and-instances">definitions and instances</Link>, <Link href="/foundry/docs/applications">applications</Link>, <Link href="/foundry/docs/layered-agents">task delegation</Link>, or the <Link href="/foundry/docs/reference">API reference</Link>.</p>
   </article>;
 }

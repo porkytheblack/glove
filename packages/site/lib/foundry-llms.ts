@@ -1,4 +1,4 @@
-import { durableResearchSource } from "./foundry-durable-example";
+import { durableResearchSource, durableSubagentsGuide } from "./foundry-durable-example";
 import { foundrySections } from "./foundry-nav";
 
 const SITE_URL = "https://glove.dterminal.net";
@@ -18,7 +18,7 @@ export function buildFoundryLlmsTxt(): string {
     "- Foundry never acquires, stores or refreshes credentials; accounts carry an opaque accessRef resolved by your adapter.",
     "- A non-loopback bind requires a requestAuthorization adapter.",
     "- Layer agents as siblings by speed, context and duration: a fast interactor that talks and keeps personal memory lists workers in delegates: [{ agent: \"coder\", description }]; it gets glove_foundry_delegate and glove_foundry_reply, workers get glove_foundry_ask, and results and questions come back to the delegating conversation.",
-    "- Durable subagents: durableSubagents: { research: { agent: researcher, inherit, eventDelivery, cleanup } }; independent owned instances, restricted app inheritance, direct messages and task delegation over a persistent addressed event journal. See /foundry/docs/durable-subagents for a complete realtime example.",
+    "- Durable subagents: durableSubagents: { analysis: { agent: worker, inherit, eventDelivery, cleanup } }; one owned instance per parent and slot, created on first use and reused across tasks and restarts. Explicit inheritance, direct messages, tracked delegation and addressed durable events. See /foundry/docs/durable-subagents for identity, provisioning, permissions, delivery and data lifecycle.",
     "- Voice: run: voiceCall({ room, greeting }) from glove-foundry/voice, with model: s2sDrivenModel(...). Delegation results are spoken at the next pause; approval-gated and bookkeeping tools are kept off the call.",
     "- Keep agent.ts for assembly: prompts, tools, memory, workspaces and model choices live in modules beside it; sibling delegates refer by route; durableSubagents reuse imported or inline agent definitions.",
     "",
@@ -596,33 +596,14 @@ conversation, without modifying the user's pinned memory.
 `;
 
 // Keep both full-reference routes on the same complete source.
-const DURABLE_REFERENCE = `# Durable subagents: realtime front and researcher
+const DURABLE_REFERENCE = `${durableSubagentsGuide}
 
-Guide: https://glove.dterminal.net/foundry/docs/durable-subagents
+# Worked example: realtime front and durable researcher
+
+Walkthrough: https://glove.dterminal.net/foundry/docs/durable-subagents/realtime-example
 Source: examples/foundry-durable-research (current checkout APIs; older registry releases may lack them).
-A durable slot reuses an imported/inline defineAgent and provisions one owned worker per parent instance.
-Inheritance is explicit: context snapshot, named tools, shared/isolated memory with reader/curator access,
-and currently installed apps narrowed through restrictApp({ tools, operations, transmissions }).
-Omitted app permission lists deny access. Parent revocation remains authoritative.
-
-Task delegation to a durable name creates a task conversation on the owned worker; questions/results
-return to the origin. Direct messages use a stable default conversation unless delivery.conversationId
-names an existing conversation belonging to the recipient. Tools allow declared children or parent.
-client.emitEvent({ agentId, conversationId }, event, policy) is the external addressed entry point.
-
-Recipient eventDelivery defaults may be replaced per durable slot and overridden per send.
-whenIdle: wake starts idle work; defer waits for a turn, or deferTimeoutMs from acceptance.
-expiresAt discards stale input. Busy delivery joins native event boundaries; realtime controls response timing.
-A FileFoundryDataAdapter journal persists pending events and acknowledged/expired deduplication receipts.
-Delivery is at least once across crashes, not a tool-code checkpoint or an exactly-once side-effect promise.
-A long live run acknowledges consumed events when it successfully ends. Worker archive retains pending
-work; resume recovers it; purge requires an idempotent cleanup hook and retains an identity tombstone.
-
-The example uses glove-realtime RealtimeSession (typed realtime input/text output) with native events.
-An explicit live-start request opens the room; later events use the text fallback in the same conversation.
-No mesh inbox or custom delegation relay is needed. Persist runtime data, native transcripts and memory
-separately. Use one controller per data store. The code below includes the room, corpus, app, memory,
-store, startup and direct-message client; live provider use needs GEMINI_API_KEY on the server.
+This runnable project applies the ownership and delivery model in the feature guide above.
+Its transport, model choices and fictional vendor corpus belong to this example.
 
 ${durableResearchSource}`;
 

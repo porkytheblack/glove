@@ -80,7 +80,7 @@ export const foundrySections: FoundryNavSection[] = [
         label: "Durable subagents",
         href: "/foundry/docs/durable-subagents",
         badge: "new",
-        summary: "Complete realtime front and long-running researcher: inheritance, memory and app permissions, direct messaging, task delegation, event targeting, wake/defer policies and restart recovery.",
+        summary: "Persistent workers owned by each parent instance: definitions, slots, provisioning, inheritance, memory/app permissions, messaging, delegation, delivery policies and data lifecycle.",
       },
       {
         label: "Voice agents",

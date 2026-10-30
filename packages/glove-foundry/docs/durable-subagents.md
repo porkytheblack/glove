@@ -1,24 +1,54 @@
 # Durable subagents
 
-A durable subagent is a named worker owned by one agent instance. It keeps its own
-identity, conversations, schedules, private data, and event delivery state across requests. Reusing
-an agent definition creates an owned instance; it does not adopt an unrelated
-existing instance. Different parents and different names always have different workers.
+A durable subagent is an agent instance owned by another agent instance. Declare a
+named worker in `defineAgent`; Foundry creates it on first use and keeps its identity,
+conversations and owned data available for future work.
+
+Use durable subagents when one agent needs several intelligent workers with separate
+responsibilities. Each can have its own model, instructions, tools, memory access and
+run budget, handle many tasks over time, receive events independently, and own further
+workers. The parent can keep serving requests while that work proceeds. This applies
+to chat agents, background services, scheduled work and systems with no conversational
+front. A realtime front is one possible consumer of the same primitives.
+
+## What exists in code and storage
+
+| Concept | Meaning |
+| --- | --- |
+| Worker definition | A normal `defineAgent` value describing a model, instructions and capabilities. Several slots or parents can reuse it. |
+| Named slot | A key in `durableSubagents`, with a worker definition, inheritance selections and delivery defaults. |
+| Owned worker instance | One persisted agent for a particular parent instance and slot name, with its own instance ID in the parent's workspace. |
+| Conversation | A context owned by that worker. Its default event conversation and individual delegated-task conversations are separate. |
+| Run | An execution assembled to process work in a conversation. The same worker instance can be used by many runs. |
+
+Two parent instances using the same definition get different workers. Two slots on
+one parent get different workers even when they reuse the same definition. Reusing a
+definition does not adopt an unrelated existing instance.
+
+The identity and stored state are durable. A worker does not need a continuously
+running JavaScript process or model session. Foundry assembles it again for each run;
+an idle worker does not occupy an execution slot just to exist.
+
+## Declare the relationship
+
+Keep workers as ordinary agent definitions, then select them in the parent. An inline
+`defineAgent` value works too. Models and persistence adapters use normal Foundry
+configuration; there is no separate worker harness to construct.
 
 ```ts
 import { defineAgent, restrictApp } from "glove-foundry";
-import researcher from "../researcher/agent.js";
+import worker from "../worker/agent.js";
 import knowledgeBase from "./apps/knowledge-base.app.js";
 import { components } from "./composition.js";
 
 export default defineAgent({
-  description: "A responsive assistant with persistent research",
+  description: "Coordinate requests and independent workers",
   model: fastModel,
   systemPrompt: "Help the user and coordinate your workers.",
   components,
   durableSubagents: {
-    research: {
-      agent: researcher,
+    analysis: {
+      agent: worker,
       eventDelivery: { whenIdle: "wake" },
       inherit: {
         context: true,
@@ -50,22 +80,52 @@ export default defineAgent({
 
 Imported definitions and inline `defineAgent` values work, including nested workers.
 Definitions remain immutable. Discovery derives a route such as
-`assistant/workers/research`; `workers` inside a route is reserved for this purpose.
+`coordinator/workers/analysis`; `workers` inside a route is reserved for this purpose.
 Names must be lowercase slugs; `parent` is reserved. Cycles and route collisions fail
 discovery. Declare these relationships statically; ordinary assembly fields remain lazy.
 
-## Independent work and messaging
+## Provisioning and reuse
 
-Workers are provisioned atomically on first use, once per parent and slot. Calls to
-`glove_foundry_delegate({ to: "research", task: "Write a report" })` use the owned
-researcher. Existing `delegates` continue to work. A durable name takes precedence
+Declaring a slot makes a worker available; it does not create every possible instance
+at startup. A first message or delegated task atomically provisions the owned worker.
+An application can also ensure one explicitly:
+
+```ts
+import { createFoundryClient } from "glove-foundry/client";
+
+const client = createFoundryClient({ baseUrl: process.env.FOUNDRY_URL! });
+const parent = await client.agent("coordinator").create({ workspaceId: "workspace-a" });
+const worker = client.subagent(parent.id, "analysis"); // handle only; no request yet
+const instance = await worker.ensure();              // create once or return the existing instance
+await worker.send("Review the current plan.");       // also ensures the worker if needed
+```
+
+The ownership key is the parent instance ID plus the slot name. New messages, tasks
+and controller restarts reuse that instance when the data adapter is persistent.
+Ensuring a worker does not start a model run. Listing and inspection do not provision
+or reactivate workers. A new parent gets new workers; changing a slot name identifies
+a different worker rather than renaming its stored instance.
+
+## Direct messages and task delegation
+
+A durable worker is a place to send work over time. Task delegation adds an assignment,
+clarification questions, task status and a correlated final result to that independent
+lifetime. Direct messages communicate facts, priority changes or spontaneous findings
+without creating a tracked task. Both use the same addressed event-delivery layer.
+
+Calls to
+`glove_foundry_delegate({ to: "analysis", task: "Write a report" })` use the owned
+worker. Existing `delegates` continue to work. A durable name takes precedence
 when it also names a sibling delegate. Each task gets a separate conversation;
 its final result and questions return to the originating parent conversation.
 
-`glove_foundry_message({ to: "research", message: "Watch this competitor" })`
+`glove_foundry_message({ to: "analysis", message: "Watch this competitor" })`
 sends a spontaneous message without creating a task. The worker can send
 `glove_foundry_message({ to: "parent", message: "Something changed" })` at any time.
-By default messages address a stable conversation belonging to the recipient. Supply
+An instance ID identifies the worker; a conversation ID identifies the particular
+context in which it processes an event. By default messages address a stable event
+conversation belonging to the recipient. They do not automatically enter an active
+task or the latest parent chat. Supply
 `delivery.conversationId` to address an existing conversation explicitly. Foundry
 validates that it belongs to the recipient and shares its workspace; it never guesses
 the latest chat. The model tool accepts only declared children and the actual parent.
@@ -75,7 +135,7 @@ reply. There is no automatic reply loop.
 
 ```ts
 await worker.send("Include these three companies.", {
-  id: "research-update-42",           // stable across retries
+  id: "analysis-update-42",           // stable across retries
   conversationId: reportConversationId,
   whenIdle: "defer",                  // join the next turn
   deferTimeoutMs: 30_000,             // or wake after 30 seconds
@@ -84,7 +144,7 @@ await worker.send("Include these three companies.", {
 
 // The same layer supports direct addressed events from an application.
 await client.emitEvent(
-  { agentId: researcherId, conversationId: reportConversationId },
+  { agentId: workerId, conversationId: reportConversationId },
   { id: "source-change-42", source: "app:watcher", kind: "source.changed", content: "The source changed." },
   { whenIdle: "wake" },
 );
@@ -96,13 +156,17 @@ await messageTool.run({
 });
 ```
 
+## Delivery policies
+
 `defineAgent({ eventDelivery })` sets the recipient's default policy; a durable slot
-can override it with `durableSubagents.research.eventDelivery`. Each send can override
-that policy again. The default is `whenIdle: "wake"`. `defer` without a timeout waits
+can replace that default object with `durableSubagents.analysis.eventDelivery`. Each
+send can override fields of the effective policy. The default is `whenIdle: "wake"`.
+`defer` with no effective timeout waits
 for another turn; with `deferTimeoutMs`, the original acceptance time determines the
 wake deadline, including across restarts. `expiresAt` discards stale events before
-injection. Policies affect idle targets; events sent to a busy target join its next
-native event boundary. A waking event can carry other deferred events into the same
+injection. Policies affect idle conversations; events sent to a conversation with a
+live run join its next native event boundary. Different conversations can run
+independently within execution limits. A waking event can carry other deferred events into the same
 turn. These are deterministic controller policies; they do not infer user presence.
 
 The message tool waits for durable acceptance, not for the recipient's answer.
@@ -155,6 +219,12 @@ Use `FileFoundryDataAdapter` or a persistent transactional adapter, and configur
 application `conversationStore` (or worker `store`) for transcripts. Instance and
 message persistence does not itself persist native Glove transcripts, memory, or
 external files. These keep their existing Foundry persistence boundaries.
+
+## Execution budgets and responsiveness
+
+A worker's run is independent of the run that delegated to it. A parent can finish a
+request while the worker continues; a question or result can later wake the originating
+parent conversation. Models and run budgets can be chosen separately for each role.
 
 `runTimeoutMs` sets a definition's run deadline; the existing default remains five
 minutes. `maxConcurrentRuns` limits that definition's simultaneous runs. Set runtime
@@ -210,11 +280,11 @@ instead of bypassing it with process-global credentials.
 ## Management and retention
 
 ```ts
-const worker = client.subagent(assistantId, "research");
+const worker = client.subagent(parentId, "analysis");
 const instance = await worker.ensure();
 await worker.send("Include these three companies.");
 const state = await worker.data();
-const children = await client.subagents(assistantId);
+const children = await client.subagents(parentId);
 await worker.archive();
 await worker.resume();
 await worker.archive();
@@ -257,3 +327,11 @@ manage its lifecycle. The runtime exposes matching `subagent`, `listSubagents`,
 `POST /api/events` accepts `{ target: { agentId, conversationId }, event, policy? }`,
 matching `runtime.emitEvent` and `client.emitEvent`. It uses the same application
 request authorization as the rest of the HTTP API.
+
+## Complete worked example
+
+The [realtime front and durable researcher walkthrough](https://glove.dterminal.net/foundry/docs/durable-subagents/realtime-example)
+applies these primitives in a runnable project with persistent stores, memory/app
+inheritance, direct messages, task delegation, delivery policies and restart checks.
+Source: `examples/foundry-durable-research`. The ownership and delivery model above
+applies regardless of how the agents receive work.
