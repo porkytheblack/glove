@@ -1,7 +1,7 @@
 import { MemoryStore, type Message, type ModelAdapter, type ModelPromptResult, type PromptRequest } from "glove-core";
 import { z } from "zod";
 import { defineAgent } from "../../../../src/index.js";
-import { log } from "../../delegation-scripted.js";
+import { log, eventText } from "../../delegation-scripted.js";
 
 function reply(message: Message): ModelPromptResult {
   return { messages: [message], tokens_in: 1, tokens_out: 1 };
@@ -13,11 +13,11 @@ class PlannerModel implements ModelAdapter {
   setSystemPrompt(): void {}
   async prompt(request: PromptRequest): Promise<ModelPromptResult> {
     const delivered = request.messages.find((message) =>
-      message.framework_context === "event" && message.text.includes('status="completed"'));
+      message.framework_context === "event" && eventText(message).includes('status="completed"'));
     if (delivered) {
       const open = request.messages.filter((message) => message.framework_context === "runtime").at(-1)?.text ?? "";
       log("planner-heard", { stillListed: open.includes("delegation_") });
-      const result = /Result:\n([\s\S]*?)\n<\/delegation>/.exec(delivered.text)?.[1] ?? "";
+      const result = /Result:\n([\s\S]*?)\n<\/delegation>/.exec(eventText(delivered))?.[1] ?? "";
       return reply({ sender: "agent", text: `inline: ${result}` });
     }
     // Runtime context (the open-delegations list) rides at the tail; read past it.

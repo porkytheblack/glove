@@ -781,6 +781,28 @@ export class FoundryServer {
         }));
         return;
       }
+      if (url.pathname === "/api/events" && method === "POST") {
+        const body = await readJson(request) as { target: import("./event-delivery.js").FoundryEventTarget; event: import("glove-core").AgentEvent; policy?: import("./event-delivery.js").FoundryEventPolicy };
+        if (!body.target || typeof body.target.agentId !== "string" || typeof body.target.conversationId !== "string") throw new RequestError(400, "target.agentId and target.conversationId are required.");
+        json(response, 202, await this.runtime.emitEvent(body.target, body.event, body.policy)); return;
+      }
+      const workerRoute = url.pathname.match(/^\/api\/agent-instances\/([^/]+)\/subagents(?:\/([^/]+))?(?:\/(messages|data|archive|resume|purge))?$/);
+      if (workerRoute) {
+        const parent = decodeURIComponent(workerRoute[1]!);
+        const name = workerRoute[2] ? decodeURIComponent(workerRoute[2]) : undefined;
+        const action = workerRoute[3];
+        if (!name && method === "GET") { json(response, 200, await this.runtime.listSubagents(parent)); return; }
+        if (name && !action && method === "POST") { json(response, 200, await this.runtime.subagent(parent, name)); return; }
+        if (name && action === "data" && method === "GET") { json(response, 200, await this.runtime.subagentData(parent, name)); return; }
+        if (name && action === "messages" && method === "POST") {
+          const body = await readJson(request) as Record<string, unknown>;
+          if (typeof body.message !== "string") throw new RequestError(400, "message is required.");
+          json(response, 202, await this.runtime.messageSubagent(parent, name, body.message, body.delivery as import("./event-delivery.js").FoundryMessageOptions)); return;
+        }
+        if (name && action === "archive" && method === "POST") { json(response, 200, await this.runtime.archiveSubagent(parent, name)); return; }
+        if (name && action === "resume" && method === "POST") { json(response, 200, await this.runtime.resumeSubagent(parent, name)); return; }
+        if (name && action === "purge" && method === "POST") { await this.runtime.purgeSubagent(parent, name); json(response, 200, { purged: true }); return; }
+      }
       const instanceConfiguration = url.pathname.match(/^\/api\/agent-instances\/([^/]+)$/);
       if (instanceConfiguration && method === "PATCH") {
         const body = await readJson(request) as Record<string, unknown>;

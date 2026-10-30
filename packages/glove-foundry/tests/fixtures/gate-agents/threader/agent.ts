@@ -2,7 +2,7 @@ import { MemoryStore, type Message, type ModelAdapter, type ModelPromptResult, t
 import { z } from "zod";
 import { composeAgent } from "../../../../src/composition.js";
 import { defineAgent } from "../../../../src/index.js";
-import { log } from "../../delegation-scripted.js";
+import { log, eventText } from "../../delegation-scripted.js";
 import { ticketsApp } from "../../gate-tickets.js";
 
 function reply(message: Message): ModelPromptResult {
@@ -20,8 +20,12 @@ class ThreaderModel implements ModelAdapter {
   readonly name = "gate-threader";
   setSystemPrompt(): void {}
   async prompt(request: PromptRequest): Promise<ModelPromptResult> {
-    const own = request.messages.find((message) => message.sender === "user" && !message.framework_context)?.text ?? "";
-    const joined = request.messages.filter((message) => message.framework_context === "event").map((message) => message.text);
+    const inputs = request.messages.filter((message) => message.sender === "user" && !message.tool_results?.length && message.framework_context !== "runtime")
+      .flatMap((message) => message.framework_context === "event"
+        ? [...message.text.matchAll(/<event [^>]*>\n([\s\S]*?)\n<\/event>/g)].map((match) => eventText({ ...message, text: match[0] }))
+        : [message.text]);
+    const own = inputs[0] ?? "";
+    const joined = inputs.slice(1);
     const steps = request.messages.filter((message) => message.tool_results?.length).length;
     log("threader-call", { runId: process.env.STATION_SIGNAL_RUN_ID, own: own.slice(0, 400), joined: joined.length, steps });
     if (own.includes("hold")) {

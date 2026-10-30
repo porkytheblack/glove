@@ -1,3 +1,4 @@
+import { composeDurableAgent, durableRoute, DURABLE_SEGMENT } from "./durable-subagents.js";
 import { readdir } from "node:fs/promises";
 import { dirname, extname, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -74,6 +75,7 @@ export interface FoundryManifestAgent {
   hooks: readonly string[];
   skills: readonly string[];
   subagents: readonly string[];
+  durableSubagents?: ReadonlyArray<{ readonly name: string; readonly definitionId: string; readonly description?: string }>;
   memory: readonly string[];
   inboxLoader: boolean;
   calls: readonly string[];
@@ -233,6 +235,21 @@ export async function discoverAgents(options: {
       executionName: internalAgentName(route),
     });
   }
+  const expand = (entry: DiscoveredAgent, ancestors: ReadonlySet<FoundryAgentDefinition>): void => {
+    for (const [name, selection] of Object.entries(entry.definition.durableSubagents ?? {})) {
+      if (ancestors.has(selection.agent)) throw new Error(`Cyclic durable subagents at "${entry.route}/${name}".`);
+      const route = durableRoute(entry.route, name);
+      if (seen.has(route)) throw new Error(`Durable subagent route "${route}" conflicts with an existing agent.`);
+      seen.set(route, entry.filePath);
+      const child = { ...entry, route, definition: composeDurableAgent(entry.definition, name, selection), executionName: internalAgentName(route) };
+      discovered.push(child);
+      expand(child, new Set([...ancestors, selection.agent]));
+    }
+  };
+  for (const entry of [...discovered]) {
+    if (entry.route.includes(DURABLE_SEGMENT)) throw new Error(`The route segment "workers" is reserved for durable subagents.`);
+    expand(entry, new Set([entry.definition]));
+  }
   return discovered;
 }
 
@@ -266,6 +283,7 @@ export function createManifest(
       subagents: (typeof definition.subagents === "function" ? [] : definition.subagents ?? []).map(
         (subagent) => subagent.name,
       ),
+      durableSubagents: Object.entries(definition.durableSubagents ?? {}).map(([name, child]) => ({ name, definitionId: durableRoute(route, name), ...(child.description ? { description: child.description } : {}) })),
       memory: (typeof definition.memory === "function" ? [] : definition.memory ?? []).map(
         (selection) => {
           const profile = "profile" in selection ? selection.profile : selection;

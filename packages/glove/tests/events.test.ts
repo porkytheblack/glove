@@ -217,3 +217,22 @@ test("the default formatter keeps each event's media next to its own event", () 
   assert.equal(parts[3].source?.url, "https://example.com/b.png");
   assert.equal(parts[4].text, "</events>");
 });
+
+test("processEvents awaits the event turn, preserves event framing, and propagates failures", async () => {
+  const seen: Message[][] = [];
+  const agent = make({ name: "test", setSystemPrompt() {}, async prompt(request) {
+    seen.push(structuredClone(request.messages)); return answer("handled event");
+  } }, { policy: () => "defer", deferTimeoutMs: Infinity }).build();
+  let prepared = 0;
+  agent.addTurnPreparer(() => { prepared++; });
+  await agent.emitEvent({ id: "durable-id", source: "foundry:worker", content: "done" });
+  const result = await agent.processEvents();
+  assert.ok(result);
+  assert.equal(prepared, 1);
+  assert.equal(seen[0].at(-1)!.framework_context, "event");
+  assert.equal(seen[0].filter((message) => message.sender === "user" && !message.framework_context).length, 0);
+  assert.equal(await agent.processEvents(), undefined);
+  agent.addTurnPreparer(() => { throw new Error("prepare failed"); });
+  await agent.emitEvent({ id: "retryable", source: "foundry:worker", content: "again" });
+  await assert.rejects(agent.processEvents(), /prepare failed/);
+});

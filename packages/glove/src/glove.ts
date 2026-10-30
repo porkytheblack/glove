@@ -187,6 +187,8 @@ export interface IGloveRunnable {
   emitEvent: (event: AgentEvent) => Promise<EventDisposition>
   /** Tell the event policy a user is present (typing, a live voice session). */
   notifyUserActivity: () => void
+  /** Run queued spontaneous events as an awaited turn, without manufacturing a user request. */
+  processEvents: (signal?: AbortSignal) => Promise<ModelPromptResult | Message | undefined>
   processRequest: (request: string | ContentPart[], signal?: AbortSignal) => Promise<ModelPromptResult | Message>
   setModel: (model: ModelAdapter) => void
   setSystemPrompt: (prompt: string) => void
@@ -712,26 +714,28 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
   /** Start a turn whose message is the queued events. */
   private startWake() {
     this.clearDeferTimer()
-    void this.runTurn(async () => {
+    void this.processEvents().catch(() => {})
+  }
+
+  async processEvents(signal?: AbortSignal): Promise<ModelPromptResult | Message | undefined> {
+    if (!this.built) throw new Error("Call build before processEvents")
+    return this.runTurn(async () => {
       const events = await this.takeLiveEvents()
-      // A request that ran first may already have taken them.
       if (!events.length) return
       const ids = events.map((event) => event.id)
       this.rememberConsumed(ids)
       try {
-        // The same preparation a request gets (goal recovery, form
-        // preparation). Events are taken first, so a failing preparer ends
-        // this wake instead of re-waking for the same events forever.
-        await this.prepareTurn()
+        await this.prepareTurn(signal)
         const message = this.eventFormatter(events, "wake")
         await this.notifyExtensionEvent("event_injected", { ids, phase: "wake" })
-        await this.agent.ask(message, this.handOver)
+        return await this.agent.ask(message, this.handOver, signal)
       } catch (error) {
         await this.notifyExtensionEvent("event_wake_failed", {
           ids, message: error instanceof Error ? error.message : String(error),
         })
+        throw error
       }
-    }).catch(() => {})
+    }, signal)
   }
 
   private armDeferTimer() {

@@ -1,3 +1,4 @@
+import type { DurableMessageCommand } from "./durable-subagents.js";
 import { randomUUID } from "node:crypto";
 import type { GloveFoldArgs } from "glove-core";
 import { Effect, JSONSchema, Schema } from "effect";
@@ -152,7 +153,8 @@ export type FoundryCoreCommand =
       readonly applicationId?: string;
       readonly transmissionId?: string;
     }
-  | FoundryDelegationCommand;
+  | FoundryDelegationCommand
+  | DurableMessageCommand;
 
 function commandId(): string {
   return `command_${randomUUID()}`;
@@ -247,6 +249,7 @@ export function createInstalledApplicationTransmissionTools(
   for (const application of applications) {
     if (!installed.has(application.id)) continue;
     for (const transmission of application.transmissions ?? []) {
+      if (application.restrictions && !application.restrictions.transmissions?.includes(transmission.id)) continue;
       if (!transmission.outbound) continue;
       const routeIds = [...new Set(
         playbooks

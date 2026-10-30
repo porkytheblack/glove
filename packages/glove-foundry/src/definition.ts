@@ -1,3 +1,5 @@
+import { eventPolicySchema } from "./event-delivery.js";
+import { validateDurableSubagents, type DurableSubagents } from "./durable-subagents.js";
 import type {
   DefineSkillArgs,
   DefineSubAgentArgs,
@@ -106,6 +108,8 @@ export interface AgentAssemblyContext<TInput = unknown> {
   readonly message: Message;
   /** Exact input that will be passed to `Glove.processRequest`. */
   readonly messageInput: FoundryMessageInput;
+  /** Spontaneous events that started this run. Custom handlers acknowledge them on successful return. */
+  readonly events?: ReadonlyArray<import("glove-core").AgentEvent>;
   /** Convenience text projection matching Glove's multimodal normalization. */
   readonly messageText: string;
   /** Persisted native Glove messages before the current inbound turn. */
@@ -166,6 +170,8 @@ export function defineCall<
 export interface FoundryExecutionContext<TInput = unknown>
   extends FoundrySurfaceContext<TInput>, FoundryGuidanceHandles {
   readonly installations: ReadonlyArray<AgentInstallation>;
+  readonly events?: ReadonlyArray<import("glove-core").AgentEvent>;
+  readonly delegations?: ReadonlyArray<FoundryDelegation>;
   /** Register run-scoped teardown for an explicitly mounted capability. Runs in reverse order, even if assembly fails. */
   readonly onCleanup: (cleanup: () => void | Promise<void>) => void;
   /** Native persistent environment mounted for this run, when configured. */
@@ -209,6 +215,10 @@ export interface AgentAssemblyOptions<TInput = unknown> {
   readonly systemPrompt?: FoundryResolver<string, TInput>;
   readonly displayManager?: FoundryResolver<DisplayManagerAdapter, TInput>;
   readonly serverMode?: boolean;
+  /** Maximum wall time for one run; independent workers can allow hours. */
+  readonly runTimeoutMs?: number;
+  /** Limit concurrent runs of this definition to leave capacity for other agents. */
+  readonly maxConcurrentRuns?: number;
   readonly maxRetries?: number;
   readonly maxConsecutiveErrors?: number;
   readonly compactionLimit?: FoundryResolver<number, TInput>;
@@ -226,6 +236,8 @@ export interface AgentAssemblyOptions<TInput = unknown> {
    * needs answered, comes back to this conversation.
    */
   readonly delegates?: FoundryListResolver<FoundryDelegate, TInput>;
+  readonly durableSubagents?: DurableSubagents;
+  readonly eventDelivery?: import("./event-delivery.js").FoundryEventPolicy;
   /**
    * When this agent works on a delegated task, how long glove_foundry_ask
    * waits in the same run for an answer before the run suspends. Default 90s.
@@ -293,6 +305,8 @@ export interface AgentAssemblyOptions<TInput = unknown> {
 }
 
 export interface FoundryMeshConfig {
+  readonly delivery?: "events" | "inbox";
+  readonly whenIdle?: "wake" | "defer" | "auto";
   readonly adapter: MeshAdapter;
   readonly identity?: Omit<AgentIdentity, "id"> & { readonly id?: string };
 }
@@ -338,6 +352,10 @@ export interface FoundryAgentConventionModule {
   readonly systemPrompt?: AgentAssemblyOptions["systemPrompt"];
   readonly displayManager?: AgentAssemblyOptions["displayManager"];
   readonly serverMode?: boolean;
+  /** Maximum wall time for one run; independent workers can allow hours. */
+  readonly runTimeoutMs?: number;
+  /** Limit concurrent runs of this definition to leave capacity for other agents. */
+  readonly maxConcurrentRuns?: number;
   readonly maxRetries?: number;
   readonly maxConsecutiveErrors?: number;
   readonly compactionLimit?: AgentAssemblyOptions["compactionLimit"];
@@ -349,6 +367,8 @@ export interface FoundryAgentConventionModule {
   readonly skills?: AgentAssemblyOptions["skills"];
   readonly subagents?: AgentAssemblyOptions["subagents"];
   readonly delegates?: AgentAssemblyOptions["delegates"];
+  readonly durableSubagents?: DurableSubagents;
+  readonly eventDelivery?: import("./event-delivery.js").FoundryEventPolicy;
   readonly answerWaitMs?: number;
   readonly memory?: AgentAssemblyOptions["memory"];
   readonly goals?: AgentAssemblyOptions["goals"];
@@ -409,6 +429,11 @@ export function isFoundryAgentDefinition(value: unknown): value is FoundryAgentD
 export const isFoundryAgent = isFoundryAgentDefinition;
 
 function validateDefinition(options: DefineAgentOptions, route?: string): void {
+  validateDurableSubagents(options.durableSubagents);
+  if (options.eventDelivery) eventPolicySchema.parse(options.eventDelivery);
+  for (const key of ["runTimeoutMs", "maxConcurrentRuns"] as const) {
+    if (options[key] !== undefined && (!Number.isSafeInteger(options[key]) || options[key]! <= 0)) throw new Error(`${key} must be a positive safe integer.`);
+  }
   const id = route ?? options.id;
   if (id) assertAgentRoute(id);
   if (!options.model && !options.run && !options.handler && !options.spawn) {
@@ -450,10 +475,10 @@ export function defineAgent(options: DefineAgentOptions): FoundryAgentDefinition
 const CONVENTION_EXPORTS = [
   "id", "description", "tags", "components", "mcpAdapter",
   "accountSessions", "store", "model", "systemPrompt",
-  "displayManager", "serverMode", "maxRetries", "maxConsecutiveErrors",
+  "displayManager", "serverMode", "runTimeoutMs", "maxConcurrentRuns", "maxRetries", "maxConsecutiveErrors",
   "compactionLimit", "compactionInstructions", "maxTurns",
   "enableToolResultSummary", "tools", "hooks", "skills", "subagents",
-  "delegates", "answerWaitMs", "memory", "goals", "facts", "forms", "contextProviders", "inboxes", "subscribers", "layers", "calls", "schedules", "playbooks", "mesh",
+  "delegates", "durableSubagents", "eventDelivery", "answerWaitMs", "memory", "goals", "facts", "forms", "contextProviders", "inboxes", "subscribers", "layers", "calls", "schedules", "playbooks", "mesh",
   "workingEnvironment", "repl", "configure", "build",
   "spawn", "run", "handler",
 ] as const;

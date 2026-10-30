@@ -139,7 +139,7 @@ export default defineApplication({
 })
 ```
 
-`FileFoundryDataAdapter` coordinates sibling execution processes with an advisory lock and commits by atomic rename. It persists instances, subscriptions, delivery claims, activations, conversations, workspace data, VFS snapshots, inbox items, tasks, and non-secret environment data. Use a transactional database adapter when several hosts need to share the same state.
+`FileFoundryDataAdapter` coordinates sibling execution processes with an advisory lock and commits by atomic rename. It persists instances, subscriptions, delivery claims, addressed events and receipts, activations, conversations, workspace data, VFS snapshots, inbox items, tasks, and non-secret environment data. Use a transactional database adapter when several hosts need to share the same state.
 
 ## The filesystem is the static registry
 
@@ -800,3 +800,11 @@ run cleanup. See the [document adapter](../../glove-env-documents/README.md).
 - Provider adapters own credential acquisition and refresh.
 - Voice rooms own audio transport; `voiceCall` owns the session and the transcript; Foundry owns the durable run.
 - Interactors keep the person's context; workers keep one task's. Delegation results and questions come back to the conversation that delegated.
+
+## Durable subagents
+
+Use `defineAgent({ durableSubagents: { research: { agent: researcher, inherit: { memory: "shared" } } } })`
+for persistent owned workers. Existing task delegation can target the `research` name;
+`glove_foundry_message` sends spontaneous messages to that worker or back to its parent.
+See [Durable subagents](durable-subagents.md) for app permission modifiers, independent
+run limits, direct client messaging, persistence boundaries, and archive/purge semantics.

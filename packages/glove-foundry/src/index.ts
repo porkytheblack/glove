@@ -1,3 +1,4 @@
+export type { FoundryEventTarget, FoundryEventPolicy, FoundryMessageOptions, FoundryEventRecord } from "./event-delivery.js";
 export { defineFacts, defineGoals, defineForms, foundryGuidanceSubject,
   type FoundryFactsOptions, type FoundryGoalsOptions, type FoundryFormsOptions, type FoundryContextProvider,
   type FoundryGuidanceHandles, type FoundryGuidanceScope } from "./guidance.js";
@@ -404,3 +405,6 @@ export {
   type PlaybookSubscriptionTarget,
   type PlaybookSubscriptionTargetInput,
 } from "./subscription.js";
+
+export { restrictApp, type AppRestrictions } from "./capabilities.js";
+export type { DurableSubagents, DurableSubagentOptions, DurableSubagentOwnership, AgentMessageReceipt } from "./durable-subagents.js";

@@ -266,10 +266,27 @@ export interface Tool<I> {
  * Adapter helper — returns whichever schema the tool provided, as JSON Schema.
  * Used by model adapters' `formatTools` to serialize tool input schemas.
  */
-export function getToolJsonSchema(tool: Tool<any>): Record<string, unknown> {
-  if (tool.jsonSchema) return tool.jsonSchema;
-  if (tool.input_schema) return z.toJSONSchema(tool.input_schema) as Record<string, unknown>;
-  return { type: "object", properties: {} };
+export function getToolJsonSchema(tool: Tool<any>, options?: { objectRoot?: boolean }): Record<string, unknown> {
+  const schema = tool.jsonSchema ?? (tool.input_schema
+    ? z.toJSONSchema(tool.input_schema) as Record<string, unknown>
+    : { type: "object", properties: {} });
+  if (!options?.objectRoot) return schema;
+  // OpenAI function parameters forbid root unions. Advertise an object-shaped
+  // superset on that wire; the executor still validates the original Zod union.
+  const variants = schema.anyOf ?? schema.oneOf;
+  if (!Array.isArray(variants) || !variants.length || schema.type && schema.type !== "object"
+    || !variants.every((variant) => variant && typeof variant === "object" && variant.type === "object")) return schema;
+  const properties: Record<string, unknown> = {};
+  const names = new Set(variants.flatMap((variant) => Object.keys(variant.properties ?? {})));
+  for (const name of names) {
+    const choices = variants.filter((variant) => name in (variant.properties ?? {})).map((variant) => variant.properties[name]);
+    const unique = [...new Map(choices.map((choice) => [JSON.stringify(choice), choice])).values()];
+    properties[name] = unique.length === 1 ? unique[0] : { anyOf: unique };
+  }
+  const required = (variants[0].required ?? []).filter((name: string) => variants.every((variant) => variant.required?.includes(name)));
+  const { anyOf: _anyOf, oneOf: _oneOf, ...metadata } = schema;
+  return { ...metadata, type: "object", properties, required,
+    ...(variants.every((variant) => variant.additionalProperties === false) ? { additionalProperties: false } : {}) };
 }
 
 export interface ToolCall {

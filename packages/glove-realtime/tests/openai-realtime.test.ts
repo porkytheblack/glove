@@ -190,3 +190,42 @@ test("tool results continue the conversation unless told not to", async () => {
   assert.deepEqual(outputs.map((o) => [o.call_id, o.output]), [["c1", "{\"status\":\"success\",\"data\":1}"], ["c2", "quiet"]]);
   assert.equal(socket().ofType("response.create").length, 1);
 });
+
+test("typed input and spontaneous responses coalesce until the active response is done", async () => {
+  const { adapter, socket } = setup();
+  await adapter.open({ output: "text" });
+  const s = socket();
+  adapter.sendText("first");
+  adapter.sendText("second before server acknowledgement");
+  assert.equal(s.ofType("response.create").length, 1);
+  s.receive({ type: "response.created", response: { id: "r1" } });
+  s.receive({ type: "response.output_text.done", text: "first answer" });
+  adapter.inject({ kind: "user", text: "worker finding" });
+  adapter.respond();
+  assert.equal(s.ofType("response.create").length, 1, "final text is not response.done");
+  s.receive({ type: "response.done", response: { id: "r1", status: "completed" } });
+  assert.equal(s.ofType("response.create").length, 2);
+  s.receive({ type: "response.created", response: { id: "r2" } });
+  s.receive({ type: "response.done", response: { id: "r2", status: "completed" } });
+  assert.equal(s.ofType("response.create").length, 2, "no extra empty continuation");
+  await adapter.close();
+});
+
+test("queued user input waits for every tool result and shares the tool continuation", async () => {
+  const { adapter, socket } = setup();
+  await adapter.open({});
+  const s = socket();
+  s.receive({ type: "response.created", response: { id: "r1" } });
+  for (const callId of ["a", "b"]) s.receive({ type: "response.function_call_arguments.done", response_id: "r1", call_id: callId, name: "lookup", arguments: "{}" });
+  adapter.sendText("update the task");
+  s.receive({ type: "response.done", response: { id: "r1", status: "completed" } });
+  adapter.sendToolResult({ callId: "a", name: "lookup", output: "first" });
+  assert.equal(s.ofType("response.create").length, 0);
+  adapter.sendToolResult({ callId: "b", name: "lookup", output: "second" });
+  assert.equal(s.ofType("response.create").length, 1);
+  await adapter.close();
+  await adapter.open({});
+  adapter.sendText("new session");
+  assert.equal(socket().ofType("response.create").length, 1, "close clears response state");
+  await adapter.close();
+});

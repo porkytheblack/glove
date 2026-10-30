@@ -15,7 +15,7 @@ export function toToolSpec(tool: Tool<unknown>, nonBlocking: boolean): RealtimeT
   return {
     name: tool.name,
     description: tool.description,
-    parameters: getToolJsonSchema(tool),
+    parameters: getToolJsonSchema(tool, { objectRoot: true }),
     ...(nonBlocking ? { behavior: "non_blocking" as const } : {}),
   };
 }

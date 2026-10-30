@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { defaultEventFormatter } from "glove-core";
@@ -66,6 +66,8 @@ export interface FoundryDelegation {
    */
   readonly undelivered?: "result" | "question" | "failed";
   readonly pendingReplies?: ReadonlyArray<string>;
+  readonly pendingReplyIds?: ReadonlyArray<string>;
+  readonly updateId?: string;
   readonly createdAt: string;
   readonly updatedAt: string;
 }
@@ -118,10 +120,16 @@ export interface FoundryTransmissionDelivery {
   readonly message: string;
 }
 
-export type FoundryConversationDelivery =
+export type FoundryConversationDelivery = (
   | FoundryDelegationUpdate
   | FoundryDelegationReply
-  | FoundryTransmissionDelivery;
+  | FoundryTransmissionDelivery
+  | { readonly kind: "agent-message"; readonly pendingId: string; readonly message: string }) & {
+    readonly deliveryId?: string;
+    readonly request?: import("./primitives.js").FoundryRequest;
+    /** Durable journal identity; the filesystem mailbox is only a live transport. */
+    readonly durable?: { readonly id: string; readonly event: AgentEvent; readonly policy: import("./event-delivery.js").FoundryEventPolicy };
+  };
 
 export function isDelegationUpdate(delivery: FoundryConversationDelivery): delivery is FoundryDelegationUpdate {
   return delivery.kind === "result" || delivery.kind === "question" || delivery.kind === "failed";
@@ -181,7 +189,7 @@ export function delegationFromContext(
 
 /** The update a delegation record still owes its delegating conversation, if any. */
 export function undeliveredUpdate(delegation: FoundryDelegation): FoundryDelegationUpdate | undefined {
-  const base = { delegationId: delegation.id, agent: delegation.to, task: delegation.task };
+  const base = { deliveryId: delegation.updateId, delegationId: delegation.id, agent: delegation.to, task: delegation.task };
   if (delegation.undelivered === "result") return { kind: "result", ...base, result: delegation.result ?? "" };
   if (delegation.undelivered === "question") return { kind: "question", ...base, question: delegation.question ?? "" };
   if (delegation.undelivered === "failed") return { kind: "failed", ...base, error: delegation.error ?? "" };
@@ -218,7 +226,7 @@ export function renderDelegatedTask(input: {
 
 /** How a delivery reads when it arrives as a message. */
 export function renderDelivery(delivery: FoundryConversationDelivery): string {
-  if (delivery.kind === "transmission") return delivery.message;
+  if (delivery.kind === "transmission" || delivery.kind === "agent-message") return delivery.message;
   if (delivery.kind === "reply") {
     return [
       `<delegation-reply id="${escapeAttribute(delivery.delegationId)}" from="${escapeAttribute(delivery.from)}">`,
@@ -469,7 +477,8 @@ export async function writeMailboxDelivery(
   await rename(temporary, join(target, name));
 }
 
-const DELIVERY_SCHEMA = z.union([
+const DELIVERY_SCHEMA = z.intersection(z.object({ request: z.custom<import("./primitives.js").FoundryRequest>().optional(), deliveryId: z.string().optional(), durable: z.object({ id: z.string(), event: z.custom<AgentEvent>(), policy: z.custom<import("./event-delivery.js").FoundryEventPolicy>() }).optional() }), z.union([
+  z.object({ kind: z.literal("agent-message"), pendingId: z.string(), message: z.string() }),
   z.object({
     kind: z.literal("reply"),
     delegationId: z.string(),
@@ -504,7 +513,7 @@ const DELIVERY_SCHEMA = z.union([
     eventId: z.string(),
     message: z.string(),
   }),
-]);
+]));
 
 /** Take every delivery waiting for a conversation, oldest first. */
 export async function drainMailbox(
@@ -629,6 +638,7 @@ export function openRunMailbox(options: {
   readonly conversationId: string;
   readonly report: (state: "on" | "off") => Promise<void> | void;
   readonly sink: RunMailboxSink;
+  readonly consumed?: (deliveries: ReadonlyArray<FoundryConversationDelivery>) => void;
   readonly pollMs?: number;
 }): RunMailbox {
   type UpdateHandler = (updates: ReadonlyArray<FoundryDelegationUpdate>) => void | Promise<void>;
@@ -648,6 +658,9 @@ export function openRunMailbox(options: {
       const updates: FoundryDelegationUpdate[] = [];
       const rest: FoundryConversationDelivery[] = [];
       for (const delivery of deliveries) {
+        if (delivery.durable?.event.expiresAt && Date.parse(delivery.durable.event.expiresAt) <= Date.now()) {
+          options.consumed?.([delivery]); continue;
+        }
         if (delivery.kind === "reply" && waiters.has(delivery.delegationId)) {
           replies.set(delivery.delegationId, [...(replies.get(delivery.delegationId) ?? []), delivery]);
         } else if (isDelegationUpdate(delivery) && handlers.size > 0) {
@@ -660,6 +673,7 @@ export function openRunMailbox(options: {
         waiters.get(delegationId)?.({ ...batch[0]!, message: batch.map((reply) => reply.message).join("\n\n") });
       }
       if (updates.length > 0) await toHandlers(updates);
+      options.consumed?.([...([...replies.values()].flat()), ...updates]);
       if (rest.length > 0) await options.sink.forward(rest);
     },
   });
@@ -690,6 +704,7 @@ export function openRunMailbox(options: {
         .reclaim(isDelegationUpdate)
         .then(async (updates) => {
           if (updates.length > 0) await handler(updates as FoundryDelegationUpdate[]);
+          options.consumed?.(updates);
         });
       return async () => {
         handlers.delete(handler);
@@ -719,9 +734,11 @@ export function openRunMailbox(options: {
 const DELIVERY_KEY = "foundry_delivery";
 
 export function deliveryEvent(delivery: FoundryConversationDelivery): AgentEvent {
+  if (delivery.durable) return { ...delivery.durable.event, metadata: { ...delivery.durable.event.metadata, [DELIVERY_KEY]: delivery } };
+  if (delivery.kind === "agent-message") return { id: `agent-message:${delivery.pendingId}`, source: "foundry:agent", kind: "agent-message", content: delivery.message, metadata: { [DELIVERY_KEY]: delivery } };
   if (delivery.kind === "transmission") {
     return {
-      id: `transmission:${delivery.pendingId}:${randomUUID()}`,
+      id: `transmission:${delivery.pendingId}`,
       source: `foundry:route:${delivery.routeId}`,
       kind: "transmission",
       content: delivery.message,
@@ -730,7 +747,7 @@ export function deliveryEvent(delivery: FoundryConversationDelivery): AgentEvent
   }
   const from = delivery.kind === "reply" ? delivery.from : delivery.agent;
   return {
-    id: `${delivery.kind}:${delivery.delegationId}:${randomUUID()}`,
+    id: delivery.deliveryId ?? `${delivery.kind}:${delivery.delegationId}:${createHash("sha256").update(JSON.stringify(delivery)).digest("hex")}`,
     source: `foundry:${from}`,
     kind: `delegation.${delivery.kind}`,
     content: renderDelivery(delivery),
@@ -743,19 +760,7 @@ export function deliveryOf(event: AgentEvent): FoundryConversationDelivery | und
 }
 
 /** Deliveries read exactly as they do when they start a run; other events keep Glove's format. */
-export const formatRunEvents: EventFormatter = (events, phase) => {
-  const deliveries = events.map(deliveryOf).filter((delivery): delivery is FoundryConversationDelivery => Boolean(delivery));
-  const others = events.filter((event) => !deliveryOf(event));
-  const text = renderDeliveries(deliveries);
-  if (others.length === 0) return { sender: "user", framework_context: "event", text };
-  const rest = defaultEventFormatter(others, phase);
-  if (deliveries.length === 0) return rest;
-  return {
-    ...rest,
-    text: `${text}\n\n${rest.text}`,
-    ...(rest.content ? { content: [{ type: "text" as const, text }, ...rest.content] } : {}),
-  };
-};
+export const formatRunEvents: EventFormatter = defaultEventFormatter;
 
 /** The run's event queue, which can hand back the deliveries it still holds. */
 export class RunEventQueue implements EventQueueAdapter {
