@@ -189,7 +189,9 @@ export interface IGloveRunnable {
   emitEvent: (event: AgentEvent) => Promise<EventDisposition>
   /** Tell the event policy a user is present (typing, a live voice session). */
   notifyUserActivity: () => void
-  /** Run queued spontaneous events as an awaited turn, without manufacturing a user request. */
+  /** Run queued spontaneous events as an awaited turn, without manufacturing a user request.
+   * A failure before history saves the event leaves it queued for the next turn.
+   * Failed wakes are not automatically retried in a loop. */
   processEvents: (signal?: AbortSignal) => Promise<ModelPromptResult | Message | undefined>
   processRequest: (request: string | ContentPart[], signal?: AbortSignal) => Promise<ModelPromptResult | Message>
   setModel: (model: ModelAdapter) => void
@@ -374,6 +376,9 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
   private deferTimeoutMs: number
   private lastUserActivity = Number.NEGATIVE_INFINITY
   private consumedEventIds = new Set<string>()
+  private wakingEventIds = new Set<string>()
+  /** Failed wakes remain queued for an explicit turn or new work, without spinning. */
+  private failedWakeEventIds = new Set<string>()
   private deferTimer: ReturnType<typeof setTimeout> | undefined
   private dispatching = false
 
@@ -590,7 +595,7 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
       return disposition
     }
 
-    if (this.consumedEventIds.has(received.id)) return report("duplicate")
+    if (this.consumedEventIds.has(received.id) || this.wakingEventIds.has(received.id)) return report("duplicate")
     if (isExpired(received)) {
       await this.notifyExtensionEvent("event_dropped", { id: received.id, reason: "expired" })
       return report("dropped")
@@ -651,6 +656,7 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
   /** Take everything queued, reporting and discarding what expired while it waited. */
   private async takeLiveEvents(): Promise<Array<AgentEvent>> {
     const taken = await this.eventQueue.take()
+    for (const event of taken) this.failedWakeEventIds.delete(event.id)
     this.clearDeferTimer()
     const now = Date.now()
     const live: Array<AgentEvent> = []
@@ -695,7 +701,7 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
       const state = this.policyState(waiting.length)
       const decisions = live.map((event) => this.eventPolicy(event, state))
       const dropped = live.filter((_, i) => decisions[i] === "drop")
-      const wake = decisions.includes("wake")
+      const wake = live.some((event, i) => decisions[i] === "wake" && !this.failedWakeEventIds.has(event.id))
       if (expired.length || dropped.length) {
         await this.eventQueue.remove([...expired, ...dropped].map((event) => event.id))
         this.rememberConsumed([...expired, ...dropped].map((event) => event.id))
@@ -707,7 +713,8 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
         return
       }
       if (wake) this.startWake()
-      else this.armDeferTimer()
+      else if (live.some((event) => !this.failedWakeEventIds.has(event.id))) this.armDeferTimer()
+      else this.clearDeferTimer()
     } finally {
       this.dispatching = false
     }
@@ -722,20 +729,34 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
   async processEvents(signal?: AbortSignal): Promise<ModelPromptResult | Message | undefined> {
     if (!this.built) throw new Error("Call build before processEvents")
     return this.runTurn(async () => {
+      signal?.throwIfAborted()
       const events = await this.takeLiveEvents()
       if (!events.length) return
       const ids = events.map((event) => event.id)
-      this.rememberConsumed(ids)
+      for (const id of ids) this.wakingEventIds.add(id)
+      let saved = false
       try {
         await this.prepareTurn(signal)
+        signal?.throwIfAborted()
         const message = this.eventFormatter(events, "wake")
-        await this.notifyExtensionEvent("event_injected", { ids, phase: "wake" })
-        return await this.agent.ask(message, this.handOver, signal)
+        return await this.agent.ask(message, this.handOver, signal, async () => {
+          saved = true
+          this.rememberConsumed(ids)
+          await this.notifyExtensionEvent("event_injected", { ids, phase: "wake" })
+        })
       } catch (error) {
+        if (!saved) {
+          for (const event of events) {
+            await this.eventQueue.push(event)
+            this.failedWakeEventIds.add(event.id)
+          }
+        }
         await this.notifyExtensionEvent("event_wake_failed", {
           ids, message: error instanceof Error ? error.message : String(error),
         })
         throw error
+      } finally {
+        for (const id of ids) this.wakingEventIds.delete(id)
       }
     }, signal)
   }

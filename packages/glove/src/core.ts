@@ -298,7 +298,7 @@ export function toObjectRootJsonSchema(schema: Record<string, unknown>): Record<
   ])];
   const { anyOf: _anyOf, oneOf: _oneOf, ...metadata } = schema;
   return { ...metadata, type: "object", properties, required,
-    ...(schema.additionalProperties === undefined && variants.every((variant) => variant.additionalProperties === false) ? { additionalProperties: false } : {}) };
+    ...(schema.additionalProperties === undefined && variants.every((variant) => variant.additionalProperties === false && !Object.keys(variant.patternProperties ?? {}).length) ? { additionalProperties: false } : {}) };
 }
 
 export interface ToolCall {
@@ -1277,7 +1277,7 @@ export class Agent {
     this.prompt_machine = prompt_machine;
   }
 
-  async ask(message: Message, handOver?: HandOverFunction, signal?: AbortSignal) {
+  async ask(message: Message, handOver?: HandOverFunction, signal?: AbortSignal, onMessageSaved?: () => Promise<void>) {
 
     // Inbox: inject resolved items (persisted) and build transient blocking reminder
     await this.injectResolvedInboxItems();
@@ -1293,6 +1293,8 @@ export class Agent {
     if (signal?.aborted) throw new AbortError();
 
     await this.context.appendMessages([message]);
+    // Event wakes commit their queue receipt only once history owns the message.
+    await onMessageSaved?.();
 
     // Per-request turn counter to prevent runaway loops.
     // The observer's session-level counter is still incremented for stats.

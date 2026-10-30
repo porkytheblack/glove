@@ -70,3 +70,19 @@ test("object-root normalization preserves common fields and root constraints", (
     anyOf: schema.anyOf.map((branch) => ({ ...branch, additionalProperties: false })),
   } }, { objectRoot: true }).additionalProperties, additional, "branch settings must not overwrite the root constraint");
 });
+
+test("object-root normalization keeps keys allowed by branch patternProperties", () => {
+  const schema = { anyOf: [
+    { type: "object", properties: { action: { const: "read" } }, required: ["action"], patternProperties: { "^x_": { type: "string" } }, additionalProperties: false },
+    { type: "object", properties: { action: { const: "write" } }, required: ["action"], additionalProperties: false },
+  ] };
+  const normalized = getToolJsonSchema({ ...tool, jsonSchema: schema }, { objectRoot: true });
+  assert.equal(normalized.additionalProperties, undefined, "do not forbid x_valid, which the read branch permits");
+  assert.deepEqual(normalized.required, ["action"]);
+  for (const additionalProperties of [false, { type: "string" }]) {
+    assert.deepEqual(getToolJsonSchema({ ...tool, jsonSchema: { ...schema, additionalProperties } }, { objectRoot: true }).additionalProperties, additionalProperties, "explicit root constraints remain unchanged");
+  }
+  assert.equal(getToolJsonSchema({ ...tool, jsonSchema: {
+    anyOf: schema.anyOf.map(({ patternProperties: _patterns, ...branch }) => branch),
+  } }, { objectRoot: true }).additionalProperties, false, "ordinary closed object unions stay closed");
+});

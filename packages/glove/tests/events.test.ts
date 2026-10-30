@@ -236,3 +236,75 @@ test("processEvents awaits the event turn, preserves event framing, and propagat
   await agent.emitEvent({ id: "retryable", source: "foundry:worker", content: "again" });
   await assert.rejects(agent.processEvents(), /prepare failed/);
 });
+
+for (const phase of ["before turn", "during take", "during preparation", "during request context"] as const) test(`cancelled event wake stays retryable: ${phase}`, async () => {
+  const controller = new AbortController();
+  class AbortingQueue extends MemoryEventQueue {
+    override async take() {
+      const batch = await super.take();
+      if (phase === "during take" && batch.length) controller.abort();
+      return batch;
+    }
+  }
+  const queue = new AbortingQueue();
+  let calls = 0;
+  const agent = make({ name: "mock", setSystemPrompt() {}, async prompt() { calls++; return answer(); } }, { queue, policy: () => "defer", deferTimeoutMs: Infinity }).build();
+  agent.addTurnPreparer((signal) => { if (phase === "during preparation" && signal) controller.abort(); });
+  agent.addContextProvider((signal) => { if (phase === "during request context" && signal) controller.abort(); return "state"; }, { delivery: "request" });
+  await agent.emitEvent({ id: "retry", source: "mock", content: "Keep this event" });
+  if (phase === "before turn") controller.abort();
+  await assert.rejects(agent.processEvents(controller.signal));
+  assert.equal(calls, 0);
+  assert.deepEqual(await agent.store.getMessages(), []);
+  assert.deepEqual((await queue.peek()).map((event) => event.id), ["retry"]);
+  await agent.processEvents();
+  assert.equal(calls, 1);
+  assert.equal((await queue.peek()).length, 0);
+  assert.equal((await agent.store.getMessages()).filter((message) => message.framework_context === "event").length, 1);
+  assert.equal(await agent.emitEvent({ id: "retry", source: "mock", content: "Keep this event" }), "duplicate");
+});
+
+test("cancellation after an event reaches history does not requeue a second copy", async () => {
+  const controller = new AbortController();
+  const queue = new MemoryEventQueue();
+  let calls = 0;
+  const agent = make({ name: "mock", setSystemPrompt() {}, async prompt() { calls++; return answer(); } }, { queue, policy: () => "defer", deferTimeoutMs: Infinity }).build();
+  agent.addSubscriber({ async record(type) { if (type === "event_injected") controller.abort(); } });
+  await agent.emitEvent({ id: "saved", source: "mock", content: "Already in history" });
+  await assert.rejects(agent.processEvents(controller.signal));
+  assert.equal(calls, 0);
+  assert.equal((await queue.peek()).length, 0);
+  assert.equal((await agent.store.getMessages()).filter((message) => message.framework_context === "event").length, 1);
+  await agent.processRequest("continue");
+  assert.equal(calls, 1);
+  assert.equal((await agent.store.getMessages()).filter((message) => message.framework_context === "event").length, 1);
+});
+
+test("failed event preparation waits for an explicit retry instead of looping automatically", async () => {
+  const queue = new MemoryEventQueue();
+  let preparations = 0;
+  let fail = true;
+  let calls = 0;
+  const agent = make({ name: "mock", setSystemPrompt() {}, async prompt() { calls++; return answer(); } }, { queue }).build();
+  agent.addTurnPreparer(() => { preparations++; if (fail) throw new Error("not ready"); });
+  await agent.emitEvent({ id: "retry", source: "mock", content: "wake" });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(preparations, 1);
+  assert.equal(calls, 0);
+  assert.deepEqual((await queue.peek()).map((event) => event.id), ["retry"]);
+  fail = false;
+  await agent.processEvents();
+  assert.equal(preparations, 2);
+  assert.equal(calls, 1);
+});
+
+test("an event being prepared cannot be enqueued again before its history receipt commits", async () => {
+  let calls = 0;
+  const agent = make({ name: "mock", setSystemPrompt() {}, async prompt() { calls++; return answer(); } }, { policy: () => "defer", deferTimeoutMs: Infinity }).build();
+  const event = { id: "in-flight", source: "mock", content: "one finding" };
+  agent.addTurnPreparer(async () => { assert.equal(await agent.emitEvent(event), "duplicate"); });
+  await agent.emitEvent(event);
+  await agent.processEvents();
+  assert.equal(calls, 1);
+  assert.equal((await agent.store.getMessages()).filter((message) => message.framework_context === "event").length, 1);
+});

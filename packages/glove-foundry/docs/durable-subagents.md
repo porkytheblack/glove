@@ -128,11 +128,12 @@ successful return acknowledges the events that started their run.
 
 The filesystem handoff to a live process is only a transport. It is not the source
 of durability, and no mesh adapter, mesh inbox, or inbox-capable Glove store is
-required. Optional `mesh: { delivery: "events" }` uses native live events too; raw
+required. Setting `delivery: "events"` on an existing mesh configuration uses native live events too; raw
 mesh transport and direct `glove.emitEvent` calls do not themselves create Foundry
 journal records. Use `runtime.emitEvent`/`client.emitEvent` or the messaging tool
 when delivery must survive the absence of a running process. Legacy mesh inbox mode
-is the default; select native live delivery explicitly with `mesh: { delivery: "events" }`.
+is the default; select native live delivery explicitly on your transport, for example
+`mesh: { adapter: meshAdapter, delivery: "events" }`, where `meshAdapter` implements `MeshAdapter`.
 
 Foundry acknowledges events only after a successful receiving run reports that it
 consumed them. Unread events stay pending; shutdown, failures and archival retain

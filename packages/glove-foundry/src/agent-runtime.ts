@@ -4,6 +4,7 @@ import type {
   DefineSkillArgs,
   DefineSubAgentArgs,
   GloveFoldArgs,
+  IGloveRunnable,
   InboxItem,
   ModelAdapter,
   SubscriberAdapter,
@@ -630,13 +631,20 @@ async function executeDefinition(
     const consumed = (deliveries: ReadonlyArray<FoundryConversationDelivery>): void => {
       for (const delivery of deliveries) if (delivery.durable) consumedEventIds.add(delivery.durable.id);
     };
-    // Seed persisted events before the first model turn. Polling is only for arrivals after startup.
-    // Event-triggered turns are seeded by defaultRun so custom handlers can handle their input directly.
-    if (!initialDeliveries.length) for (const delivery of envelope.events ?? []) {
-      const event = deliveryEvent(delivery);
-      forwarded.set(event.id, delivery);
-      await base.emitEvent(event);
-    }
+    // Build may replace the assembled runnable. Hold arrivals until the final
+    // recipient and its receipt subscriber are ready, including during build.
+    let eventRecipient: IGloveRunnable | undefined;
+    const bufferedDeliveries = initialDeliveries.length ? [] : [...envelope.events ?? []];
+    const forwardDeliveries = async (deliveries: ReadonlyArray<FoundryConversationDelivery>): Promise<void> => {
+      if (!eventRecipient) { bufferedDeliveries.push(...deliveries); return; }
+      for (const delivery of deliveries) {
+        // The controller owns idle policy; seeding must not start a second,
+        // unawaited wake on an independently built runnable's default policy.
+        const event = { ...deliveryEvent(delivery), whenIdle: "defer" as const };
+        forwarded.set(event.id, delivery);
+        await eventRecipient.emitEvent(event);
+      }
+    };
 
     // What this run has heard about, or said to, delegations it lists as open.
     const heard = new Map<string, FoundryDelegationUpdate | "replied">();
@@ -658,16 +666,14 @@ async function executeDefinition(
           consumed,
           sink: {
             async forward(deliveries) {
-              for (const delivery of deliveries) {
-                const event = deliveryEvent(delivery);
-                forwarded.set(event.id, delivery);
-                await base.emitEvent(event);
-              }
+              await forwardDeliveries(deliveries);
             },
             async reclaim(match) {
+              const buffered = bufferedDeliveries.filter(match);
+              for (let i = bufferedDeliveries.length - 1; i >= 0; i--) if (match(bufferedDeliveries[i]!)) bufferedDeliveries.splice(i, 1);
               const taken = await eventQueue.reclaim(match);
               for (const { id } of taken) forwarded.delete(id);
-              return taken.map(({ delivery }) => delivery);
+              return [...buffered, ...taken.map(({ delivery }) => delivery)];
             },
           },
         });
@@ -676,7 +682,7 @@ async function executeDefinition(
       }
       return runMailbox;
     };
-    base.addSubscriber({
+    const deliverySubscriber: SubscriberAdapter = {
       async record(type, data) {
         if (type === "event_dropped") {
           const id = (data as { id: string }).id;
@@ -697,7 +703,8 @@ async function executeDefinition(
           }
         }
       },
-    });
+    };
+    base.addSubscriber(deliverySubscriber);
     const delegationTarget = {
       definitionId: id,
       agentId: request.agentId,
@@ -944,6 +951,17 @@ async function executeDefinition(
     const glove = definition.build
       ? (await resolveResolvable(definition.build(base, assemblyContext))) ?? base
       : base;
+    if (glove !== base) {
+      // Wrappers can forward subscriber methods to base; remove before adding
+      // to avoid duplicate notifications in that case.
+      base.removeSubscriber(subscriber);
+      base.removeSubscriber(deliverySubscriber);
+      glove.addSubscriber(subscriber);
+      glove.addSubscriber(deliverySubscriber);
+    }
+    cleanups.push(() => { glove.removeSubscriber(subscriber); glove.removeSubscriber(deliverySubscriber); });
+    eventRecipient = glove;
+    await forwardDeliveries(bufferedDeliveries.splice(0));
     const runtimeContext = { ...callContext, glove };
     let initialEventsPending = initialDeliveries.length > 0;
     const defaultRun = async (
@@ -951,11 +969,7 @@ async function executeDefinition(
     ) => {
       if (initialEventsPending && messageInput === assemblyContext.messageInput) {
         initialEventsPending = false;
-        for (const delivery of initialDeliveries) {
-          const event = deliveryEvent(delivery);
-          forwarded.set(event.id, delivery);
-          await base.emitEvent(event);
-        }
+        await forwardDeliveries(initialDeliveries);
         return extractOutput(await glove.processEvents(abortController.signal));
       }
       return extractOutput(await glove.processRequest(toGloveRequestInput(messageInput), abortController.signal));
