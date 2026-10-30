@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { CodeBlock } from "@/components/code-block";
+import { DurableEventDeliveryStory, DurableLifecycleDiagram, DurableMemoryDiagram, DurableOwnershipDiagram } from "@/components/durable-subagent-diagrams";
 
 export const metadata = {
   title: "Durable subagents",
@@ -16,6 +17,7 @@ export default function DurableSubagentsPage() {
 
     <h2 id="ownership">What exists in code, and what exists in storage</h2>
     <p>The declaration describes a relationship between agent definitions. The running application creates a separate instance of that relationship for each parent. These identities matter when deciding which state is shared and where a message will arrive:</p>
+    <DurableOwnershipDiagram />
     <table><thead><tr><th>Concept</th><th>Meaning</th></tr></thead><tbody>
       <tr><td>Worker definition</td><td>A normal <code>defineAgent</code> value: the model, instructions and capabilities from which workers are assembled. Several parents or slots can reuse it.</td></tr>
       <tr><td>Named slot</td><td>A key in <code>durableSubagents</code>, such as <code>analysis</code>. It selects the definition, inheritance and delivery defaults for that relationship.</td></tr>
@@ -96,6 +98,7 @@ analysis: {
 
     <h3 id="memory">Shared and isolated memory</h3>
     <p><code>scope: &quot;shared&quot;</code> gives the worker access to the selected parent-scoped memory. It is the same underlying memory, so changes by an authorized curator can become visible to both agents. <code>scope: &quot;isolated&quot;</code> uses the same profile definitions under the child&apos;s storage identity. Omit memory inheritance when only the worker&apos;s own profiles should be available.</p>
+    <DurableMemoryDiagram />
     <p>Inherited memory is read-only by default. Explicit <code>access: &quot;curator&quot;</code> can preserve curator abilities the parent already has; it cannot upgrade a parent reader. Reader inheritance also removes pinned-context mutation tools. Shared memory is scoped to the parent agent, not to whichever parent chat happens to be active.</p>
     <p>Memory adapters must namespace storage by the identity supplied to their factories. Foundry cannot isolate an adapter that always opens the same global namespace. Profiles with custom <code>mount</code> functions are rejected for inheritance because Foundry cannot inspect their permissions. See <Link href="/foundry/docs/capabilities#memory">memory profiles</Link> for configuration.</p>
 
@@ -163,6 +166,7 @@ glove_foundry_reply({ delegationId: "<task ID>", message: "Preserve the existing
 
     <h2 id="policies">Configure how events reach a runtime</h2>
     <p>Delivery is addressed to an agent and conversation before any model is invoked. Foundry first persists the event, target and policy. If that conversation has a live run, the event joins its native event stream at the next available boundary. Otherwise, the idle policy determines when a new event turn starts.</p>
+    <DurableEventDeliveryStory />
     <p>There are three configuration levels: the worker definition&apos;s <code>eventDelivery</code> supplies defaults; a slot&apos;s <code>eventDelivery</code> replaces that default object for the owned worker; an individual send overrides fields of the effective recipient policy.</p>
     <CodeBlock language="typescript" code={`// On an ordinary agent definition:
 eventDelivery: { whenIdle: "wake" }
@@ -214,6 +218,7 @@ maxConcurrentRuns: 1`} />
 
     <h2 id="lifecycle">Inspect, archive, resume and purge</h2>
     <p>The worker&apos;s data belongs to its ownership relationship, so lifecycle operations address the parent and slot. The client exposes these operations on the same handle used for messaging:</p>
+    <DurableLifecycleDiagram />
     <CodeBlock language="typescript" code={`const worker = client.subagent(parentId, "analysis");
 const state = await worker.data(); // existing instance, conversations, events, children and owned records
 await worker.archive();           // stop work and retain its data
