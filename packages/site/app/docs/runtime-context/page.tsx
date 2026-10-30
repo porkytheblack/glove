@@ -263,7 +263,7 @@ Build 812 is green.
       </p>
 
       {/* ------------------------------------------------------------------ */}
-      <p>For delivery across Foundry process restarts, use the <Link href="/foundry/docs/durable-subagents">durable addressed event layer</Link>. It persists targets, policies and receipts, then feeds native events into a live realtime session or an awaited <code>processEvents()</code> turn. The complete example combines a realtime front with a long-running researcher.</p>
+      <p>For delivery across Foundry process restarts, use the <Link href="/foundry/docs/durable-subagents">durable addressed event layer</Link>. It persists targets, policies and receipts, then feeds native events into a live runtime or an awaited <code>processEvents()</code> turn. The <Link href="/foundry/docs/durable-subagents/realtime-example">worked example</Link> combines a realtime front with a long-running researcher.</p>
 
       <h2 id="turns">Turns run one at a time</h2>
 

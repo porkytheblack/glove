@@ -5,6 +5,8 @@ import { resolve } from "node:path";
 const directory = [resolve(process.cwd(), "../../examples/foundry-durable-research"), resolve(process.cwd(), "examples/foundry-durable-research")]
   .find((path) => existsSync(resolve(path, "package.json")));
 if (!directory) throw new Error("Build Foundry docs from the repository checkout: durable research example is missing.");
+// Keep the agent-readable feature reference aligned with the package guide.
+export const durableSubagentsGuide = readFileSync(resolve(directory, "../../packages/glove-foundry/docs/durable-subagents.md"), "utf8");
 export const durableResearchPaths = [
   "package.json", "tsconfig.json", "foundry.application.ts", "foundry.config.ts",
   "agents/front/agent.ts", "agents/front/live.ts", "agents/front/personal.memory.ts",

@@ -19,7 +19,7 @@ export default function MultiAgentPage() {
         every hop shows up in the same event trace.
       </p>
 
-      <p>For an owned worker that keeps its identity across tasks, see the complete <Link href="/foundry/docs/durable-subagents">realtime front and durable researcher example</Link>: explicit inheritance, restricted apps, direct messages and task delegation over native durable events.</p>
+      <p>For workers owned by each parent instance, see <Link href="/foundry/docs/durable-subagents">durable subagents</Link>: identity, provisioning, inheritance, direct messages and event delivery. The <Link href="/foundry/docs/durable-subagents/realtime-example">realtime front and researcher walkthrough</Link> applies those primitives in a running application.</p>
 
       <h2 id="choose">Choose the smallest boundary</h2>
       <table>
