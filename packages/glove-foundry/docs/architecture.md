@@ -165,6 +165,14 @@ Session loops and goal continuation are composable
 agent policy over this data and normal scheduled activations. They do not introduce
 a second scheduler, memory store, filesystem, or agent loop.
 
+## Durable addressed events
+
+Foundry's controller journals events before dispatch. A target is an exact agent instance and owned conversation. Direct durable-worker messages, task starts and updates, and inbound transmissions share this layer. The data adapter atomically claims target-scoped event IDs and stores pending, acknowledged or expired records; completed IDs remain for deduplication. The file adapter persists them across controller restarts.
+
+The controller owns wake/defer deadlines and conversation admission. A live process receives native Glove events; a new event turn calls `processEvents` rather than synthesizing a user message. The internal execution envelope carries events separately from the application payload. Runtime-context providers continue to expose changing snapshots, including open durable-worker tasks. A local handoff directory is a transient transport, not an inbox or a durability boundary.
+
+A successful execution result carries consumed-event receipts. The controller reconciles those receipts before replaying unfinished delivery on startup. A crash can repeat work between a side effect and acknowledgment, so delivery is at least once and effects should use event IDs for idempotency. Archival retains pending events; worker purge removes the owned journal and deduplication records. See [durable subagents](./durable-subagents.md) for authoring, policy, permissions and lifecycle details.
+
 ## Working environment and REPL boundary
 
 Foundry owns contextual selection, mounting, lifecycle, and observability. The native packages retain their own semantics:

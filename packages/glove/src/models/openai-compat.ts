@@ -290,7 +290,7 @@ function formatTools(tools: Array<Tool<unknown>>): Array<OpenAITool> {
     function: {
       name: tool.name,
       description: tool.description,
-      parameters: getToolJsonSchema(tool),
+      parameters: getToolJsonSchema(tool, { objectRoot: true }),
     },
   }));
 }

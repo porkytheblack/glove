@@ -60,6 +60,21 @@ test("tools register on the Responses backend; auth is a header", async () => {
   assert.equal(session.delegation.responses.instructions, "Be Nova.");
 });
 
+test("OpenAI Live normalizes root unions at its provider boundary", async () => {
+  const { adapter, socket } = setup();
+  const union = { ...tool, parameters: { anyOf: [
+    { type: "object", properties: { action: { const: "list" } }, required: ["action"] },
+    { type: "object", properties: { action: { const: "cancel" }, id: { type: "string" } }, required: ["action", "id"] },
+  ] } };
+  await adapter.open({ tools: [union] });
+  const parameters = socket().ofType("session.start")[0].session.delegation.responses.tools[0].parameters;
+  assert.equal(parameters.type, "object");
+  assert.equal("anyOf" in parameters, false);
+  assert.deepEqual(parameters.required, ["action"]);
+  assert.ok(union.parameters.anyOf);
+  await adapter.close();
+});
+
 test("a delegated batch continues once, after every result", async () => {
   const { adapter, socket, events } = setup();
   await adapter.open({ tools: [tool] });

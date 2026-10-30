@@ -194,6 +194,12 @@ Standard `Glove` users keep the same mounting calls and upgrade core together wi
 
 No model/storage adapter or saved-data migration is required. Code that previously read dynamic goals/forms/context from `getSystemPrompt()` must use `getRuntimeContext()` instead. Voice users upgrading to glove-voice-s2s 0.3 must await `refreshSession()` and handle its errors.
 
+### Awaited event turns
+
+`emitEvent` delivers spontaneous events into the running loop or applies the idle policy. A durable host that owns wake scheduling can configure `events: { policy: () => "defer", deferTimeoutMs: Infinity }`, enqueue events with `emitEvent`, and call `await glove.processEvents(signal)` to run the queued events without a synthetic user request. It shares the normal turn queue, preparation, runtime context and event formatter; it returns the model result (or `undefined` for an empty queue) and propagates failures. Runnable wrappers must forward `processEvents` alongside `emitEvent` and the context APIs.
+
+Core's default event queue remains in memory. A durable host must persist acceptance, track consumption, and acknowledge successful work separately. Foundry provides that controller-owned journal, explicit targeting and restart recovery through `runtime.emitEvent`/`client.emitEvent` and durable worker messaging.
+
 ### Framework context and turn boundaries
 
 Runtime snapshots carry `Message.framework_context: "runtime"`; synthetic inbox entries use `"inbox"`. This optional provenance field does not change provider roles. Tool-result summarization ignores these entries and existing skill/compaction markers when locating the last real user turn. Pending inbox reminders follow complete tool-result bundles. Preserve the marker in custom message processing and preserve structured media when merging adjacent user content.

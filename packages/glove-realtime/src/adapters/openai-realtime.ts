@@ -20,6 +20,7 @@
 // on a server.
 // ─────────────────────────────────────────────────────────────────────────────
 
+import { toObjectRootJsonSchema } from "glove-core";
 import type {
   RealtimeAdapter,
   RealtimeAudioFormat,
@@ -139,6 +140,12 @@ export class OpenAIRealtimeAdapter extends AdapterBase implements RealtimeAdapte
    */
   private toolBatches = new Map<string, { calls: Set<string>; results: Set<string>; done: boolean; respond: boolean }>();
   private callBatch = new Map<string, string>();
+  private responseInFlight = false;
+  private responseQueued = false;
+  /** The unacknowledged create request, for correlating recoverable errors. */
+  private responseCreateEventId: string | null = null;
+  private inputSpeaking = false;
+  private awaitingVadResponse = false;
   private expectClose = false;
   private generation = 0;
   /** Conversation items in order, as the server reported them. */
@@ -148,6 +155,8 @@ export class OpenAIRealtimeAdapter extends AdapterBase implements RealtimeAdapte
   /** Out-of-band responses (summaries) — their output must not surface as speech or text. */
   private outOfBand = new Map<string, { resolve: (text: string) => void; reject: (error: Error) => void }>();
   private outOfBandResponses = new Set<string>();
+  /** Keep identity after a summary promise times out, until response.done. */
+  private outOfBandRequests = new Set<string>();
   private speaking = false;
   private transcript = "";
   private text = "";
@@ -172,6 +181,11 @@ export class OpenAIRealtimeAdapter extends AdapterBase implements RealtimeAdapte
     this.keyed.clear();
     this.toolBatches.clear();
     this.callBatch.clear();
+    this.responseInFlight = false;
+    this.responseQueued = false;
+    this.responseCreateEventId = null;
+    this.inputSpeaking = false;
+    this.awaitingVadResponse = false;
 
     // close() while connecting rejects this open at once, instead of leaving
     // a socket nobody listens to (or a caller waiting out the timeout).
@@ -289,8 +303,14 @@ export class OpenAIRealtimeAdapter extends AdapterBase implements RealtimeAdapte
     for (const pending of this.outOfBand.values()) pending.reject(new Error("OpenAI Realtime session closed"));
     this.outOfBand.clear();
     this.outOfBandResponses.clear();
+    this.outOfBandRequests.clear();
     this.toolBatches.clear();
     this.callBatch.clear();
+    this.responseInFlight = false;
+    this.responseQueued = false;
+    this.responseCreateEventId = null;
+    this.inputSpeaking = false;
+    this.awaitingVadResponse = false;
     if (wasOpen) this.emit({ type: "session.closed", expected, ...(reason ? { reason } : {}) });
   }
 
@@ -302,7 +322,7 @@ export class OpenAIRealtimeAdapter extends AdapterBase implements RealtimeAdapte
 
   sendText(text: string, opts?: { respond?: boolean }): void {
     this.createMessage("user", text);
-    if (opts?.respond !== false) this.send({ type: "response.create" });
+    if (opts?.respond !== false) this.requestResponse();
   }
 
   sendMedia(media: RealtimeMedia): void {
@@ -343,7 +363,7 @@ export class OpenAIRealtimeAdapter extends AdapterBase implements RealtimeAdapte
     const id = this.createMessage(injection.kind === "user" ? "user" : "system", injection.text);
     if (injection.key) this.keyed.set(injection.key, id);
     const respond = injection.respond ?? injection.kind === "user";
-    if (respond) this.send({ type: "response.create" });
+    if (respond) this.requestResponse();
   }
 
   sendToolResult(result: RealtimeToolResult): void {
@@ -361,7 +381,7 @@ export class OpenAIRealtimeAdapter extends AdapterBase implements RealtimeAdapte
     const batchId = this.callBatch.get(result.callId);
     const batch = batchId ? this.toolBatches.get(batchId) : undefined;
     if (!batchId || !batch) {
-      if (respond) this.send({ type: "response.create" });
+      if (respond) this.requestResponse();
       return;
     }
     this.callBatch.delete(result.callId);
@@ -374,7 +394,8 @@ export class OpenAIRealtimeAdapter extends AdapterBase implements RealtimeAdapte
     const batch = this.toolBatches.get(responseId);
     if (!batch || !batch.done || batch.results.size < batch.calls.size) return;
     this.toolBatches.delete(responseId);
-    if (batch.respond) this.send({ type: "response.create" });
+    if (batch.respond) this.responseQueued = true;
+    this.flushResponse();
   }
 
   respond(opts?: { instructions?: string }): void {
@@ -382,7 +403,22 @@ export class OpenAIRealtimeAdapter extends AdapterBase implements RealtimeAdapte
     // Not `response.instructions`: that REPLACES the session prompt for the
     // response, persona included. A system item adds to it instead.
     if (opts?.instructions) this.createMessage("system", opts.instructions);
-    this.send({ type: "response.create" });
+    this.requestResponse();
+  }
+
+  private requestResponse(): void {
+    this.responseQueued = true;
+    this.flushResponse();
+  }
+
+  private flushResponse(): void {
+    if (!this.opened || !this.responseQueued || this.responseInFlight || this.toolBatches.size || this.inputSpeaking || this.awaitingVadResponse) return;
+    // Reserve before the server acknowledges response.created. Typed input,
+    // spontaneous events and tool continuations share one response queue.
+    this.responseQueued = false;
+    this.responseInFlight = true;
+    this.responseCreateEventId = itemId();
+    this.send({ type: "response.create", event_id: this.responseCreateEventId });
   }
 
   interrupt(): void {
@@ -405,6 +441,7 @@ export class OpenAIRealtimeAdapter extends AdapterBase implements RealtimeAdapte
   summarize(instructions: string): Promise<string> {
     if (!this.opened) return Promise.reject(new Error("OpenAI Realtime session is not open"));
     const tag = itemId();
+    this.outOfBandRequests.add(tag);
     return new Promise<string>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.outOfBand.delete(tag);
@@ -459,7 +496,7 @@ export class OpenAIRealtimeAdapter extends AdapterBase implements RealtimeAdapte
         type: "function",
         name: tool.name,
         description: tool.description,
-        parameters: tool.parameters,
+        parameters: toObjectRootJsonSchema(tool.parameters),
       }));
       session.tool_choice = "auto";
     }
@@ -531,6 +568,8 @@ export class OpenAIRealtimeAdapter extends AdapterBase implements RealtimeAdapte
         break;
 
       case "input_audio_buffer.speech_started":
+        this.inputSpeaking = true;
+        this.awaitingVadResponse = this.cfg.turnDetection !== null && this.cfg.turnDetection?.create_response !== false;
         this.emit({ type: "input.speech_started" });
         if (this.bargeInEnabled()) {
           // The provider can't see the host's playback queue, so user speech
@@ -541,7 +580,12 @@ export class OpenAIRealtimeAdapter extends AdapterBase implements RealtimeAdapte
         }
         break;
       case "input_audio_buffer.speech_stopped":
+        this.inputSpeaking = false;
+        // With interruption disabled, VAD skips its automatic response if
+        // the conversation is already responding. That response owns the queue.
+        if (!this.bargeInEnabled() && this.responseInFlight) this.awaitingVadResponse = false;
         this.emit({ type: "input.speech_stopped" });
+        this.flushResponse();
         break;
       case "conversation.item.input_audio_transcription.delta":
         if (e.delta) this.emit({ type: "input.transcript", text: String(e.delta), final: false });
@@ -552,10 +596,13 @@ export class OpenAIRealtimeAdapter extends AdapterBase implements RealtimeAdapte
 
       case "response.created": {
         const tag = e.response?.metadata?.glove_request;
-        if (typeof tag === "string" && this.outOfBand.has(tag)) {
+        if (typeof tag === "string" && this.outOfBandRequests.has(tag)) {
           this.outOfBandResponses.add(String(e.response.id));
           break;
         }
+        this.responseInFlight = true;
+        this.responseCreateEventId = null;
+        if (!this.inputSpeaking) this.awaitingVadResponse = false;
         this.emit({ type: "response.started", ...(e.response?.id ? { responseId: String(e.response.id) } : {}) });
         break;
       }
@@ -635,11 +682,18 @@ export class OpenAIRealtimeAdapter extends AdapterBase implements RealtimeAdapte
         break;
 
       case "error": {
-        const error = (e.error ?? {}) as { message?: string; code?: string };
+        const error = (e.error ?? {}) as { message?: string; code?: string; event_id?: string };
         // Cancelling with nothing in flight, or deleting an item the provider
         // already truncated away, is not a failure.
         if (error.code === "response_cancel_not_active" || error.code === "item_not_found") break;
+        if (this.responseCreateEventId && error.event_id === this.responseCreateEventId) {
+          // Fail this request without retrying it forever. Later queued work
+          // may proceed; unrelated or stale errors cannot release its slot.
+          this.responseCreateEventId = null;
+          this.responseInFlight = false;
+        }
         this.fail(error.message ?? "OpenAI Realtime error");
+        this.flushResponse();
         break;
       }
     }
@@ -648,18 +702,23 @@ export class OpenAIRealtimeAdapter extends AdapterBase implements RealtimeAdapte
   private onResponseDone(response: Wire): void {
     const usage = response.usage ? toUsage(response.usage) : undefined;
     const tag = response.metadata?.glove_request;
-    if (typeof tag === "string" && this.outOfBand.has(tag)) {
-      const pending = this.outOfBand.get(tag)!;
-      this.outOfBand.delete(tag);
+    if (this.outOfBandResponses.has(String(response.id)) || typeof tag === "string" && this.outOfBandRequests.has(tag)) {
+      const pending = typeof tag === "string" ? this.outOfBand.get(tag) : undefined;
+      if (typeof tag === "string") {
+        this.outOfBand.delete(tag);
+        this.outOfBandRequests.delete(tag);
+      }
       this.outOfBandResponses.delete(String(response.id));
       if (usage) this.emit({ type: "usage", usage });
       if (response.status && response.status !== "completed") {
-        pending.reject(new Error(`OpenAI Realtime summary ${response.status}`));
+        pending?.reject(new Error(`OpenAI Realtime summary ${response.status}`));
       } else {
-        pending.resolve(outputText(response));
+        pending?.resolve(outputText(response));
       }
       return;
     }
+    this.responseInFlight = false;
+    this.responseCreateEventId = null;
     if (this.speaking) {
       this.speaking = false;
       this.emit({ type: "output.speech_stopped" });
@@ -672,7 +731,6 @@ export class OpenAIRealtimeAdapter extends AdapterBase implements RealtimeAdapte
     if (status === "failed") this.fail(response.status_details?.error?.message ?? "OpenAI Realtime response failed");
     if (response.id && this.toolBatches.has(String(response.id))) {
       this.toolBatches.get(String(response.id))!.done = true;
-      this.continueBatch(String(response.id));
     }
     this.emit({
       type: "response.done",
@@ -681,6 +739,8 @@ export class OpenAIRealtimeAdapter extends AdapterBase implements RealtimeAdapte
       ...(usage ? { usage } : {}),
     });
     if (usage) this.emit({ type: "usage", usage });
+    if (response.id) this.continueBatch(String(response.id));
+    this.flushResponse();
   }
 }
 

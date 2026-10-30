@@ -21,6 +21,8 @@ export default function LayeredAgentsPage() {
         that split is one field, <code>delegates</code>.
       </p>
 
+      <p>For an owned worker that keeps its identity across tasks, see the complete <Link href="/foundry/docs/durable-subagents">realtime front and durable researcher example</Link>: explicit inheritance, restricted apps, direct messages and task delegation over native durable events.</p>
+
       <h2 id="questions">Three questions decide the layers</h2>
       <p>
         Put two jobs in different agents when the answers to these questions differ. Then

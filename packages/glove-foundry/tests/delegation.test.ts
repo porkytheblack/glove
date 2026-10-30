@@ -349,7 +349,8 @@ test("a run's mailbox routes replies to their waiter and updates to handlers, an
     // Nobody waits: both are forwarded, and read as the messages a run would start with.
     await writeMailboxDelivery(directory, conversationId, update);
     await eventually(async () => ((await queue.peek()).length === 1 ? true : undefined), "the update to be forwarded", 2_000);
-    assert.equal(formatRunEvents(await queue.peek(), "loop").text, renderDelivery(update));
+    assert.equal(formatRunEvents(await queue.peek(), "loop").framework_context, "event");
+    assert.match(formatRunEvents(await queue.peek(), "loop").text, /&lt;delegation/);
 
     // A waiting ask gets its reply first.
     const answer = mailbox.waitForReply("delegation_b", 2_000, new AbortController().signal);

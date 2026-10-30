@@ -37,6 +37,9 @@ const surfaceFields: Field[] = [
   { name: "skills", type: "DefineSkillArgs[]", lazy: "yes", purpose: "Glove skills." },
   { name: "subagents", type: "DefineSubAgentArgs[] (defineSubagent)", lazy: "yes", purpose: "Child agents that run inside this run's tool call; see Multi-agent." },
   { name: "delegates", type: "(string | { agent, description? })[]", lazy: "yes", purpose: "Sibling agents, by route, that this one hands work to and hears back from. Adds glove_foundry_delegate and glove_foundry_reply; see Layered agents." },
+  { name: "durableSubagents", type: "Record<string, { agent, inherit?, eventDelivery?, cleanup? }>", lazy: "no", purpose: "Named persistent workers owned by each instance. Reuse imported or inline definitions; supports messaging, delegation and restricted inheritance. See Durable subagents." },
+  { name: "eventDelivery", type: "{ whenIdle?: 'wake' | 'defer', deferTimeoutMs?: number }", lazy: "no", purpose: "Default idle delivery policy for the addressed event journal. Durable slots and individual sends can override it." },
+  { name: "runTimeoutMs / maxConcurrentRuns", type: "positive integers", lazy: "no", purpose: "Per-definition run deadline and concurrent-run limit; reserve runtime capacity for responsive fronts." },
   { name: "answerWaitMs", type: "number", lazy: "no", purpose: "When working on a delegated task, how long glove_foundry_ask waits in the same run before it suspends. Default 90 000." },
   { name: "memory", type: "(defineMemory | configureMemory(...))[]", lazy: "yes", purpose: "Memory profiles to mount. Each must also be in components." },
   { name: "goals / facts / forms", type: "defineGoals / defineFacts / defineForms", lazy: "yes", purpose: "Guidance runners; handles appear on the execution context." },
@@ -47,7 +50,7 @@ const surfaceFields: Field[] = [
   { name: "calls", type: "defineCall(...)[]", lazy: "yes", purpose: "Typed functions, exposed as tools unless exposeToAgent: false; callable with ctx.invoke." },
   { name: "schedules", type: "defineSchedule(...)[]", lazy: "yes", purpose: "Desired recurring work, reconciled into activations every run." },
   { name: "playbooks", type: "composePlaybook(...)[]", lazy: "yes", purpose: "Inbound-event policy persisted on the instance. Omit to keep the instance's own playbooks." },
-  { name: "mesh", type: "{ adapter: MeshAdapter, identity? }", lazy: "yes", purpose: "Peer messaging via glove-mesh." },
+  { name: "mesh", type: "{ adapter: MeshAdapter, identity?, delivery?, whenIdle? }", lazy: "yes", purpose: "Peer messaging via glove-mesh." },
   { name: "workingEnvironment", type: "defineWorkingEnvironment(...)", lazy: "yes", purpose: "Persistent VFS and named scripts." },
   { name: "repl", type: "defineRepl(...)", lazy: "yes", purpose: "One JavaScript, Python or Lisp REPL, optionally with programmatic tool calling." },
 ];

@@ -21,12 +21,13 @@ export class ScriptedModel implements ModelAdapter {
   setSystemPrompt(): void {}
   async prompt(request: PromptRequest): Promise<ModelPromptResult> {
     // Runtime context (the open-delegations list) rides at the tail; read past it.
-    const last = [...request.messages].reverse().find((message) => !message.framework_context)!;
+    const last = [...request.messages].reverse().find((message) => !message.framework_context || message.framework_context === "event")!;
     if (last.tool_results?.length) {
       const result = JSON.stringify(last.tool_results[0]!.result);
       return reply({ sender: "agent", text: this.afterTool(result) });
     }
-    const step = this.script(last.text);
+    const text = eventText(last);
+    const step = this.script(text);
     if ("say" in step) return reply({ sender: "agent", text: step.say });
     return reply({
       sender: "agent",
@@ -42,4 +43,10 @@ function reply(message: Message): ModelPromptResult {
 
 export function delegationIdIn(text: string): string {
   return /id="(delegation_[^"]+)"/.exec(text)?.[1] ?? "";
+}
+
+export function eventText(message: Message): string {
+  return message.framework_context === "event"
+    ? [...message.text.matchAll(/<event [^>]*>\n([\s\S]*?)\n<\/event>/g)].map((match) => match[1]!.replaceAll("&lt;", "<").replaceAll("&gt;", ">").replaceAll("&quot;", '"').replaceAll("&amp;", "&")).join("\n\n")
+    : message.text;
 }

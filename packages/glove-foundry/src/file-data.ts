@@ -34,6 +34,7 @@ interface FileFoundryState {
   agents: AgentInstance[];
   subscriptions: PlaybookSubscription[];
   inboundDeliveries: InboundDeliveryClaim[];
+  events: import("./event-delivery.js").FoundryEventRecord[];
   pendingInbound: FoundryPendingInbound[];
   activations: FoundryActivationRecord[];
   conversations: Conversation[];
@@ -65,6 +66,7 @@ function emptyState(environment: ReadonlyArray<EnvironmentValue>): FileFoundrySt
     agents: [],
     subscriptions: [],
     inboundDeliveries: [],
+    events: [],
     pendingInbound: [],
     activations: [],
     conversations: [],
@@ -119,7 +121,7 @@ export class FileFoundryDataAdapter implements FoundryDataAdapter {
   private readonly lockFile: string;
   private readonly lockTimeoutMs: number;
   private readonly staleLockMs: number;
-  private readonly seeds: Omit<FileFoundryState, "version" | "inboundDeliveries" | "pendingInbound" | "workspaceEntries" | "workingEnvironments" | "inbox" | "tasks">;
+  private readonly seeds: Omit<FileFoundryState, "events" | "version" | "inboundDeliveries" | "pendingInbound" | "workspaceEntries" | "workingEnvironments" | "inbox" | "tasks">;
   private initialized: Promise<void> | undefined;
   private queue: Promise<unknown> = Promise.resolve();
 
@@ -191,6 +193,7 @@ export class FileFoundryDataAdapter implements FoundryDataAdapter {
         agents: parsed.agents ?? [],
         subscriptions: parsed.subscriptions ?? [],
         inboundDeliveries: parsed.inboundDeliveries ?? [],
+        events: parsed.events ?? [],
         pendingInbound: parsed.pendingInbound ?? [],
         activations: parsed.activations ?? [],
         conversations: parsed.conversations ?? [],
@@ -296,12 +299,31 @@ export class FileFoundryDataAdapter implements FoundryDataAdapter {
     return this.mutate((state) => {
       const existing = state.agents.find((agent) => agent.provisioningKey === input.provisioningKey);
       if (existing) return reconstructAgentInstance(existing);
+      if (input.id && state.agents.some((agent) => agent.id === input.id)) throw new Error(`Agent instance "${input.id}" already exists with another provisioning key.`);
       const created = createAgentInstance(input.definitionId, {
         ...input,
         id: input.id ?? `agent_${randomUUID()}`,
       }, input.provisioningKey);
       state.agents.push(structuredClone(created));
       return created;
+    });
+  }); }
+
+  purgeAgentData(agentId: string) { return effect(async () => {
+    await this.ensureInitialized();
+    await this.mutate((state) => {
+      const agent = state.agents.find((item) => item.id === agentId);
+      if (!agent?.durableSubagent || agent.durableSubagent.status !== "archived") throw new Error("Only archived durable workers can be purged.");
+      const ids = new Set(state.conversations.filter((item) => item.agentId === agentId).map((item) => item.id));
+      state.events = state.events.filter((item) => item.target.agentId !== agentId);
+      state.pendingInbound = state.pendingInbound.filter((item) => item.request.agentId !== agentId);
+      state.activations = state.activations.filter((item) => item.agentId !== agentId);
+      state.conversations = state.conversations.filter((item) => item.agentId !== agentId);
+      state.workingEnvironments = state.workingEnvironments.filter((item) => item.owner.agentId !== agentId);
+      state.inbox = state.inbox.filter((item) => item.agentId !== agentId && !ids.has(item.conversationId ?? ""));
+      state.tasks = state.tasks.filter((item) => item.agentId !== agentId && !ids.has(item.conversationId ?? ""));
+      state.environment = state.environment.filter((item) => item.scope === "workspace" || (item.agentId !== agentId && !ids.has(item.conversationId ?? "")));
+      replaceById(state.agents, { ...agent, context: {}, installations: [], playbooks: [], durableSubagent: { ...agent.durableSubagent, status: "purged" }, updatedAt: new Date().toISOString() });
     });
   }); }
 
@@ -360,6 +382,23 @@ export class FileFoundryDataAdapter implements FoundryDataAdapter {
       });
     });
   }); }
+
+  claimEvent(record: import("./event-delivery.js").FoundryEventRecord) { return effect(async () => {
+    await this.ensureInitialized();
+    return this.mutate((state) => {
+      if (state.agents.some((agent) => agent.id === record.target.agentId && agent.durableSubagent?.status === "purged")) throw new Error("Cannot deliver an event to a purged worker.");
+      if (state.events.some((item) => item.id === record.id)) return false;
+      state.events.push(structuredClone(record)); return true;
+    });
+  }); }
+  putEvent(record: import("./event-delivery.js").FoundryEventRecord) { return effect(async () => {
+    await this.ensureInitialized();
+    await this.mutate((state) => {
+      if (state.agents.some((agent) => agent.id === record.target.agentId && agent.durableSubagent?.status === "purged")) return;
+      replaceById(state.events, record);
+    });
+  }); }
+  listEvents() { return effect(async () => structuredClone((await this.snapshot()).events)); }
 
   putPendingInbound(record: FoundryPendingInbound) { return effect(async () => {
     await this.ensureInitialized();

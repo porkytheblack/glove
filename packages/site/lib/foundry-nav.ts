@@ -77,6 +77,12 @@ export const foundrySections: FoundryNavSection[] = [
         summary: "Split an assistant by speed, context and duration: an interactor that talks and remembers, workers that do the work, delegates that hand off and hear back.",
       },
       {
+        label: "Durable subagents",
+        href: "/foundry/docs/durable-subagents",
+        badge: "new",
+        summary: "Complete realtime front and long-running researcher: inheritance, memory and app permissions, direct messaging, task delegation, event targeting, wake/defer policies and restart recovery.",
+      },
+      {
         label: "Voice agents",
         href: "/foundry/docs/voice",
         badge: "new",
