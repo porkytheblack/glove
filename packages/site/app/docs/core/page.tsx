@@ -332,7 +332,7 @@ const result = await agent.processRequest("What is the weather in Tokyo?");`}
           [
             "do",
             "(input: I, display: DisplayManagerAdapter, glove: IGloveRunnable, signal?: AbortSignal) => Promise<ToolResultData>",
-            "The tool's implementation. Receives validated input, the parent's display manager, the running Glove instance (use to fold further tools at runtime), and the active request's AbortSignal. Forward the signal into long-running internal work so abort propagates.",
+            "The tool's implementation. Receives input parsed and validated by inputSchema when provided; jsonSchema-only tools receive raw arguments and must validate in the implementation or bridged service. Also receives the parent's display manager, the running Glove instance (use to fold further tools at runtime), and the active request's AbortSignal. Forward the signal into long-running internal work so abort propagates.",
           ],
           [
             "generateToolSummary?",
@@ -1768,7 +1768,7 @@ const durable = await store.createSubAgentStore("planner", true);        // cach
           [
             "run(input, handOver?, signal?)",
             "Promise<ToolResultData>",
-            "Execute the tool with validated input. handOver delegates to the renderer / display stack. signal is the active request's AbortSignal — forward it into long-running internal work (e.g. a child Glove run) so abort propagates. Tools marked unAbortable should ignore signal.",
+            "Execute the tool with input parsed and validated by input_schema when provided. jsonSchema-only tools receive raw arguments and must validate in the implementation or bridged service. handOver delegates to the renderer / display stack. signal is the active request's AbortSignal — forward it into long-running internal work (e.g. a child Glove run) so abort propagates. Tools marked unAbortable should ignore signal.",
           ],
           [
             "generateSummary?(args)",

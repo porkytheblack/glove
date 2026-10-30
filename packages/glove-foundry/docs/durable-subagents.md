@@ -132,7 +132,7 @@ required. Optional `mesh: { delivery: "events" }` uses native live events too; r
 mesh transport and direct `glove.emitEvent` calls do not themselves create Foundry
 journal records. Use `runtime.emitEvent`/`client.emitEvent` or the messaging tool
 when delivery must survive the absence of a running process. Legacy mesh inbox mode
-remains available as `mesh: { delivery: "inbox" }`.
+is the default; select native live delivery explicitly with `mesh: { delivery: "events" }`.
 
 Foundry acknowledges events only after a successful receiving run reports that it
 consumed them. Unread events stay pending; shutdown, failures and archival retain

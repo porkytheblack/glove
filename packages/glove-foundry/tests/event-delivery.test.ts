@@ -22,6 +22,34 @@ async function eventually<T>(read: () => Promise<T | undefined>): Promise<T> {
   }
 }
 
+for (const kind of ["memory", "file"] as const) test(`${kind} direct-event retries compare the durable JSON form across controller restarts`, async () => {
+  const directory = await mkdtemp(join(tmpdir(), "foundry-event-retry-"));
+  const file = join(directory, "state.json");
+  const memory = new MemoryFoundryDataAdapter();
+  const adapter = () => kind === "file" ? new FileFoundryDataAdapter({ file }) : memory;
+  const make = () => FoundryRuntime.discover({ rootDir: resolve("tests/fixtures"), agentsDir: resolve("tests/fixtures/durable-subagents"), application: defineApplication({ name: "retry", data: adapter() }) });
+  let runtime = await make();
+  try {
+    const worker = await runtime.createAgent("researcher", { id: "retry-worker" });
+    const conversation = await runtime.createConversation(worker.id);
+    const target = { agentId: worker.id, conversationId: conversation.id };
+    const event = { id: "retry", source: "test", content: "finding", kind: undefined, metadata: { optional: undefined, nested: { value: "kept", absent: undefined } } };
+    const policy = { whenIdle: "defer" as const, deferTimeoutMs: undefined };
+    await runtime.emitEvent(target, event, policy);
+    await runtime.emitEvent(target, event, policy);
+    await runtime.stop();
+    runtime = await make();
+    await runtime.emitEvent(target, event, policy);
+    await runtime.emitEvent(target, JSON.parse(JSON.stringify(event)), { whenIdle: "defer" });
+    const records = await Effect.runPromise(adapter().listEvents());
+    assert.equal(records.length, 1);
+    assert.deepEqual(records[0]!.event, JSON.parse(JSON.stringify(event)));
+    assert.deepEqual(records[0]!.policy, { whenIdle: "defer" });
+    await assert.rejects(runtime.emitEvent(target, { ...event, content: "different" }, policy), /already belongs/);
+    await assert.rejects(runtime.emitEvent(target, event, { whenIdle: "wake" }), /already belongs/);
+  } finally { await runtime.stop(); await rm(directory, { recursive: true, force: true }); }
+});
+
 for (const kind of ["memory", "file"] as const) test(`${kind} event journal atomically claims ids and retains terminal deduplication receipts`, async () => {
   const directory = await mkdtemp(join(tmpdir(), "foundry-event-journal-"));
   try {

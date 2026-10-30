@@ -69,6 +69,26 @@ test("the session is configured from the agent and its model slot", async () => 
   assert.equal(new RealtimeSession({ agent }).adapter.provider, "openai");
 });
 
+test("custom realtime adapters keep root-union tool constraints and local Zod validation", async () => {
+  const { agent, glove } = buildAgent();
+  const inputSchema = z.discriminatedUnion("action", [
+    z.object({ action: z.literal("list") }),
+    z.object({ action: z.literal("cancel"), id: z.string() }),
+  ]);
+  let calls = 0;
+  glove.fold({ name: "manage", description: "Manage work", inputSchema,
+    async do() { calls++; return { status: "success", data: null }; } });
+  const adapter = new FakeAdapter();
+  const session = new RealtimeSession({ agent, adapter });
+  await session.start();
+  assert.deepEqual(adapter.opens[0].tools!.find((tool) => tool.name === "manage")!.parameters, z.toJSONSchema(inputSchema));
+  adapter.fire({ type: "tool.call", callId: "invalid", name: "manage", arguments: '{"action":"cancel"}' });
+  await settle();
+  assert.equal(calls, 0);
+  assert.equal((adapter.results[0].output as any).message, "TOOL_INPUT_INVALID");
+  await session.stop();
+});
+
 test("a tool call runs through the Executor: result sent, renderData stripped, pair persisted, events fired", async () => {
   const { agent, store } = buildAgent();
   const adapter = new FakeAdapter();

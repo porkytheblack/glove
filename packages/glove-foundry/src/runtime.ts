@@ -2739,9 +2739,11 @@ export class FoundryRuntime {
       if (!this.data.claimEvent || !this.data.putEvent || !this.data.listEvents) throw new Error("Durable event delivery requires claimEvent, putEvent, and listEvents on the data adapter.");
       const accepted: FoundryConversationDelivery[] = [];
       for (const delivery of deliveries) {
-        const event = delivery.durable?.event ?? deliveryEvent(delivery);
+        // Compare and retain the same JSON representation on every adapter,
+        // including optional undefined fields that a file-backed journal drops.
+        const event: AgentEvent = JSON.parse(JSON.stringify(delivery.durable?.event ?? deliveryEvent(delivery)));
         const id = eventRecordId(target, event.id);
-        const policy = delivery.durable?.policy ?? this.byRoute.get(target.definitionId)?.definition.eventDelivery ?? {};
+        const policy: FoundryEventPolicy = JSON.parse(JSON.stringify(delivery.durable?.policy ?? this.byRoute.get(target.definitionId)?.definition.eventDelivery ?? {}));
         const { durable: _transport, ...body } = delivery;
         const record: FoundryEventRecord = { id, target: { agentId: target.agentId, conversationId: target.conversationId },
           definitionId: target.definitionId, workspaceId: target.workspaceId, event, policy, delivery: body,

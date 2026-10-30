@@ -62,7 +62,9 @@ export interface GloveFoldArgs<I> {
    * Tool implementation.
    *
    * Arguments:
-   * - `input` — validated input matching `inputSchema` / `jsonSchema`.
+   * - `input` — parsed and validated by `inputSchema` when provided. With
+   *   `jsonSchema` alone, raw model arguments pass through; the implementation
+   *   or bridged service is responsible for validation.
    * - `display` — the parent's `DisplayManagerAdapter`.
    * - `glove` — the running `Glove` instance. Use it from tools that need
    *   to fold additional tools at runtime (e.g. the discovery subagent's

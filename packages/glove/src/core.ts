@@ -240,6 +240,8 @@ export interface Tool<I> {
   unAbortable?: boolean;
   /**
    * Tool implementation.
+   * Input is locally validated only when `input_schema` is provided. Raw
+   * `jsonSchema` tools must validate in the implementation or bridged service.
    *
    * `signal` is the active request's `AbortSignal` (the same one passed to
    * `Glove.processRequest`). Tools that perform long-running internal work
@@ -270,23 +272,33 @@ export function getToolJsonSchema(tool: Tool<any>, options?: { objectRoot?: bool
   const schema = tool.jsonSchema ?? (tool.input_schema
     ? z.toJSONSchema(tool.input_schema) as Record<string, unknown>
     : { type: "object", properties: {} });
-  if (!options?.objectRoot) return schema;
+  return options?.objectRoot ? toObjectRootJsonSchema(schema) : schema;
+}
+
+/** Provider compatibility: an object-shaped wire superset of a root object union.
+ * Local Zod validation and raw-schema tools' existing validation behavior are unchanged. */
+export function toObjectRootJsonSchema(schema: Record<string, unknown>): Record<string, unknown> {
   // OpenAI function parameters forbid root unions. Advertise an object-shaped
   // superset on that wire; the executor still validates the original Zod union.
   const variants = schema.anyOf ?? schema.oneOf;
   if (!Array.isArray(variants) || !variants.length || schema.type && schema.type !== "object"
     || !variants.every((variant) => variant && typeof variant === "object" && variant.type === "object")) return schema;
-  const properties: Record<string, unknown> = {};
+  const common = (schema.properties ?? {}) as Record<string, unknown>;
+  const properties: Record<string, unknown> = { ...common };
   const names = new Set(variants.flatMap((variant) => Object.keys(variant.properties ?? {})));
   for (const name of names) {
     const choices = variants.filter((variant) => name in (variant.properties ?? {})).map((variant) => variant.properties[name]);
     const unique = [...new Map(choices.map((choice) => [JSON.stringify(choice), choice])).values()];
-    properties[name] = unique.length === 1 ? unique[0] : { anyOf: unique };
+    const choice = unique.length === 1 ? unique[0] : { anyOf: unique };
+    properties[name] = Object.hasOwn(common, name) ? { allOf: [common[name], choice] } : choice;
   }
-  const required = (variants[0].required ?? []).filter((name: string) => variants.every((variant) => variant.required?.includes(name)));
+  const required = [...new Set([
+    ...(schema.required as string[] | undefined ?? []),
+    ...(variants[0].required ?? []).filter((name: string) => variants.every((variant) => variant.required?.includes(name))),
+  ])];
   const { anyOf: _anyOf, oneOf: _oneOf, ...metadata } = schema;
   return { ...metadata, type: "object", properties, required,
-    ...(variants.every((variant) => variant.additionalProperties === false) ? { additionalProperties: false } : {}) };
+    ...(schema.additionalProperties === undefined && variants.every((variant) => variant.additionalProperties === false) ? { additionalProperties: false } : {}) };
 }
 
 export interface ToolCall {

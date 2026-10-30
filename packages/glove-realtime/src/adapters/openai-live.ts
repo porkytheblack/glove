@@ -17,6 +17,7 @@
 // https://developers.openai.com/api/docs/guides/live-delegation
 // ─────────────────────────────────────────────────────────────────────────────
 
+import { toObjectRootJsonSchema } from "glove-core";
 import type {
   RealtimeAdapter,
   RealtimeAudioFormat,
@@ -488,7 +489,7 @@ function toolDefinitions(tools: RealtimeToolSpec[]): Record<string, unknown>[] {
     type: "function",
     name: tool.name,
     description: tool.description,
-    parameters: tool.parameters,
+    parameters: toObjectRootJsonSchema(tool.parameters),
     strict: false,
   }));
 }

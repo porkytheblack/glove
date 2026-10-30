@@ -916,7 +916,7 @@ async function executeDefinition(
     if (mesh) {
       await mountMesh(base, {
         // Optional live mesh transport. Durable addressed delivery belongs to the controller journal.
-        delivery: mesh.delivery ?? "events",
+        delivery: mesh.delivery ?? "inbox",
         ...(mesh.whenIdle ? { whenIdle: mesh.whenIdle } : {}),
         adapter: mesh.adapter,
         identity: {

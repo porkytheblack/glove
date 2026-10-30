@@ -44,3 +44,29 @@ test("schema normalization preserves supplied schemas and does not narrow mixed 
   const mixed = { anyOf: [{ type: "object" }, { type: "string" }] };
   assert.equal(getToolJsonSchema({ ...tool, jsonSchema: mixed }, { objectRoot: true }), mixed);
 });
+
+test("object-root normalization preserves common fields and root constraints", () => {
+  const schema = {
+    type: "object", properties: { tenantId: { type: "string" }, action: { type: "string", minLength: 1 } },
+    required: ["tenantId"], additionalProperties: false,
+    anyOf: [
+      { type: "object", properties: { action: { const: "list" } }, required: ["action"] },
+      { type: "object", properties: { action: { const: "cancel" }, id: { type: "string" } }, required: ["action", "id"] },
+    ],
+  };
+  const original = structuredClone(schema);
+  const normalized = getToolJsonSchema({ ...tool, jsonSchema: schema }, { objectRoot: true });
+  assert.deepEqual(normalized.properties, {
+    tenantId: { type: "string" },
+    action: { allOf: [{ type: "string", minLength: 1 }, { anyOf: [{ const: "list" }, { const: "cancel" }] }] },
+    id: { type: "string" },
+  });
+  assert.deepEqual(normalized.required, ["tenantId", "action"]);
+  assert.equal(normalized.additionalProperties, false);
+  assert.deepEqual(schema, original, "normalization never mutates a supplied schema");
+  const additional = { type: "string" };
+  assert.deepEqual(getToolJsonSchema({ ...tool, jsonSchema: {
+    ...schema, additionalProperties: additional,
+    anyOf: schema.anyOf.map((branch) => ({ ...branch, additionalProperties: false })),
+  } }, { objectRoot: true }).additionalProperties, additional, "branch settings must not overwrite the root constraint");
+});
