@@ -1,5 +1,12 @@
 # glove-forms-bench
 
+## 1.0.12
+
+### Patch Changes
+
+- Updated dependencies []:
+  - glove-memory@2.3.2
+
 ## 1.0.11
 
 ### Patch Changes

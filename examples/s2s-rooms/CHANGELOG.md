@@ -1,5 +1,14 @@
 # glove-s2s-rooms
 
+## 1.0.11
+
+### Patch Changes
+
+- Updated dependencies [[`ca88985`](https://github.com/porkytheblack/glove/commit/ca8898526d5baeabe0469921658977451dab921c), [`ca88985`](https://github.com/porkytheblack/glove/commit/ca8898526d5baeabe0469921658977451dab921c)]:
+  - glove-core@4.6.0
+  - glove-mesh@0.2.2
+  - glove-voice-s2s@0.4.5
+
 ## 1.0.10
 
 ### Patch Changes

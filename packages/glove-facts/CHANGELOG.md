@@ -1,5 +1,12 @@
 # glove-facts
 
+## 0.1.7
+
+### Patch Changes
+
+- Updated dependencies [[`ca88985`](https://github.com/porkytheblack/glove/commit/ca8898526d5baeabe0469921658977451dab921c), [`ca88985`](https://github.com/porkytheblack/glove/commit/ca8898526d5baeabe0469921658977451dab921c)]:
+  - glove-core@4.6.0
+
 ## 0.1.6
 
 ### Patch Changes

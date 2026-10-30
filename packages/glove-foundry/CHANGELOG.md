@@ -1,5 +1,29 @@
 # glove-foundry
 
+## 0.7.0
+
+### Minor Changes
+
+- [#218](https://github.com/porkytheblack/glove/pull/218) [`ca88985`](https://github.com/porkytheblack/glove/commit/ca8898526d5baeabe0469921658977451dab921c) Thanks [@porkytheblack](https://github.com/porkytheblack)! - Add owned durable subagents to defineAgent, with reusable definitions, explicit memory/tool/app inheritance, restricted app views, persistent two-way messaging, and delegation to durable workers. Add worker inspection, archive/resume/purge APIs, ownership-aware cleanup, and per-definition run time and concurrency limits.
+
+  Route messages, task starts, and task updates through a shared durable event journal with explicit agent/conversation targeting, wake/defer/expiry policies, restart recovery and retained deduplication receipts. Deliver through native runtime events without mesh inboxes; add an awaited Glove processEvents turn for durable hosts.
+
+  Preserve events cancelled before history persistence, and route deliveries and acknowledgment tracking through the final runnable returned by a custom build.
+
+### Patch Changes
+
+- Updated dependencies [[`ca88985`](https://github.com/porkytheblack/glove/commit/ca8898526d5baeabe0469921658977451dab921c), [`ca88985`](https://github.com/porkytheblack/glove/commit/ca8898526d5baeabe0469921658977451dab921c)]:
+  - glove-core@4.6.0
+  - glove-facts@0.1.7
+  - glove-js@0.5.5
+  - glove-lisp@0.5.5
+  - glove-mcp@1.2.5
+  - glove-memory@2.3.2
+  - glove-mesh@0.2.2
+  - glove-python@0.4.5
+  - glove-voice-s2s@0.4.5
+  - glove-working-environment@0.7.0
+
 ## 0.6.1
 
 ### Patch Changes
