@@ -1,5 +1,12 @@
 # glove-voice-native
 
+## 0.3.9
+
+### Patch Changes
+
+- Updated dependencies []:
+  - glove-voice@3.6.9
+
 ## 0.3.8
 
 ### Patch Changes

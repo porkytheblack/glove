@@ -1,5 +1,16 @@
 # glove-realtime
 
+## 0.1.1
+
+### Patch Changes
+
+- [#218](https://github.com/porkytheblack/glove/pull/218) [`ca88985`](https://github.com/porkytheblack/glove/commit/ca8898526d5baeabe0469921658977451dab921c) Thanks [@porkytheblack](https://github.com/porkytheblack)! - Normalize object-union tool schemas at OpenAI-compatible and OpenAI realtime provider boundaries. Preserve common root fields and constraints when merging branch properties into an object-shaped wire schema, including keys allowed by branch patternProperties, while retaining the original Zod discriminated-union validation in the executor. Custom realtime adapters keep the original schema; raw JSON Schema tools retain their existing pass-through validation behavior. This fixes OpenAI rejecting built-in Foundry tools such as schedule management.
+
+- [#218](https://github.com/porkytheblack/glove/pull/218) [`ca88985`](https://github.com/porkytheblack/glove/commit/ca8898526d5baeabe0469921658977451dab921c) Thanks [@porkytheblack](https://github.com/porkytheblack)! - Queue and coalesce OpenAI Realtime response requests from typed input, spontaneous events and tool results. Wait for the current response and outstanding tool batch to finish, recover from correlated request rejections, isolate late summary completions, and defer queued responses through user speech and the automatic VAD response. This prevents overlapping-response errors and dropped continuations during agent-to-agent exchanges.
+
+- Updated dependencies [[`ca88985`](https://github.com/porkytheblack/glove/commit/ca8898526d5baeabe0469921658977451dab921c), [`ca88985`](https://github.com/porkytheblack/glove/commit/ca8898526d5baeabe0469921658977451dab921c)]:
+  - glove-core@4.6.0
+
 ## 0.1.0
 
 ### Minor Changes

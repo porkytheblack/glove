@@ -1,5 +1,19 @@
 # glove-core
 
+## 4.6.0
+
+### Minor Changes
+
+- [#218](https://github.com/porkytheblack/glove/pull/218) [`ca88985`](https://github.com/porkytheblack/glove/commit/ca8898526d5baeabe0469921658977451dab921c) Thanks [@porkytheblack](https://github.com/porkytheblack)! - Add owned durable subagents to defineAgent, with reusable definitions, explicit memory/tool/app inheritance, restricted app views, persistent two-way messaging, and delegation to durable workers. Add worker inspection, archive/resume/purge APIs, ownership-aware cleanup, and per-definition run time and concurrency limits.
+
+  Route messages, task starts, and task updates through a shared durable event journal with explicit agent/conversation targeting, wake/defer/expiry policies, restart recovery and retained deduplication receipts. Deliver through native runtime events without mesh inboxes; add an awaited Glove processEvents turn for durable hosts.
+
+  Preserve events cancelled before history persistence, and route deliveries and acknowledgment tracking through the final runnable returned by a custom build.
+
+### Patch Changes
+
+- [#218](https://github.com/porkytheblack/glove/pull/218) [`ca88985`](https://github.com/porkytheblack/glove/commit/ca8898526d5baeabe0469921658977451dab921c) Thanks [@porkytheblack](https://github.com/porkytheblack)! - Normalize object-union tool schemas at OpenAI-compatible and OpenAI realtime provider boundaries. Preserve common root fields and constraints when merging branch properties into an object-shaped wire schema, including keys allowed by branch patternProperties, while retaining the original Zod discriminated-union validation in the executor. Custom realtime adapters keep the original schema; raw JSON Schema tools retain their existing pass-through validation behavior. This fixes OpenAI rejecting built-in Foundry tools such as schedule management.
+
 ## 4.5.0
 
 ### Minor Changes

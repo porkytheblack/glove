@@ -1,6 +1,6 @@
 {
   "name": "glove-execution",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "Mounted browser scripting and persistent sandbox capabilities for Glove agents, with Station backends",
   "type": "module",
   "license": "MIT",

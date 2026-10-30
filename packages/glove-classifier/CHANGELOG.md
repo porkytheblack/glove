@@ -1,5 +1,13 @@
 # glove-classifier
 
+## 0.1.3
+
+### Patch Changes
+
+- Updated dependencies [[`ca88985`](https://github.com/porkytheblack/glove/commit/ca8898526d5baeabe0469921658977451dab921c), [`ca88985`](https://github.com/porkytheblack/glove/commit/ca8898526d5baeabe0469921658977451dab921c)]:
+  - glove-core@4.6.0
+  - glove-working-environment@0.7.0
+
 ## 0.1.2
 
 ### Patch Changes
