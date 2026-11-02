@@ -100,6 +100,11 @@ the person's account. It owns everything about talking to that provider:
   send. Foundry runs the delivery in its own process, inside the account
   session, after the person approves the exact email, and only for a bot whose
   binding grants `gmail:send`. The bot never holds the token.
+- **Every approval has a link.** `approvals.url` in `foundry.application.ts`
+  points each one at `<WEB_URL>/approvals/<id>` (`app/(crew)/approvals/[id]`).
+  The page shows what is asked, decides it, and after that says what happened.
+  Approvals are stored: if nobody answers within a minute the run pauses, and
+  the decision, whenever it comes, carries the work on.
 - **New mail arrives through the `gmail-watch` connection.** Foundry runs one
   per connected account, only while a bot has Gmail installed and its playbook
   wants mail. It calls `users.watch` daily (Google requires every 7 days), pulls

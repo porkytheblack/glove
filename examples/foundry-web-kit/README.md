@@ -32,6 +32,7 @@ input or results.
 | `ownedAgent`, `ownedAgents`, `ownedConversation`, `ownedRun`, `ownedApproval` | Fetch the record from Foundry and check its `workspaceId`; anything else is a 404, like a missing record. |
 | `displayMessages(transcript, { incoming?, describeTool? })` | A Glove transcript as `{ id, sender: "person" \| "agent" \| "event", text, tools?: [{ name, status, label?, chip? }] }`. Tool input stays on the server; `describeTool` turns it into a short line. |
 | `liveRun(runId, { after, signal, describeTool? })`, `resumeAfter(request)` | A server-sent event `Response` that follows Foundry's events for one run and re-emits only `agent.text_delta {text}`, `agent.tool_use {name}`, `agent.tool_use_result {name, status}`, `agent.foundry.approval.requested {approvalId, toolName}`, `approval.resolved`, `run.started/completed/failed/cancelled`. Ends with the run; resumes from `Last-Event-ID`. |
+| `approvalPage(workspaceId, approvalId, { describe? })` | One of the workspace's approvals, any status, for its page; another workspace's is a 404. |
 | `pendingApprovals(workspaceId, { describe?, filter? })` | The workspace's pending approvals with the tool name and only the fields a person needs (to, subject, body, title…). `describe` sets the title and whether "Always allow" is offered. |
 | `appsSummary(workspaceId, agentIds, options?)` | Per app: its accounts (only those installed on the person's agents), inbound transmissions (with "Watching <account>" when a connection runs), outbound ones, and the playbooks that take what comes in, with the agents that run them. |
 
@@ -53,6 +54,7 @@ export const GET = handle(async (request: Request, { params }: { params: Promise
 | `Message`, `Turn`, `Chip` | One message; an agent's turn with its tool lines above each reply and handoff chips below. |
 | `Composer` | A message box and Send. Enter sends, Shift+Enter adds a line; `onSend` throws to keep the text. |
 | `ApprovalCard` | Allow once / Always allow (when `canAlwaysAllow`) / Deny, with the approval's fields and body. |
+| `ApprovalScreen` | The page an approval's link opens: the card while it is pending, then what happened (approved, denied, expired, cancelled) and a way back. Takes `approvalPage(...)`'s view and the URL to POST the decision to. |
 | `useLiveRun(runId, { onApproval?, onEnd? })` | Follows `/api/runs/<id>/live` with EventSource and returns the reply so far as display messages. Closes on the run's end. |
 | `AppsScreen` | The Apps screen from `appsSummary()`, with slots for the product's words and actions. |
 

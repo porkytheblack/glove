@@ -1,5 +1,5 @@
 import "server-only";
-import type { AgentInstance, FoundryActivationRecord } from "glove-foundry";
+import type { AgentInstance, FoundryActivationRecord, FoundryApproval } from "glove-foundry";
 import {
   displayMessages,
   foundry,
@@ -164,57 +164,67 @@ export interface MuseApproval extends ApprovalView {
   readonly onWhatsApp?: boolean;
 }
 
-/** Muse's pending approvals, from either conversation. */
-export async function approvalsOf(personId: string, muse: AgentInstance): Promise<MuseApproval[]> {
+/**
+ * How Muse's approvals read: a title and the fields to decide on, and for the
+ * Sentinel's asks the site, access and reason its card shows.
+ */
+export async function describeApprovals(personId: string, muse: AgentInstance) {
   const { accounts, people, rulesOf, toolNames } = await host();
   const rules = rulesOf(muse.context);
   const mine = await accounts.accountsOf(personId);
   const whatsapp = people.channel(muse.id, "whatsapp").id;
   const name = muse.name ?? "Muse";
-  const extras = new Map<string, Partial<MuseApproval>>();
-  const views = await pendingApprovals(personId, {
-    filter: (approval) => approval.agentId === muse.id,
-    describe: (approval, view) => {
-      const input = record(approval.toolInput);
-      const extra: { -readonly [K in keyof MuseApproval]?: MuseApproval[K] } = approval.conversationId === whatsapp ? { onWhatsApp: true } : {};
-      extras.set(approval.id, extra);
-      if (approval.toolName === "request_access") {
-        const site = hostOf(String(input.site ?? ""));
-        extra.sentinel = {
+  return (approval: FoundryApproval, view: ApprovalView): Partial<MuseApproval> => {
+    const input = record(approval.toolInput);
+    const onWhatsApp = approval.conversationId === whatsapp ? { onWhatsApp: true } : {};
+    if (approval.toolName === "request_access") {
+      const site = hostOf(String(input.site ?? ""));
+      return {
+        ...onWhatsApp,
+        title: "The Sentinel asks",
+        fields: [],
+        sentinel: {
           site,
           access: input.access === "read" ? "read" : "write",
           why: clip(String(input.why ?? ""), 300),
           readAllowed: rules.read.includes(site) || rules.write.includes(site),
-        };
-        return { title: "The Sentinel asks", fields: [] };
-      }
-      if (approval.toolName === toolNames.gmailSend) {
-        const account = mine.find((item) => input.routeId === `${item.id}-out`);
-        return {
-          title: `${name} wants to send this email`,
-          fields: [...(account ? [{ label: "From", value: account.label ?? account.externalAccountId }] : []), ...view.fields],
-        };
-      }
-      if (approval.toolName === "buy") {
-        const cents = Number(input.amountCents);
-        const items = Array.isArray(input.items) ? input.items.filter((item): item is string => typeof item === "string") : [];
-        return {
-          title: `${name} wants to pay ${String(input.merchant ?? "a shop")}`,
-          fields: [
-            ...(Number.isFinite(cents) ? [{ label: "Amount", value: `$${(cents / 100).toFixed(2)}` }] : []),
-            ...(items.length > 0 ? [{ label: "Items", value: clip(items.join(", "), 300) }] : []),
-            ...(typeof input.site === "string" ? [{ label: "Site", value: input.site }] : []),
-          ],
-        };
-      }
-      return { title: `${name} wants to use ${approval.toolName.replaceAll("_", " ")}` };
-    },
-  });
+        },
+      };
+    }
+    if (approval.toolName === toolNames.gmailSend) {
+      const account = mine.find((item) => input.routeId === `${item.id}-out`);
+      return {
+        ...onWhatsApp,
+        title: `${name} wants to send this email`,
+        fields: [...(account ? [{ label: "From", value: account.label ?? account.externalAccountId }] : []), ...view.fields],
+      };
+    }
+    if (approval.toolName === "buy") {
+      const cents = Number(input.amountCents);
+      const items = Array.isArray(input.items) ? input.items.filter((item): item is string => typeof item === "string") : [];
+      return {
+        ...onWhatsApp,
+        title: `${name} wants to pay ${String(input.merchant ?? "a shop")}`,
+        fields: [
+          ...(Number.isFinite(cents) ? [{ label: "Amount", value: `$${(cents / 100).toFixed(2)}` }] : []),
+          ...(items.length > 0 ? [{ label: "Items", value: clip(items.join(", "), 300) }] : []),
+          ...(typeof input.site === "string" ? [{ label: "Site", value: input.site }] : []),
+        ],
+      };
+    }
+    return { ...onWhatsApp, title: `${name} wants to use ${approval.toolName.replaceAll("_", " ")}` };
+  };
+}
+
+/** Muse's pending approvals, from either conversation. */
+export async function approvalsOf(personId: string, muse: AgentInstance): Promise<MuseApproval[]> {
+  const describe = await describeApprovals(personId, muse);
+  const views = await pendingApprovals(personId, { filter: (approval) => approval.agentId === muse.id, describe });
   return views.map((view) => {
-    const extra = extras.get(view.id) ?? {};
+    const item = view as MuseApproval;
     // A Sentinel card shows the site and the reason itself.
-    const { body: _body, ...rest } = view;
-    return extra.sentinel ? { ...rest, ...extra } : { ...view, ...extra };
+    const { body: _body, ...rest } = item;
+    return item.sentinel ? rest : item;
   });
 }
 

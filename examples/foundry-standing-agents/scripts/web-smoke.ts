@@ -189,10 +189,22 @@ try {
   assert.match(shown, /support@example\.com/);
   assert.match(shown, /dana@acme\.test/);
   assert.match(shown, /Your rule: ask first\./);
-  await approval.getByRole("button", { name: "Approve" }).click();
+  // Its link (approvals.url) opens it on a page of its own, where it is decided.
+  const approvalId = (await approval.getAttribute("data-approval"))!;
+  const stored = await foundryJson<{ url?: string }>(`/api/approvals/${approvalId}`);
+  assert.equal(stored.url, `${web}/approvals/${approvalId}`, "the approval links to its page in the app");
+  const linked = await page.context().newPage();
+  await linked.goto(stored.url!);
+  const onPage = linked.getByRole("group", { name: "Approval" });
+  assert.match(await onPage.innerText(), /Pip wants to send this email/);
+  await onPage.getByRole("button", { name: "Approve" }).click();
+  await linked.getByText("Approved. Pip carries on with it.").waitFor();
   await page.getByText("Sent the reply to dana@acme.test.").waitFor();
   assert.match(await readFile(join(dataDir, "ledger.jsonl"), "utf8"), /"to":"dana@acme\.test"/, "the email went out from the support mailbox");
-  console.log("4. the reply to Dana waited in an approval card; approved, it went out");
+  await linked.reload();
+  await linked.getByText("Approved. Pip carries on with it.").waitFor();
+  await linked.close();
+  console.log("4. the reply to Dana waited for approval; its link opened it on its own page, approved there, it went out");
 
   // 5. Activity: what waits on him, follow-ups and files.
   for (const [message, reply] of [
@@ -314,6 +326,7 @@ try {
     await page.request.get(`${web}/api/runs/${adaRun.id}/live`),
     await page.request.post(`${web}/api/runs/${adaDraft.id}/steer`, { data: { text: "stop" } }),
     await page.request.post(`${web}/api/approvals/${adaApproval.id}`, { data: { decision: "approve" } }),
+    await page.request.get(`${web}/approvals/${adaApproval.id}`),
     await page.request.post(`${web}/api/handoffs/${adaHandOff.id}`, { data: {} }),
     await page.request.get(`${web}/api/files?agent=ada-dot&path=${encodeURIComponent("/workspace/x.md")}`),
   ];
@@ -323,7 +336,7 @@ try {
   const forged = await fetch(`${web}/signin?t=${invite.split("t=")[1]!.replace(/^sam/, "ada")}`, { redirect: "manual" });
   assert.equal(forged.headers.get("location"), "/welcome?link=expired");
   assert.equal(forged.headers.get("set-cookie"), null);
-  console.log("9. Ada's dot, runs, approval, hand-off and files answer 404 to Sam; no session gets 401; a forged link signs no one in");
+  console.log("9. Ada's dot, runs, approval (and its page), hand-off and files answer 404 to Sam; no session gets 401; a forged link signs no one in");
 
   // 10. Signing out.
   await page.getByLabel("Signed in as Sam").click();

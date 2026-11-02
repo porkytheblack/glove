@@ -20,7 +20,7 @@ export { currentPerson, requirePerson, type SignedIn } from "./person";
 export { ownedAgent, ownedAgents, ownedApproval, ownedConversation, ownedRun } from "./guards";
 export { defaultIncoming, displayMessages, eventBodies, toolLabel, type DisplayOptions, type ToolLabel, type TranscriptMessage } from "./messages";
 export { liveRun, reduceEvent, resumeAfter, type LiveOptions } from "./live";
-export { approvalView, pendingApprovals } from "./approvals";
+export { approvalPage, approvalView, pendingApprovals } from "./approvals";
 export { appsSummary, type AppsOptions, type PlaybookLine } from "./apps";
 export type { ApprovalDecision, ApprovalView, AppSummary, DisplayMessage, DisplayTool, LiveEvent } from "../shared";
 export { bearer, demoConnectors, hubSignature, mockLog, mockMailWebhook, postToOwnWebhook, sameSignature, slackSignature, type MockEntry, type MockLog, type MockMailHost, type MockMailMessage } from "./demo";

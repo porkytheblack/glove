@@ -129,11 +129,19 @@ try {
   assert.match(shown, /dan@contoso\.example/);
   assert.match(shown, /Would Friday at 10 work instead\?/);
   assert.equal(await card.getByRole("button", { name: "Always allow" }).count(), 0, "sending email always asks");
+  const approvalId = (await card.getAttribute("data-approval"))!;
   await card.getByRole("button", { name: "Allow once" }).click();
   await page.getByText("Sent your reply to Dan.").waitFor();
   const ledger = await readFile(join(dataDir, "ledger.jsonl"), "utf8");
   assert.match(ledger, /"to":"dan@contoso\.example"/, "the email went out from her sample Gmail");
-  console.log("3. the reply to Dan waited in an approval card; allowed once, it went out");
+  // Its link opens it on a page of its own, which now says what happened.
+  const stored = (await (await asFoundry(`/api/approvals/${approvalId}`)).json()) as { url?: string };
+  assert.equal(stored.url, `${web}/approvals/${approvalId}`, "the approval links to its page in the app");
+  const linked = await page.context().newPage();
+  await linked.goto(stored.url!);
+  await linked.getByText("Approved. Inbox Manager carries on with it.").waitFor();
+  await linked.close();
+  console.log("3. the reply to Dan waited in an approval card; allowed once, it went out; its link shows it approved");
 
   // Only whitelisted events, with only their listed fields, reached the browser.
   const allowed: Record<string, ReadonlyArray<string>> = {
@@ -156,6 +164,7 @@ try {
   assert.equal((await page.request.post(`${web}/api/bots/sam-bot-1/chat`, { data: { text: "hi" } })).status(), 404);
   assert.equal((await page.request.get(`${web}/api/runs/${samRun.id}/live`)).status(), 404);
   assert.equal((await page.goto(`${web}/bots/sam-bot-1`))?.status(), 404);
+  assert.equal((await page.goto(`${web}/approvals/approval_not-hers`))?.status(), 404);
   assert.equal((await fetch(`${web}/api/bots/maya-inbox/chat`)).status, 401);
   const forged = await fetch(`${web}/signin?t=${invite.split("t=")[1]!.replace(/^maya/, "sam")}`, { redirect: "manual" });
   assert.equal(forged.headers.get("location"), "/welcome?link=expired");

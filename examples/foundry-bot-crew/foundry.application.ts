@@ -45,5 +45,7 @@ export default defineApplication({
   services,
   routes: [mayaRoutes.in, mayaRoutes.out],
   bindings: [sendBinding(mayaInbox.id, mayaGmail.id)],
+  // Each approval's link opens it in the web app (app/(crew)/approvals/[id]).
+  approvals: { url: (approval) => (process.env.WEB_URL ? `${process.env.WEB_URL.replace(/\/$/, "")}/approvals/${approval.id}` : undefined) },
   ...(requestAuthorization ? { requestAuthorization } : {}),
 });

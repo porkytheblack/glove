@@ -44,5 +44,7 @@ export default defineApplication({
   routes: [rosaMail.in, rosaMail.out, whatsappIn, rosaWhatsApp.out],
   // Gmail starts read only, so its send binding is off.
   bindings: [sendBinding(rosaMuse.id, rosaGmail.id, false), rosaWhatsApp.binding],
+  // Each approval's link opens it in the web app (app/(muse)/approvals/[id]).
+  approvals: { url: (approval) => (process.env.WEB_URL ? `${process.env.WEB_URL.replace(/\/$/, "")}/approvals/${approval.id}` : undefined) },
   ...(requestAuthorization ? { requestAuthorization } : {}),
 });

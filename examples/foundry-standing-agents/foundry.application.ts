@@ -50,5 +50,7 @@ export default defineApplication({
   services: servicesWith([slackBot]),
   routes: [slackMessagesIn, mailRoutes.in, mailRoutes.out],
   bindings: [sendBinding(samsDot.id, samsGmail.id)],
+  // Each approval's link opens it in the web app (app/(dot)/approvals/[id]).
+  approvals: { url: (approval) => (process.env.WEB_URL ? `${process.env.WEB_URL.replace(/\/$/, "")}/approvals/${approval.id}` : undefined) },
   ...(requestAuthorization ? { requestAuthorization } : {}),
 });

@@ -173,7 +173,14 @@ try {
   assert.deepEqual((instanceAfterAsk.context.sentinel as { write: string[] }).write, ["bistro-luna.example"], "her yes added the site, for sending");
   const booking = await live();
   assert.ok(booking.some((event) => event.type === "agent.foundry.approval.requested" && event.toolName === "request_access"));
-  console.log("3. the Sentinel's question showed as its card; she allowed sending to bistro-luna.example");
+  const asked = ((await (await asFoundry("/api/approvals")).json()) as Array<{ id: string; toolName: string; status: string; url?: string }>)
+    .find((item) => item.toolName === "request_access" && item.status === "approved");
+  assert.equal(asked?.url, `${web}/approvals/${asked?.id}`, "the approval links to its page in the app");
+  const linked = await page.context().newPage();
+  await linked.goto(asked!.url!);
+  await linked.getByText("Approved. Muse carries on with it.").waitFor();
+  await linked.close();
+  console.log("3. the Sentinel's question showed as its card; she allowed sending to bistro-luna.example; its link shows it approved");
 
   // 4. The hand-off: Watch offers to take over; only a redirect for her carries the private link.
   await page.getByRole("link", { name: "Open the sign-in" }).click();
@@ -277,6 +284,7 @@ try {
   // 7. Another workspace's records are not found; no session is not allowed; a forged link signs no one in.
   assert.equal((await page.request.get(`${web}/api/runs/${samRun.id}/live`)).status(), 404);
   assert.equal((await page.request.post(`${web}/api/approvals/sam-approval`, { data: { decision: "approve" } })).status(), 404);
+  assert.equal((await page.request.get(`${web}/approvals/sam-approval`)).status(), 404);
   assert.equal((await page.request.delete(`${web}/api/memory/${samMemory}`)).status(), 404);
   assert.equal((await fetch(`${web}/api/chat`)).status, 401);
   assert.equal((await fetch(`${web}/api/watch/take-over`, { redirect: "manual" })).status, 401);

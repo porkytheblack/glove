@@ -59,6 +59,18 @@ export interface ApprovalView {
 export type ApprovalDecision = "approve" | "deny" | "always";
 
 /**
+ * One approval, opened from its link: what was asked and where it stands. A
+ * pending one can still be decided; deciding it resumes the work it paused.
+ */
+export interface ApprovalPageView {
+  readonly approval: ApprovalView;
+  readonly status: "pending" | "approved" | "denied" | "expired" | "cancelled";
+  readonly decidedAt?: string;
+  /** Set once the decision has started the run that carries the work on. */
+  readonly resumedAt?: string;
+}
+
+/**
  * An app, as a person sees it: the accounts it holds, what comes in and goes
  * out through them, and which playbooks take what comes in.
  */

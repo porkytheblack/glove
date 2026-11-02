@@ -142,6 +142,11 @@ stops and tells her. It doesn't look for another way.
 
 ## Approvals, paying, long work, memory and the log
 
+- **Every approval has a link.** `approvals.url` in `foundry.application.ts`
+  points each one at `<WEB_URL>/approvals/<id>` (`app/(muse)/approvals/[id]`).
+  The page shows what is asked, decides it, and after that says what happened.
+  Approvals are stored: if nobody answers within a minute the run pauses, and
+  the decision, whenever it comes, carries the work on.
 - **Sending and paying wait for her.** Gmail's send asks for each email.
   `buy` asks for each purchase, with the checkout open in Muse's browser
   (`lib/payments.ts`):

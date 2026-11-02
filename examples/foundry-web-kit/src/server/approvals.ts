@@ -1,6 +1,7 @@
 import type { FoundryApproval } from "glove-foundry";
-import type { ApprovalView } from "../shared";
+import type { ApprovalPageView, ApprovalView } from "../shared";
 import { foundry, type Foundry } from "./foundry";
+import { notFound } from "./errors";
 
 // Approvals are one global list in Foundry. A person sees the pending ones in
 // their workspace, each with the tool's name and only the input fields they
@@ -55,4 +56,27 @@ export async function pendingApprovals(
       const view = approvalView(approval);
       return { ...view, ...options.describe?.(approval, view), id: view.id, runId: view.runId, agentId: view.agentId, conversationId: view.conversationId };
     });
+}
+
+/**
+ * One of the workspace's approvals, any status, for the page its link opens
+ * (`approvals.url` in the application). Another workspace's approval is a 404.
+ */
+export async function approvalPage(
+  workspaceId: string,
+  approvalId: string,
+  options: {
+    readonly client?: Pick<Foundry, "approval">;
+    readonly describe?: (approval: FoundryApproval, view: ApprovalView) => Partial<ApprovalView> | undefined;
+  } = {},
+): Promise<ApprovalPageView> {
+  const approval = await (options.client ?? foundry()).approval(approvalId).catch(() => null);
+  if (!approval || approval.workspaceId !== workspaceId) throw notFound();
+  const view = approvalView(approval);
+  return {
+    approval: { ...view, ...options.describe?.(approval, view), id: view.id, runId: view.runId, agentId: view.agentId, conversationId: view.conversationId },
+    status: approval.status,
+    ...(approval.resolvedAt ? { decidedAt: approval.resolvedAt } : {}),
+    ...(approval.resumedAt ? { resumedAt: approval.resumedAt } : {}),
+  };
 }

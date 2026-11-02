@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { HttpError } from "../src/server/errors";
 import { ownedAgent, ownedAgents, ownedApproval, ownedConversation, ownedRun } from "../src/server/guards";
-import { pendingApprovals } from "../src/server/approvals";
+import { approvalPage, pendingApprovals } from "../src/server/approvals";
 
 // A stand-in for Foundry with two people's records in it.
 const agents = [
@@ -62,4 +62,22 @@ test("pending approvals are the workspace's, with only the fields a person needs
   assert.equal(view!.body, "Friday at 10?");
   assert.doesNotMatch(JSON.stringify(view), /routeId|maya-gmail-out|threadId|t-1/, "no other input");
   assert.equal(view!.canAlwaysAllow, false);
+});
+
+test("an approval's page opens the person's own approval, decided or not, and nobody else's", async () => {
+  const decided = { ...approvals[0]!, id: "approval-maya-old", status: "approved", resolvedAt: "2026-10-27T10:00:00.000Z", resumedAt: "2026-10-27T10:00:01.000Z" };
+  const byId = { approval: async (id: string) => {
+    const found = [...approvals, decided].find((item) => item.id === id);
+    if (!found) throw new Error("Foundry approval was not found.");
+    return found;
+  } } as never;
+  const page = await approvalPage("maya", "approval-maya", { client: byId, describe: () => ({ title: "Inbox Manager wants to send this email" }) });
+  assert.equal(page.status, "pending");
+  assert.equal(page.approval.title, "Inbox Manager wants to send this email");
+  assert.deepEqual(page.approval.fields.map((field) => field.label), ["To", "Subject"]);
+  const old = await approvalPage("maya", "approval-maya-old", { client: byId });
+  assert.equal(old.status, "approved");
+  assert.equal(old.resumedAt, "2026-10-27T10:00:01.000Z");
+  await rejects404(approvalPage("maya", "approval-sam", { client: byId }));
+  await rejects404(approvalPage("maya", "approval-nobody", { client: byId }));
 });
