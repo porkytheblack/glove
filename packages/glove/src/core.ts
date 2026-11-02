@@ -186,6 +186,52 @@ export class AbortError extends Error {
   }
 }
 
+// ─── Deferred permission ──────────────────────────────────────────────────────
+
+/**
+ * Thrown by a permission hand-over that will not decide now: the person
+ * decides later, perhaps after the process has restarted. The turn stops at
+ * that tool call without a result for it, so `resumeToolCalls` can carry on
+ * from it once the decision is known. `data` is the host's own reference,
+ * such as an approval id.
+ */
+export class ToolPermissionDeferred extends Error {
+  readonly data?: unknown;
+  constructor(message?: string, data?: unknown) {
+    super(message ?? "The decision on this tool call was deferred.");
+    this.name = "ToolPermissionDeferred";
+    this.data = data;
+  }
+}
+
+/**
+ * A turn that stopped at a deferred permission. The results of the calls
+ * that ran before it are saved to history; `pending` are the calls left
+ * without a result, the deferred one first.
+ */
+export class TurnSuspended extends Error {
+  readonly deferral: ToolPermissionDeferred;
+  readonly completed: ReadonlyArray<ToolResult>;
+  readonly pending: ReadonlyArray<ToolCall>;
+  constructor(deferral: ToolPermissionDeferred, completed: ReadonlyArray<ToolResult>, pending: ReadonlyArray<ToolCall>) {
+    super(deferral.message);
+    this.name = "TurnSuspended";
+    this.deferral = deferral;
+    this.completed = completed;
+    this.pending = pending;
+  }
+}
+
+/** True for a ToolPermissionDeferred from any copy of glove-core. */
+export function isToolPermissionDeferred(error: unknown): error is ToolPermissionDeferred {
+  return error instanceof ToolPermissionDeferred || (error instanceof Error && error.name === "ToolPermissionDeferred");
+}
+
+/** True for a TurnSuspended from any copy of glove-core. */
+export function isTurnSuspended(error: unknown): error is TurnSuspended {
+  return error instanceof TurnSuspended || (error instanceof Error && error.name === "TurnSuspended");
+}
+
 // ─── Core types ───────────────────────────────────────────────────────────────
 
 export interface ToolResultData {
@@ -730,7 +776,7 @@ export class Executor {
     this.store = store;
   }
 
-  private async checkPermission(tool: Tool<any>, input: unknown, handOver?: HandOverFunction): Promise<boolean> {
+  private async checkPermission(tool: Tool<any>, input: unknown, handOver?: HandOverFunction, callId?: string): Promise<boolean> {
     // Resolve `requiresPermission` against this specific input. Function form
     // lets a single tool gate writes but not reads (e.g. bash) without
     // store-side rules.
@@ -747,7 +793,7 @@ export class Executor {
     // status is "unset" — ask the user via handOver
     if (!handOver) return true;
 
-    const result = await handOver({ renderer: 'permission_request', toolName: tool.name, toolInput: input });
+    const result = await handOver({ renderer: 'permission_request', toolName: tool.name, toolInput: input, ...(callId ? { toolCallId: callId } : {}) });
     const allowed = Boolean(result);
     await this.store.setPermission(tool.name, allowed ? "granted" : "denied", input);
     return allowed;
@@ -854,7 +900,7 @@ export class Executor {
       return this.notifySubscribers("tool_use_result", { ...latest, id: latest.call_id, name: latest.tool_name });
     };
 
-    for (const call of this.toolCallStack) {
+    for (const [index, call] of this.toolCallStack.entries()) {
       startedAt = Date.now();
       const tool = this.tools.find(
         (t) => t.name.toLowerCase() == call.tool_name.toLowerCase(),
@@ -904,7 +950,16 @@ export class Executor {
         continue;
       }
 
-      const permitted = await this.checkPermission(tool, call.input_args, handOver);
+      let permitted: boolean;
+      try {
+        permitted = await this.checkPermission(tool, call.input_args, handOver, call.id);
+      } catch (error) {
+        if (!isToolPermissionDeferred(error)) throw error;
+        // Nothing past this call runs. The ones before it keep their results.
+        const pending = this.toolCallStack.slice(index);
+        this.toolCallStack = [];
+        throw new TurnSuspended(error, toolResults, pending);
+      }
       if (!permitted) {
         toolResults.push({
           tool_name: call.tool_name,
@@ -1244,9 +1299,9 @@ export interface AgentFrameworkHooks {
  * Matched by reference, then by content, because stores may return copies.
  * If compaction removed the message, the context goes after the summary.
  */
-function insertBeforeTrigger(messages: Array<Message>, trigger: Message, frozen: Array<Message>): Array<Message> {
+function insertBeforeTrigger(messages: Array<Message>, trigger: Message | undefined, frozen: Array<Message>): Array<Message> {
   let index = -1;
-  for (let i = messages.length - 1; i >= 0; i--) {
+  for (let i = messages.length - 1; trigger && i >= 0; i--) {
     const m = messages[i];
     if (m === trigger || (m.sender === trigger.sender && !m.tool_results && m.text === trigger.text)) { index = i; break; }
   }
@@ -1296,6 +1351,62 @@ export class Agent {
     // Event wakes commit their queue receipt only once history owns the message.
     await onMessageSaved?.();
 
+    return this.loop({ trigger: message, frozen, pendingBlockingMessage }, handOver, signal);
+  }
+
+  /**
+   * The calls from the latest tool step that have no result yet, when only
+   * tool results came after that step: what a turn suspended at a deferred
+   * permission left behind. Empty when there is nothing to resume, including
+   * when the conversation has moved on since.
+   */
+  async pendingToolCalls(): Promise<ToolCall[]> {
+    const messages = await this.context.getMessages();
+    let step = -1;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].sender === "agent" && messages[i].tool_calls?.length) { step = i; break; }
+    }
+    if (step < 0) return [];
+    const after = messages.slice(step + 1);
+    if (after.some((m) => !m.tool_results?.length)) return [];
+    const calls = messages[step].tool_calls ?? [];
+    const answered = new Set(after.flatMap((m) => (m.tool_results ?? []).map((r) => r.call_id)));
+    // Without ids, results can't be matched to calls: only an untouched step can resume.
+    if (calls.some((call) => !call.id)) return after.length ? [] : [...calls];
+    return calls.filter((call) => !answered.has(call.id));
+  }
+
+  /**
+   * Carry on a turn that stopped at its tool calls (`TurnSuspended`): run the
+   * calls that have no result yet, then continue the loop as the turn would
+   * have. Permissions are checked as usual, so a host that has the person's
+   * decision stores it first (`store.setPermission`). Returns undefined when
+   * there is nothing to resume.
+   */
+  async resumeToolCalls(handOver?: HandOverFunction, signal?: AbortSignal): Promise<ModelPromptResult | undefined> {
+    const pending = await this.pendingToolCalls();
+    if (!pending.length) return undefined;
+    await this.injectResolvedInboxItems();
+    const pendingBlockingMessage = await this.buildPendingBlockingMessage();
+    const frozen = this.framework?.frozenContext ? await this.framework.frozenContext(signal) : [];
+    if (signal?.aborted) throw new AbortError();
+    const messages = await this.context.getMessages();
+    const trigger = [...messages].reverse().find((m) =>
+      m.sender === "user" && !m.tool_results?.length && !m.framework_context && !m.is_compaction && !m.is_compaction_request);
+    for (const call of pending) this.executor.addToolCallToStack(call);
+    return this.loop({ trigger, frozen, pendingBlockingMessage, toolsFirst: true }, handOver, signal);
+  }
+
+  private async loop(
+    state: { readonly trigger?: Message; readonly frozen: Array<Message>; pendingBlockingMessage: Message | null; readonly toolsFirst?: boolean },
+    handOver?: HandOverFunction,
+    signal?: AbortSignal,
+  ): Promise<ModelPromptResult> {
+    const { trigger, frozen } = state;
+    let { pendingBlockingMessage } = state;
+    // A resumed turn starts at the tool step it stopped at.
+    let toolsFirst = state.toolsFirst ?? false;
+
     // Per-request turn counter to prevent runaway loops.
     // The observer's session-level counter is still incremented for stats.
     let requestTurns = 0;
@@ -1303,76 +1414,88 @@ export class Agent {
     while (true) {
       if (signal?.aborted) throw new AbortError();
 
-      let messages = await this.context.getMessages();
-      messages = frozen.length ? insertBeforeTrigger(messages, message, frozen) : [...messages]
+      if (!toolsFirst) {
+        let messages = await this.context.getMessages();
+        messages = frozen.length ? insertBeforeTrigger(messages, trigger, frozen) : [...messages]
 
-      // Keep framework reminders after complete tool call/result bundles.
-      // They do not establish a conversational turn boundary or enter history.
-      if (pendingBlockingMessage) {
-        messages.push(pendingBlockingMessage)
-      }
+        // Keep framework reminders after complete tool call/result bundles.
+        // They do not establish a conversational turn boundary or enter history.
+        if (pendingBlockingMessage) {
+          messages.push(pendingBlockingMessage)
+        }
 
-      if (requestTurns >= this.observer.MAX_TURNS) {
-        const errorMsg: Message = {
-          sender: "agent",
-          text: `Reached the maximum number of turns (${this.observer.MAX_TURNS}) for this request. Please send a new message to continue.`,
-        };
-        await this.context.appendMessages([errorMsg]);
-        return { messages: [errorMsg], tokens_in: 0, tokens_out: 0 } as ModelPromptResult;
-      }
+        if (requestTurns >= this.observer.MAX_TURNS) {
+          const errorMsg: Message = {
+            sender: "agent",
+            text: `Reached the maximum number of turns (${this.observer.MAX_TURNS}) for this request. Please send a new message to continue.`,
+          };
+          await this.context.appendMessages([errorMsg]);
+          return { messages: [errorMsg], tokens_in: 0, tokens_out: 0 } as ModelPromptResult;
+        }
 
-      // Dynamic state belongs at the tail, leaving the system prompt and
-      // persisted conversation prefix unchanged. Refresh between tool steps.
-      if (this.runtimeContext) messages.push(...await this.runtimeContext(signal));
-      if (signal?.aborted) throw new AbortError();
+        // Dynamic state belongs at the tail, leaving the system prompt and
+        // persisted conversation prefix unchanged. Refresh between tool steps.
+        if (this.runtimeContext) messages.push(...await this.runtimeContext(signal));
+        if (signal?.aborted) throw new AbortError();
 
-      let results = await this.prompt_machine.run(
-        messages,
-        this.executor.tools,
-        signal,
-      );
+        let results = await this.prompt_machine.run(
+          messages,
+          this.executor.tools,
+          signal,
+        );
 
-      if (signal?.aborted) throw new AbortError();
+        if (signal?.aborted) throw new AbortError();
 
-      let should_compact = await this.observer.isCompactionImminent()
+        let should_compact = await this.observer.isCompactionImminent()
 
-      const messages_with_tool_calls = results.messages.filter(
-        (m) => (m.tool_calls?.length ?? 0) > 0,
-      );
+        const messages_with_tool_calls = results.messages.filter(
+          (m) => (m.tool_calls?.length ?? 0) > 0,
+        );
 
-      const has_tool_calls = messages_with_tool_calls.length != 0 
+        const has_tool_calls = messages_with_tool_calls.length != 0 
 
-      if (should_compact && has_tool_calls) {
-        // so that model results with tool calls are fully resolved, and the model has the full information to make decisions
-        await this.observer.runCompactionNow()
-      }
-      await this.context.appendMessages(results.messages);
-      await this.observer.addTokensConsumed({
-        tokens_in: results.tokens_in ?? 0,
-        tokens_out: results.tokens_out ?? 0,
-        ...(results.cache_creation_input_tokens != null && {
-          cache_creation_input_tokens: results.cache_creation_input_tokens,
-        }),
-        ...(results.cache_read_input_tokens != null && {
-          cache_read_input_tokens: results.cache_read_input_tokens,
-        }),
-      });
-      await this.observer.turnComplete();
-      requestTurns++;
+        if (should_compact && has_tool_calls) {
+          // so that model results with tool calls are fully resolved, and the model has the full information to make decisions
+          await this.observer.runCompactionNow()
+        }
+        await this.context.appendMessages(results.messages);
+        await this.observer.addTokensConsumed({
+          tokens_in: results.tokens_in ?? 0,
+          tokens_out: results.tokens_out ?? 0,
+          ...(results.cache_creation_input_tokens != null && {
+            cache_creation_input_tokens: results.cache_creation_input_tokens,
+          }),
+          ...(results.cache_read_input_tokens != null && {
+            cache_read_input_tokens: results.cache_read_input_tokens,
+          }),
+        });
+        await this.observer.turnComplete();
+        requestTurns++;
 
       
 
-      if (messages_with_tool_calls.length == 0) {
-        return results;
-      }
+        if (messages_with_tool_calls.length == 0) {
+          return results;
+        }
 
-      for (const message of messages_with_tool_calls) {
-        for (const tool_call of message.tool_calls ?? []) {
-          this.executor.addToolCallToStack(tool_call);
+        for (const message of messages_with_tool_calls) {
+          for (const tool_call of message.tool_calls ?? []) {
+            this.executor.addToolCallToStack(tool_call);
+          }
         }
       }
+      toolsFirst = false;
 
-      let tool_results = await this.executor.executeToolStack(handOver, signal);
+      let tool_results: Array<ToolResult>;
+      try {
+        tool_results = await this.executor.executeToolStack(handOver, signal);
+      } catch (error) {
+        // The calls that ran before the deferred one keep their results in history.
+        if (isTurnSuspended(error) && error.completed.length) {
+          await this.context.appendMessages([{ sender: "user", text: "tool results", tool_results: [...error.completed] }]);
+        }
+        throw error;
+      }
 
       if (signal?.aborted) throw new AbortError();
 

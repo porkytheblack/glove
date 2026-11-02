@@ -4,7 +4,7 @@ import { CodeBlock } from "@/components/code-block";
 export const metadata = {
   title: "Approvals & steering",
   description:
-    "Permission-gated tools pause a run as an expiring approval record a human resolves; steering redirects active work with interrupt-and-restart.",
+    "Permission-gated tools wait on an approval a person decides, through a link that leads straight to it. Approvals are stored, survive restarts and resume the run; steering redirects active work.",
 };
 
 export default function ApprovalsPage() {
@@ -14,19 +14,22 @@ export default function ApprovalsPage() {
       <h1>Approvals &amp; steering</h1>
       <p className="blog-lede">
         Keep a human in the loop for the calls that matter. A permission-gated tool call
-        pauses its run and becomes an expiring approval record that you approve or deny from
-        the inspector, your own app or a single HTTP call. When an agent heads the wrong way,
-        steer it: Foundry stops the run at a safe boundary and restarts it in the same
-        conversation with your new direction.
+        becomes an approval that a person decides from the inspector, your own app or a single
+        HTTP call. Approvals are stored: when nobody decides at once, the run stops at that
+        call, the approval waits (through restarts too), and the decision resumes the run where
+        it stopped. Each approval has its own address, so a message or an email can link
+        straight to it. When an agent heads the wrong way, steer it: Foundry stops the run at
+        a safe boundary and restarts it in the same conversation with your new direction.
       </p>
 
       <h2 id="overview">How an approval works</h2>
       <ol>
         <li>A tool declares <code>requiresPermission</code>. For this call it evaluates to <code>true</code>.</li>
         <li>Glove asks the conversation store for a saved decision for this exact tool and input. None is saved.</li>
-        <li>Foundry writes a <code>pending</code> approval record that expires in 5 minutes, emits <code>agent.foundry.approval.requested</code>, and the run waits (it stays <code>running</code>).</li>
-        <li>Someone approves or denies it: the inspector, <code>client.resolveApproval</code>, or <code>POST /api/approvals/:id</code>.</li>
-        <li><strong>Approved</strong>: the tool runs with that input. <strong>Anything else</strong> (denied, expired, run cancelled): the tool is not called and the model receives the result <code>Permission denied for tool &quot;…&quot;. The user has not granted permission to run this tool.</code>, then the run carries on.</li>
+        <li>Foundry stores a <code>pending</code> approval, emits <code>agent.foundry.approval.requested</code>, and the run waits for a decision (it stays <code>running</code>) for <code>approvals.waitMs</code>, 60 seconds by default.</li>
+        <li>Someone approves or denies it: the approval&apos;s page, the inspector, <code>client.resolveApproval</code>, or <code>POST /api/approvals/:id</code>.</li>
+        <li><strong>Decided in time</strong>: approved, the tool runs with that input; denied, the model receives <code>Permission denied for tool &quot;…&quot;. The user has not granted permission to run this tool.</code> Either way the run carries on.</li>
+        <li><strong>Not decided in time</strong>: the run stops at that tool call and ends as <code>suspended</code> (<code>suspension.kind: &quot;approval&quot;</code>), with no result recorded for the call. The approval stays open for 7 days by default. When someone decides it, Foundry resumes the conversation at that call. See <a href="#durable">Durable approvals</a>.</li>
       </ol>
 
       <h2 id="gate-a-tool">Gate a tool</h2>
@@ -114,26 +117,29 @@ export default defineTransmission({
         <tbody>
           <tr><td><code>id</code></td><td><code>approval_&lt;uuid&gt;</code></td></tr>
           <tr><td><code>runId</code>, <code>definitionId</code>, <code>agentId</code>, <code>conversationId</code>, <code>workspaceId</code></td><td>Exactly which run, instance and conversation is asking.</td></tr>
-          <tr><td><code>toolName</code>, <code>toolInput</code></td><td>The tool and the JSON-serialized input that will run if approved.</td></tr>
+          <tr><td><code>toolName</code>, <code>toolInput</code>, <code>toolCallId?</code></td><td>The tool, the JSON-serialized input that will run if approved, and the model&apos;s id for the waiting call.</td></tr>
           <tr><td><code>status</code></td><td>See below.</td></tr>
-          <tr><td><code>requestedAt</code>, <code>expiresAt</code>, <code>resolvedAt?</code></td><td>ISO timestamps; <code>expiresAt</code> is 5 minutes after <code>requestedAt</code>.</td></tr>
+          <tr><td><code>requestedAt</code>, <code>expiresAt</code>, <code>resolvedAt?</code></td><td>ISO timestamps. <code>expiresAt</code> is <code>approvals.expiresAfterMs</code> (7 days) after <code>requestedAt</code>.</td></tr>
+          <tr><td><code>url?</code></td><td>Where a person decides it, from your <code>approvals.url</code>.</td></tr>
+          <tr><td><code>suspendedAt?</code></td><td>When the run stopped waiting. A decision after this resumes the conversation.</td></tr>
+          <tr><td><code>resumedAt?</code>, <code>resumeRunId?</code></td><td>When the decision was handed back, and the run that took it.</td></tr>
         </tbody>
       </table>
       <table>
         <thead><tr><th>Status</th><th>When</th><th>Tool runs?</th></tr></thead>
         <tbody>
-          <tr><td><code>pending</code></td><td>Waiting for a decision.</td><td>Not yet</td></tr>
+          <tr><td><code>pending</code></td><td>Waiting for a decision: the run waits, or it has suspended.</td><td>Not yet</td></tr>
           <tr><td><code>approved</code></td><td>Resolved with <code>&quot;approve&quot;</code>.</td><td>Yes</td></tr>
           <tr><td><code>denied</code></td><td>Resolved with <code>&quot;deny&quot;</code>.</td><td>No</td></tr>
           <tr><td><code>expired</code></td><td>Nobody decided before <code>expiresAt</code>.</td><td>No</td></tr>
-          <tr><td><code>cancelled</code></td><td>The run was cancelled, stopped or steered while waiting.</td><td>No</td></tr>
+          <tr><td><code>cancelled</code></td><td>The run that asked was cancelled or steered.</td><td>No</td></tr>
         </tbody>
       </table>
       <ul>
         <li><strong>Exact-input identity.</strong> One record per gated call, bound to its run, instance, conversation, tool and serialized input. Approving <code>{"{ amountUsd: 80 }"}</code> never approves <code>{"{ amountUsd: 800 }"}</code>.</li>
         <li><strong>First decision wins.</strong> Resolution is an atomic create; a second <code>resolveApproval</code> on the same id fails with <code>Foundry approval &quot;…&quot; is already approved.</code> (HTTP <code>400</code>). So does resolving an expired one.</li>
-        <li><strong>Fixed expiry.</strong> 5 minutes, not configurable from <code>defineAgent</code>.</li>
-        <li><strong>Local to one process.</strong> Records are files in a private directory under the OS temp dir, created fresh by each Foundry runtime. They are not shared between Foundry processes and do not survive a restart; runs waiting on them stop with the process.</li>
+        <li><strong>Stored.</strong> Approvals live in the application&apos;s data adapter, next to its agents and conversations. <code>FileFoundryDataAdapter</code> keeps them in its JSON file, so they survive a restart.</li>
+        <li><strong>Configurable timing.</strong> <code>{"defineApplication({ approvals: { waitMs, expiresAfterMs } })"}</code>.</li>
       </ul>
 
       <h3 id="fail-closed">Fail-closed</h3>
@@ -184,6 +190,7 @@ for (const approval of pending) {
         <thead><tr><th>Endpoint</th><th>Input</th><th>Result</th></tr></thead>
         <tbody>
           <tr><td><code>GET /api/approvals</code>, <code>GET /v1/approvals</code></td><td><code>?runId=</code> (or <code>run_id</code>), <code>?status=</code> one of the five statuses</td><td><code>FoundryApproval[]</code>, oldest first; an unknown status is <code>400</code></td></tr>
+          <tr><td><code>GET /api/approvals/:id</code>, <code>GET /v1/approvals/:id</code></td><td>—</td><td>One <code>FoundryApproval</code>, or <code>404</code></td></tr>
           <tr><td><code>POST /api/approvals/:id</code>, <code>POST /v1/approvals/:id</code></td><td><code>{"{ \"decision\": \"approve\" | \"deny\" }"}</code></td><td>The resolved <code>FoundryApproval</code></td></tr>
         </tbody>
       </table>
@@ -197,7 +204,9 @@ curl -s -X POST http://127.0.0.1:4141/v1/approvals/APPROVAL_ID \\
         request — tool name, the exact input, a link to the run, when it was requested and when
         it expires — with <strong>Deny</strong> and <strong>Approve this input</strong> buttons.
         The waiting run&apos;s detail page shows the same rail for that run, and the
-        &ldquo;Attention needed&rdquo; metric counts waiting effects. See{" "}
+        &ldquo;Attention needed&rdquo; metric counts waiting effects. Each approval also has its
+        own page, <code>/approvals/:id</code>, with its status, the run that asked and the run
+        that resumed it. See{" "}
         <Link href="/foundry/docs/observability">Inspector &amp; WebChat</Link>.
       </p>
       <h3 id="approval-events">Events</h3>
@@ -205,7 +214,9 @@ curl -s -X POST http://127.0.0.1:4141/v1/approvals/APPROVAL_ID \\
         <thead><tr><th>Event type</th><th>data</th></tr></thead>
         <tbody>
           <tr><td><code>agent.foundry.approval.requested</code></td><td>The full <code>FoundryApproval</code></td></tr>
-          <tr><td><code>agent.foundry.approval.settled</code></td><td><code>{"{ approvalId, toolName, status }"}</code></td></tr>
+          <tr><td><code>agent.foundry.approval.settled</code></td><td><code>{"{ approvalId, toolName, status }"}</code> — the run read the decision itself</td></tr>
+          <tr><td><code>agent.foundry.approval.suspended</code></td><td><code>{"{ approvalId, toolName }"}</code> — the run stopped waiting and suspended</td></tr>
+          <tr><td><code>approval.resumed</code></td><td><code>{"{ approvalId, toolName, status }"}</code> — a decision was handed back to the conversation</td></tr>
           <tr><td><code>approval.resolved</code></td><td><code>{"{ approvalId, toolName, decision, status }"}</code> — written when someone resolves via the API</td></tr>
           <tr><td><code>agent.foundry.approval.unavailable</code> / <code>.failed</code></td><td>Fail-closed denials</td></tr>
         </tbody>
@@ -214,6 +225,61 @@ curl -s -X POST http://127.0.0.1:4141/v1/approvals/APPROVAL_ID \\
         Subscribe with <code>GET /api/events</code> and <code>Accept: text/event-stream</code>{" "}
         (<Link href="/foundry/docs/runtime#events">details</Link>) to push notifications instead
         of polling.
+      </p>
+
+      <h2 id="durable">Durable approvals</h2>
+      <p>
+        Approvals are durable when the data adapter stores approvals and the event journal.
+        <code>FileFoundryDataAdapter</code> and <code>MemoryFoundryDataAdapter</code> do. A
+        person does not have to answer while the run waits: they can answer from a link
+        hours later, after a deploy, on another device.
+      </p>
+      <CodeBlock filename="foundry.application.ts" language="typescript" code={`export default defineApplication({
+  name: "Muse",
+  data: new FileFoundryDataAdapter({ file: "/data/foundry.json" }),
+  approvals: {
+    waitMs: 60_000,                        // how long the run waits before it suspends
+    expiresAfterMs: 7 * 24 * 60 * 60_000,  // how long the approval stays open
+    url: (approval) => \`https://muse.example.com/approvals/\${approval.id}\`,
+  },
+});`} />
+      <ol>
+        <li><strong>The run waits</strong> <code>waitMs</code>. A decision in that time works as above.</li>
+        <li><strong>The run suspends.</strong> The turn stops at the waiting call. Calls the model made before it in the same step keep their results; no result is recorded for the waiting call or any after it. The run ends with <code>status: &quot;suspended&quot;</code> and <code>{'suspension: { kind: "approval", approvalId, toolName }'}</code>, and the conversation is free for new messages.</li>
+        <li><strong>The approval waits</strong> until it is decided or <code>expiresAfterMs</code> passes. A restart changes nothing.</li>
+        <li><strong>The decision resumes it.</strong> Foundry hands the decision to the conversation as a durable event, and the run that takes it carries on from the waiting call: approved, the call runs and its real result is saved; denied, it is refused. Then the turn continues as if it had never stopped. The approval records <code>resumedAt</code> and <code>resumeRunId</code>.</li>
+      </ol>
+      <h3 id="durable-moved-on">When the conversation moved on</h3>
+      <p>
+        If the person kept talking before deciding, the waiting call is no longer the end of
+        the conversation, so it cannot resume in place. The decision then arrives as an event
+        the agent reads (&ldquo;The person approved your earlier request to run send_email. It
+        has not run yet&hellip;&rdquo;). The decision is saved for that exact input, so if the
+        agent calls the tool again with the same input it runs, or is refused, without asking
+        again.
+      </p>
+      <h3 id="durable-link">Link straight to an approval</h3>
+      <p>
+        <code>approvals.url</code> gives each approval the address of a page in your app, kept
+        on the record as <code>url</code>. Whatever tells the person (a WhatsApp message, an
+        email, a push) can link there. The page reads the approval with{" "}
+        <code>client.approval(id)</code> (<code>GET /api/approvals/:id</code>) and answers with{" "}
+        <code>client.resolveApproval</code>. Check that the approval belongs to the signed-in
+        person before showing it.
+      </p>
+      <h3 id="durable-details">Details</h3>
+      <ul>
+        <li><strong>Cancelling or steering</strong> the run that asked cancels its open approvals. Nothing resumes them.</li>
+        <li><strong>Expiry.</strong> An approval still pending at <code>expiresAt</code> becomes <code>expired</code> and resumes nothing.</li>
+        <li><strong>At least once.</strong> Decisions travel on the event journal, which can deliver twice after a crash. A decision whose call already has its result starts no turn, so an approved call does not run twice.</li>
+        <li><strong>Without durable storage</strong> (a custom adapter without <code>putApproval</code>, <code>getApproval</code>, <code>listApprovals</code> and the event journal), approvals live in the Foundry process: the run waits up to <code>waitMs</code> (5 minutes by default, at most 10), then the approval expires and the call is refused.</li>
+        <li><strong>Custom handlers.</strong> A resume goes through <code>ctx.defaultRun()</code>. A <code>run</code> or <code>handler</code> that never calls it gets the decision as a normal event.</li>
+      </ul>
+      <p>
+        Outside Foundry, the same building blocks are in Glove core: a display manager throws{" "}
+        <code>ToolPermissionDeferred</code> to stop a turn at a call, the turn rejects with{" "}
+        <code>TurnSuspended</code>, and <code>glove.resumeToolCalls()</code> carries on once the
+        decision is saved with <code>store.setPermission</code>.
       </p>
 
       <h2 id="approval-inbox">Recipe: an approval inbox</h2>

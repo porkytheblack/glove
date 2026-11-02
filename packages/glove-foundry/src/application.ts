@@ -61,6 +61,25 @@ export interface FoundryApplicationOptions {
   readonly requestAuthorization?: FoundryRequestAuthorizationAdapter<unknown>;
   /** User-owned strategy for subscriptions using `provisioning.mode = "custom"`. */
   readonly provisioner?: FoundryInstanceProvisioner;
+  /**
+   * How approvals work. They are durable when the data adapter stores
+   * approvals and events (`FileFoundryDataAdapter` and
+   * `MemoryFoundryDataAdapter` do): the run that asked waits `waitMs` for a
+   * decision, then suspends; the approval stays open for `expiresAfterMs`;
+   * and a decision made later resumes the run at the tool call that asked.
+   */
+  readonly approvals?: {
+    /** How long a run waits for a decision before it suspends. Default 60 s (5 min when approvals are not durable). */
+    readonly waitMs?: number;
+    /** How long a durable approval stays open. Default 7 days. */
+    readonly expiresAfterMs?: number;
+    /**
+     * Where a person decides one approval: a page of your app. Foundry keeps
+     * it on the approval (`url`) so whatever tells the person, such as a
+     * message or an email, can link straight to it.
+     */
+    readonly url?: (approval: import("./approval.js").FoundryApproval) => string | undefined;
+  };
   readonly services?: Layer.Layer<
     AccountDirectory | TopologyStore | EventStore,
     unknown

@@ -192,8 +192,9 @@ while (true) {
         <li>
           <strong>Asking a person is a primitive.</strong> In an app,{" "}
           <code>pushAndWait</code> suspends a tool until the user answers. In Foundry, a
-          permission-gated tool becomes an expiring approval record anyone with access
-          can resolve. Neither needs a pause/resume protocol of your own.
+          permission-gated tool becomes a stored approval anyone with access can decide,
+          even after a restart, and the decision resumes the run. Neither needs a
+          pause/resume protocol of your own.
         </li>
         <li>
           <strong>Credentials never reach the model.</strong> Foundry stores account

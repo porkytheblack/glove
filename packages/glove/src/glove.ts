@@ -194,6 +194,8 @@ export interface IGloveRunnable {
    * Failed wakes are not automatically retried in a loop. */
   processEvents: (signal?: AbortSignal) => Promise<ModelPromptResult | Message | undefined>
   processRequest: (request: string | ContentPart[], signal?: AbortSignal) => Promise<ModelPromptResult | Message>
+  /** Carry on a turn that stopped at a deferred permission (`TurnSuspended`). Undefined when there is nothing to resume. */
+  resumeToolCalls?: (signal?: AbortSignal) => Promise<ModelPromptResult | undefined>
   setModel: (model: ModelAdapter) => void
   setSystemPrompt: (prompt: string) => void
   getSystemPrompt: () => string
@@ -1075,6 +1077,22 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
       renderer,
       input,
     })
+  }
+
+  /**
+   * Carry on a turn that stopped at a deferred permission: run the tool calls
+   * left without a result, then continue the turn. Store the person's decision
+   * first (`store.setPermission`) so the call runs or is refused without
+   * asking again. Undefined when the latest tool step has nothing pending or
+   * the conversation moved on after it.
+   */
+  async resumeToolCalls(signal?: AbortSignal): Promise<ModelPromptResult | undefined> {
+    if (!this.built) throw new Error("Call build before resumeToolCalls");
+    return this.runTurn(async () => {
+      if (!(await this.agent.pendingToolCalls()).length) return undefined
+      await this.prepareTurn(signal)
+      return this.agent.resumeToolCalls(this.handOver, signal)
+    }, signal)
   }
 
   async processRequest(request: string | ContentPart[], signal?: AbortSignal) {

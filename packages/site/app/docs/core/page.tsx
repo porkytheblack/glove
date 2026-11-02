@@ -258,6 +258,11 @@ const result = await agent.processRequest("What is the weather in Tokyo?");`}
             "Send a request string or ContentPart[] to the agent and receive the result. Available after build().",
           ],
           [
+            "resumeToolCalls(signal?)",
+            "Promise<ModelPromptResult | undefined>",
+            "Carry on a turn that stopped at a deferred permission (TurnSuspended): run the tool calls left without a result, then continue the turn. Save the person's decision first with store.setPermission. Undefined when there is nothing to resume.",
+          ],
+          [
             "setModel(model: ModelAdapter)",
             "void",
             "Replace the model adapter at runtime. Useful for model switching mid-session.",
@@ -358,6 +363,11 @@ const result = await agent.processRequest("What is the weather in Tokyo?");`}
             "processRequest(request, signal?)",
             "(request: string | ContentPart[], signal?: AbortSignal) => Promise<ModelPromptResult | Message>",
             "Send a user request to the agent and get the response. Parses /hook and /skill directives; @mentions reach the model verbatim.",
+          ],
+          [
+            "resumeToolCalls?(signal?)",
+            "(signal?: AbortSignal) => Promise<ModelPromptResult | undefined>",
+            "Optional. Carry on a turn that stopped at a deferred permission. See Deferred permissions below.",
           ],
           [
             "fold<I>(args: GloveFoldArgs<I>)",
@@ -1052,6 +1062,58 @@ try {
 
       <p>
         <code>new AbortError(message?: string)</code>
+      </p>
+
+      {/* ================================================================== */}
+      {/* DEFERRED PERMISSIONS                                               */}
+      {/* ================================================================== */}
+      <h2 id="deferred-permissions">Deferred permissions</h2>
+
+      <p>
+        A permission prompt does not have to be answered while the turn waits. A display
+        manager that will not decide now throws <code>ToolPermissionDeferred</code> from{" "}
+        <code>pushAndWait</code>. The turn stops at that tool call: calls before it in the
+        same step keep their results, and no result is recorded for it or the calls after
+        it. The request rejects with <code>TurnSuspended</code>, whose{" "}
+        <code>deferral.data</code> is whatever you passed (such as an approval id) and whose{" "}
+        <code>pending</code> are the calls left without a result.
+      </p>
+      <p>
+        Later, possibly in another process, save the person&apos;s decision and resume.
+        The call runs (or is refused) without asking again, and the turn continues as if it
+        had never stopped. Foundry builds durable approvals on this.
+      </p>
+
+      <CodeBlock
+        code={`import { Displaymanager, ToolPermissionDeferred, isTurnSuspended } from "glove-core";
+
+class LaterDisplay extends Displaymanager {
+  async pushAndWait(slot) {
+    if (slot.renderer !== "permission_request") return super.pushAndWait(slot);
+    const ticket = await saveForLater(slot.input); // { toolName, toolInput, toolCallId }
+    throw new ToolPermissionDeferred("Waiting for the person.", { ticket });
+  }
+}
+
+try {
+  await agent.processRequest("Email Lena that 8 works");
+} catch (err) {
+  if (!isTurnSuspended(err)) throw err;
+  // err.pending[0] is the send_email call. Nothing ran for it.
+}
+
+// Hours later, the person approved:
+await store.setPermission("send_email", "granted", input);
+const result = await agent.resumeToolCalls(); // runs send_email, then the model carries on`}
+        language="typescript"
+      />
+
+      <p>
+        <code>resumeToolCalls</code> returns <code>undefined</code> when the latest tool step
+        has nothing pending, or when the conversation moved on after it (any message other than
+        tool results follows it). Use <code>isToolPermissionDeferred</code> and{" "}
+        <code>isTurnSuspended</code> rather than <code>instanceof</code> when more than one
+        copy of glove-core may be loaded.
       </p>
 
       {/* ================================================================== */}
