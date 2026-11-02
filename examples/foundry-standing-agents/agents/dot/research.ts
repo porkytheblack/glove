@@ -48,11 +48,12 @@ export function followUp(request: FoundryRequest): boolean {
 /**
  * Runs that only read: the research schedule, wake-ups, new mail, and every
  * run of a paused dot. A run the person started, a follow-up of one, or the
- * builder's reply may act, under the Custom Rules.
+ * builder's result or question may act, under the Custom Rules. Only runs
+ * that may act can hand the builder a task, so its answers count as one.
  */
 export function readOnly(request: FoundryRequest, dot?: { readonly paused?: unknown }): boolean {
   if (dot?.paused === true) return true;
-  return !(startedByPerson(request) || followUp(request) || request.source?.kind === "mesh");
+  return !(startedByPerson(request) || followUp(request) || request.source?.kind === "delegation");
 }
 
 /** Foundry's tools that start runs of the dot, now or later. */

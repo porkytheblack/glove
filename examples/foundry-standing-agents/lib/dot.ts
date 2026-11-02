@@ -62,8 +62,8 @@ export type ParsedDot = z.output<typeof Dot>;
 
 /**
  * A person's primary dot. They name it and make it their own; everything that
- * makes it theirs is this data. The person's dot and their builder share a
- * workspace, so they reach each other on the mesh and nobody else can. The
+ * makes it theirs is this data. Its builder is a durable subagent Foundry
+ * creates on the dot's first coding task, in the same workspace. The
  * Slack app is installed once the owner connects Slack; their Gmail, once
  * they connect it (lib/connect.ts), or here for a seed.
  */
@@ -95,16 +95,6 @@ export function specialistFor(org: string, specialist: Omit<Dot, "kind"> & { rea
     description: `Specialist dot for ${parsed.owner}: ${parsed.responsibilities.map((item) => item.job).join(" ")}`,
     context: parsed,
     installations: [install(slackApp, undefined, { account: account ?? slackBot })],
-  };
-}
-
-/** The person's builder: a worker with a computer that their dot starts coding jobs on. */
-export function builderFor(ownerId: string) {
-  return {
-    id: `${ownerId}-builder`,
-    workspaceId: ownerId,
-    name: "Builder",
-    description: "Builds reports and code on its own computer. Takes minutes. Give it the whole task.",
   };
 }
 

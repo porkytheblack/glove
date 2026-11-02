@@ -36,6 +36,11 @@ const surfaceFields: Field[] = [
   { name: "hooks", type: "{ name, handler: HookHandler }[]", lazy: "yes", purpose: "Glove hooks triggered by /name directives." },
   { name: "skills", type: "DefineSkillArgs[]", lazy: "yes", purpose: "Glove skills." },
   { name: "subagents", type: "DefineSubAgentArgs[] (defineSubagent)", lazy: "yes", purpose: "Child agents that run inside this run's tool call; see Multi-agent." },
+  { name: "delegates", type: "(string | { agent, description? })[]", lazy: "yes", purpose: "Sibling agents, by route, that this one hands work to and hears back from. Adds glove_foundry_delegate and glove_foundry_reply; see Layered agents." },
+  { name: "durableSubagents", type: "Record<string, { agent, inherit?, eventDelivery?, cleanup? }>", lazy: "no", purpose: "Named persistent workers owned by each instance. Reuse imported or inline definitions; supports messaging, delegation and restricted inheritance. See Durable subagents." },
+  { name: "eventDelivery", type: "{ whenIdle?: 'wake' | 'defer', deferTimeoutMs?: number }", lazy: "no", purpose: "Default idle delivery policy for the addressed event journal. Durable slots and individual sends can override it." },
+  { name: "runTimeoutMs / maxConcurrentRuns", type: "positive integers", lazy: "no", purpose: "Per-definition run deadline and concurrent-run limit; reserve runtime capacity for responsive fronts." },
+  { name: "answerWaitMs", type: "number", lazy: "no", purpose: "When working on a delegated task, how long glove_foundry_ask waits in the same run before it suspends. Default 90 000." },
   { name: "memory", type: "(defineMemory | configureMemory(...))[]", lazy: "yes", purpose: "Memory profiles to mount. Each must also be in components." },
   { name: "goals / facts / forms", type: "defineGoals / defineFacts / defineForms", lazy: "yes", purpose: "Guidance runners; handles appear on the execution context." },
   { name: "contextProviders", type: "RuntimeContextProvider[]", lazy: "yes", purpose: "Transient context re-read before each model iteration." },
@@ -45,7 +50,7 @@ const surfaceFields: Field[] = [
   { name: "calls", type: "defineCall(...)[]", lazy: "yes", purpose: "Typed functions, exposed as tools unless exposeToAgent: false; callable with ctx.invoke." },
   { name: "schedules", type: "defineSchedule(...)[]", lazy: "yes", purpose: "Desired recurring work, reconciled into activations every run." },
   { name: "playbooks", type: "composePlaybook(...)[]", lazy: "yes", purpose: "Inbound-event policy persisted on the instance. Omit to keep the instance's own playbooks." },
-  { name: "mesh", type: "true | { peers?, waitMs?, mount? }", lazy: "no", purpose: "Glove Mesh, hosted by Foundry: the glove_mesh_* tools, to message the other agents in the workspace by instance id. peers(self, peer) narrows who it can reach; waitMs is how long a blocking send waits in the run (default 90 000); mount(ctx) decides per run whether the tools are mounted. See Multi-agent." },
+  { name: "mesh", type: "true | { peers?, waitMs?, mount? } | { adapter: MeshAdapter, identity?, delivery?, whenIdle? }", lazy: "no", purpose: "Messaging between agents that already exist as instances. true or options: Glove Mesh hosted by Foundry, the glove_mesh_* tools, to message the other agents in the workspace by instance id; peers(self, peer) narrows who it can reach, waitMs is how long a blocking send waits in the run (default 90 000), mount(ctx) decides per run whether the tools are mounted. A value with an adapter is the raw glove-mesh transport. For workers an agent owns, use delegates or durableSubagents. See Multi-agent." },
   { name: "workingEnvironment", type: "defineWorkingEnvironment(...)", lazy: "yes", purpose: "Persistent VFS and named scripts." },
   { name: "repl", type: "defineRepl(...)", lazy: "yes", purpose: "One JavaScript, Python or Lisp REPL, optionally with programmatic tool calling." },
 ];
@@ -68,6 +73,8 @@ const contextFields: { name: string; type: string; notes: string }[] = [
   { name: "agentInstance", type: "AgentInstance", notes: "Persisted record: context, installations, playbooks…" },
   { name: "conversation", type: "Conversation", notes: "Persisted record: title, context…" },
   { name: "activations", type: "FoundryActivationRecord[]", notes: "This instance's schedules and sleeps" },
+  { name: "delegations", type: "FoundryDelegation[]", notes: "Delegations this conversation started that are still open" },
+  { name: "delegation", type: "FoundryDelegation | undefined", notes: "Set when this run works on a task another agent delegated" },
   { name: "threads", type: "FoundryMeshThread[]", notes: "Mesh threads this conversation started that were still open when the run began" },
   { name: "thread", type: "FoundryMeshThread | undefined", notes: "Set when this conversation is another agent's thread: this agent is working for them" },
   { name: "data", type: "FoundryDataAdapter", notes: "The application's adapter, constructed inside the run process" },
@@ -230,6 +237,7 @@ type FoundryResolver<T, TInput> =
           <tr><td><code>signal</code>, <code>emit</code></td><td>Run abort signal and custom-event emitter</td></tr>
           <tr><td><code>onCleanup(fn)</code></td><td>Register run-scoped teardown; runs in reverse order even if assembly fails</td></tr>
           <tr><td><code>invoke(name, input)</code></td><td>Call one of this run&apos;s <code>calls</code>; input and output are validated</td></tr>
+          <tr><td><code>onDelegationUpdate(handler)</code></td><td>Take delegation results and questions inside this run while it stays live, instead of Foundry starting a new run for each. Returns <code>stop()</code>. <Link href="/foundry/docs/voice"><code>voiceCall</code></Link> uses it.</td></tr>
           <tr><td><code>onMeshMessage(handler)</code></td><td>Take mesh messages for this conversation (replies and questions from other agents) inside this run while it stays live, instead of Foundry starting a new run for each. Returns <code>stop()</code>. <Link href="/foundry/docs/voice"><code>voiceCall</code></Link> uses it.</td></tr>
           <tr><td><code>workingEnvironment</code>, <code>vfs</code>, <code>repl</code></td><td>Present when those fields are configured</td></tr>
           <tr><td><code>goals</code>, <code>facts</code>, <code>forms</code></td><td>Runner handles when guidance is configured</td></tr>

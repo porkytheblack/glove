@@ -22,7 +22,7 @@ import type {
   PromptCacheTTL,
   ResolvedPromptCache,
 } from "../core";
-import { getToolJsonSchema, resolvePromptCache } from "../core";
+import { getToolJsonSchema, promptCacheAnchors, resolvePromptCache } from "../core";
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
@@ -89,7 +89,10 @@ export function applyBedrockPromptCache(
     };
   }
 
-  if (out.messages && out.messages.length > 0) {
+  // Skipped when formatBedrockMessages already placed conversation
+  // checkpoints, which it keeps off transient runtime context.
+  const anchored = out.messages?.some((m) => m.content?.some((block) => "cachePoint" in block && block.cachePoint));
+  if (!anchored && out.messages && out.messages.length > 0) {
     const messages = [...out.messages];
     const lastIdx = messages.length - 1;
     const last = messages[lastIdx];
@@ -276,11 +279,21 @@ function formatMessage(msg: Message): BedrockMessage[] {
   return [{ role, content: [{ text: msg.text }] }];
 }
 
-export function formatBedrockMessages(messages: Array<Message>): BedrockMessage[] {
+/**
+ * Convert Glove messages to Bedrock Converse messages. With `cache` enabled,
+ * conversation checkpoints follow the messages {@link promptCacheAnchors}
+ * picks, never transient runtime context.
+ */
+export function formatBedrockMessages(messages: Array<Message>, cache?: ResolvedPromptCache): BedrockMessage[] {
   const result: BedrockMessage[] = [];
+  const anchors = new Set(cache?.enabled ? promptCacheAnchors(messages) : []);
 
-  for (const msg of messages) {
+  for (const [index, msg] of messages.entries()) {
     const formatted = formatMessage(msg);
+    if (anchors.has(index) && formatted.length) {
+      const last = formatted[formatted.length - 1];
+      formatted[formatted.length - 1] = { ...last, content: [...(last.content ?? []), cachePointBlock(cache!.ttl)] };
+    }
     for (const m of formatted) {
       const prev = result[result.length - 1];
       // Merge consecutive messages with the same role
@@ -426,7 +439,7 @@ export class BedrockAdapter implements ModelAdapter {
     notify: NotifySubscribersFunction,
     signal?: AbortSignal
   ): Promise<ModelPromptResult> {
-    const messages = formatBedrockMessages(request.messages);
+    const messages = formatBedrockMessages(request.messages, this.cache);
     const tools = request.tools?.length ? formatTools(request.tools) : undefined;
 
     const params: ConverseCommandInput = applyBedrockPromptCache(

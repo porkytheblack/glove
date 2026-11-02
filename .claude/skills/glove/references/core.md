@@ -160,7 +160,7 @@ gloveBuilder.addSubscriber(logger);
 ### Optional Store Features
 
 - **Tasks** (`getTasks`, `addTasks`, `updateTask`): Auto-registers `glove_update_tasks` tool
-- **Permissions** (`getPermission(name, input?)`, `setPermission(name, status, input?)`): Tools with `requiresPermission: true` (or a `(input) => boolean` gate) check consent. The Executor passes the model-supplied input on every gated call so the store can scope decisions per-input. The default `MemoryStore` uses exact-match keying via the exported `permissionKey(name, input)` helper.
+- **Permissions** (`getPermission(name, input?)`, `setPermission(name, status, input?)`): Tools with `requiresPermission: true` (or an `(input) => boolean | Promise<boolean>` gate, awaited) check consent. The Executor passes the model-supplied input on every gated call so the store can scope decisions per-input. The default `MemoryStore` uses exact-match keying via the exported `permissionKey(name, input)` helper.
 - **Inbox** (`getInboxItems`, `addInboxItem`, `updateInboxItem`, `getResolvedInboxItems`): Auto-registers `glove_post_to_inbox` tool. Enables async cross-instance communication.
 
 If your store doesn't implement these, they're silently disabled.

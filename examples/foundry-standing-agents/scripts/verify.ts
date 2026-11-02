@@ -7,12 +7,13 @@ import { Effect } from "effect";
 
 // Sam's dot, end to end on the real runtime with scripted models and the
 // support mailbox Sam connected as a sample account. No network:
-//   1. Sam's dot, Pip, his builder and their app conversation are seeded data,
-//      with the support mailbox connected; its Gmail watch is running.
+//   1. Sam's dot, Pip, and its app conversation are seeded data, with the
+//      support mailbox connected; its Gmail watch is running. Pip's builder is
+//      not seeded: it is a durable subagent, created on Pip's first task.
 //   2. A research run reads #feedback and the mailbox (in code, through the
 //      Gmail app), keeps notes, suggests one thing, and has no tool that acts,
-//      no mesh, no computer and no way to start a run. Runs the dot starts are
-//      read-only unless they are follow-ups of a run that could act.
+//      no builder, no computer and no way to start a run. Runs the dot starts
+//      are read-only unless they are follow-ups of a run that could act.
 //   3. "Ask": a reply to a customer goes from the mailbox once Sam approves it.
 //   4. "Block": merging is handed to Sam in Slack. Changing a password is too,
 //      even with a rule of "allow": built-in safety.
@@ -21,7 +22,7 @@ import { Effect } from "effect";
 //   6. Sam DMs Pip in Slack: another conversation, the same memory. Strangers get nothing.
 //   7. New mail from a customer starts a read-only run: noted, nothing sent.
 //   8. Pip saves a file on its own computer.
-//   9. A coding job starts on Sam's builder over the mesh; its reply comes back to the app.
+//   9. Pip hands a coding job to its builder; the result comes back to the app.
 //  10. Sam sets a weekly follow-up in his time zone. With "act when asked", Pip
 //      opens a draft PR when Sam asks, and asks first on the follow-up's run.
 //  11. The monitor: a denial and two hand-offs in a row pause Pip; paused, it only reads.
@@ -35,7 +36,7 @@ delete process.env.SLACK_BOT_TOKEN; // posts go to the offline outbox
 
 const { FoundryRuntime, installedApplicationTransmissionToolName } = await import("glove-foundry");
 const { z } = await import("zod");
-const { default: application, data, samsApp, samsBuilder, samsDot } = await import("../foundry.application.js");
+const { default: application, data, samsApp, samsDot } = await import("../foundry.application.js");
 const { default: config } = await import("../foundry.config.js");
 const { CHANNELS, Dot, SAM } = await import("../lib/dot.js");
 const { ACTION_NAMES, performedActions } = await import("../lib/actions.js");
@@ -118,8 +119,7 @@ const dot = instances.find((item) => item.id === samsDot.id)!;
 assert.ok(dot, "Sam's dot is seeded");
 assert.equal(dot.name, "Pip");
 assert.equal(Dot.parse(dot.context).responsibilities.length, 2);
-const builder = (await runtime.listAgentInstances("builder")).find((item) => item.id === samsBuilder.id)!;
-assert.ok(builder, "Sam's builder is seeded");
+assert.deepEqual(await runtime.listSubagents(dot.id), [], "the builder is created on Pip's first task, not seeded");
 const app = (await runtime.listConversations(dot.id)).find((item) => item.id === samsApp.id)!;
 assert.ok(app, "Pip's app conversation is seeded");
 
@@ -135,7 +135,7 @@ try {
   assert.deepEqual(schedule.timing, { kind: "every", intervalMs: 7_200_000 });
   assert.equal(schedule.conversationId, app.id);
   const watch = await until(async () => runtime.listApplicationConnections().find((item) => item.accountId === "sam-gmail" && item.status === "connected"), "the Gmail watch");
-  console.log(`1. ${dot.name} (${dot.id}), Sam's builder and the app conversation are seeded data; research runs every 2h there; the mailbox watch is ${watch.status}`);
+  console.log(`1. ${dot.name} (${dot.id}) and the app conversation are seeded data; research runs every 2h there; the mailbox watch is ${watch.status}`);
 
   // 2. A research run, as the schedule would start it.
   const researchRun = await runtime.request("dot", {
@@ -158,22 +158,25 @@ try {
   assert.match(message, new RegExp(`^No tool called ${sendTool} exists`));
   const available = (/Available tools: (.*)\.$/.exec(message)?.[1] ?? "").split(", ");
   for (const name of ["read_channel", "execute_js", "keep_note", "suggest"]) assert.ok(available.includes(name), name);
-  for (const name of [...ACTION_NAMES, sendTool, "gmail__create_draft", "post_to_slack", "glove_mesh_send_message", "write_file",
+  for (const name of [...ACTION_NAMES, sendTool, "gmail__create_draft", "post_to_slack", "write_file",
+    "glove_foundry_delegate", "glove_foundry_reply", "glove_foundry_message",
     "glove_foundry_schedule", "glove_foundry_spawn", "glove_foundry_background"]) {
     assert.ok(!available.includes(name), `${name} was mounted on a research run`);
   }
   assert.ok(!available.includes("gmail__search_threads"), "the mailbox is read in code, not as a tool");
   assert.equal((await performedActions()).length, 0);
   // Work the dot starts for itself is read-only too, unless a run that could act stamped it as a follow-up.
-  const from = (kind: "direct" | "transmission" | "mesh" | "activation" | "spawn" | "background", provider?: string, payload?: unknown) =>
+  const from = (kind: "direct" | "transmission" | "delegation" | "agent-message" | "activation" | "spawn" | "background", provider?: string, payload?: unknown) =>
     readOnly({ agentId: dot.id, conversationId: app.id, workspaceId: dot.workspaceId, message: "", ...(payload ? { payload } : {}), source: { kind, ...(provider ? { provider } : {}) } });
   assert.deepEqual((["activation", "spawn", "background"] as const).map((kind) => from(kind)), [true, true, true]);
   assert.deepEqual((["activation", "spawn", "background"] as const).map((kind) => from(kind, undefined, { followUp: true })), [false, false, false]);
-  assert.deepEqual([from("direct"), from("mesh"), from("transmission", slackMessages.id)], [false, false, false]);
+  // The builder's result or question may act: only a run that could act handed it the task.
+  assert.deepEqual([from("direct"), from("delegation"), from("transmission", slackMessages.id)], [false, false, false]);
+  assert.equal(from("agent-message"), true, "a message or event from elsewhere only reads");
   assert.equal(from("transmission", gmail.id), true, "new mail is from anyone, so it only reads");
   assert.equal(from("transmission", gmail.id, { followUp: true }), true, "new mail can't claim to be a follow-up");
   console.log(`2. research read #feedback and the mailbox in code, kept notes and suggested: "${suggestion}"`);
-  console.log(`   ${available.length} tools mounted, none that act (no ${ACTION_NAMES.join(", ")}, Gmail send, post_to_slack), no mesh, no computer, no schedule or spawn`);
+  console.log(`   ${available.length} tools mounted, none that act (no ${ACTION_NAMES.join(", ")}, Gmail send, post_to_slack), no builder, no computer, no schedule or spawn`);
   console.log("   runs from schedules, spawn and background are read-only unless they are follow-ups; new mail always is");
 
   // 3. "Ask": the reply waits for Sam, then goes from the mailbox.
@@ -278,21 +281,25 @@ try {
   assert.ok(dotFiles.includes("/workspace/feedback-this-week.md"));
   console.log(`8. on ${dot.name}'s own computer: /workspace/feedback-this-week.md`);
 
-  // 9. A coding job starts on Sam's builder over the mesh, and its reply comes back to the app.
+  // 9. Pip hands a coding job to its builder, and the result comes back to the app.
   await ask(app.id, "Build a weekly feedback report I can share on Mondays.");
   const report = await until(async () =>
     (await runtime.listRuns("dot")).find((run) =>
       run.conversationId === app.id && run.status === "completed" && /The builder finished/.test(text(run))),
-  "the builder's reply in the app conversation");
-  const [thread] = await runtime.listThreads({ conversationId: app.id });
-  assert.equal(thread?.to.agentId, builder.id);
-  assert.equal(thread?.status, "replied");
+  "the builder's result in the app conversation");
+  const builder = (await runtime.listSubagents(dot.id)).find((item) => item.durableSubagent?.name === "builder")!;
+  assert.ok(builder, "Foundry created Pip's builder on the first task");
+  assert.equal(builder.definitionId, "dot/workers/builder");
+  assert.equal(builder.workspaceId, dot.workspaceId);
+  const [task] = await runtime.listDelegations({ agentId: dot.id, conversationId: app.id });
+  assert.equal(task?.workerAgentId, builder.id);
+  assert.equal(task?.status, "completed");
   const builderFiles = await until(async () => {
     const files = await computerFiles(builder);
     return files.includes("/out/weekly-feedback.md") ? files : undefined;
   }, "the report on the builder's computer");
   assert.ok(builderFiles.includes("/out/weekly-feedback.md"));
-  console.log(`9. started on ${builder.name} (${builder.id}) over the mesh; back in the app: "${text(report)}"`);
+  console.log(`9. handed to Pip's builder (${builder.definitionId}, a durable subagent); back in the app: "${text(report)}"`);
 
   // 10. A follow-up Sam sets: a schedule in his time zone, stamped so its runs may act under his rules.
   const setUp = await ask(app.id, "Every Monday at 9am my time, open a draft PR for the week's export fixes.");
@@ -333,12 +340,13 @@ try {
   assert.equal(Dot.parse(paused.context).paused, true, "three hand-offs and denials in a row pause the dot");
   const idle = await ask(app.id, "Open a draft PR for the CSV export fix.");
   assert.match(idle.reply, /No tool called open_draft_pr exists/);
+  assert.doesNotMatch(idle.reply, /glove_foundry_delegate/, "a paused dot can't hand its builder a task");
   assert.equal((await ran("open_draft_pr")).length, 2, "a paused dot only reads");
   await runtime.configureAgent(dot.id, { context: { ...paused.context, paused: false } });
   console.log(`11. a denial and two hand-offs in a row paused ${dot.name}; asked for a draft PR, the tool wasn't there`);
   console.log("    Sam resumes it with configureAgent; the draft PRs already opened stay open");
 
-  console.log("\nDots verified: seeded data, a connected mailbox read in code, read-only research and new mail, Custom Rules (ask first, hand off, act without asking, act when asked) on actions and on Gmail's send, built-in safety, channels, shared memory, its own computer, the builder on the mesh, follow-ups that act, the monitor that pauses.");
+  console.log("\nDots verified: seeded data, a connected mailbox read in code, read-only research and new mail, Custom Rules (ask first, hand off, act without asking, act when asked) on actions and on Gmail's send, built-in safety, channels, shared memory, its own computer, its builder as a durable subagent, follow-ups that act, the monitor that pauses.");
 } finally {
   await runtime.stop();
   await rm(dataDir, { recursive: true, force: true });

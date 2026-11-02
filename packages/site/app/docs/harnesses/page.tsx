@@ -161,7 +161,7 @@ export default function HarnessesPage() {
             kicker: "Surface · Team",
             title: "Voice agent",
             desc: "A fast front that keeps talking while a worker does the tool work, on a speech pipeline or a realtime model, with durable work handed to Foundry.",
-            packages: ["glove-voice", "glove-voice-s2s", "glove-mesh"],
+            packages: ["glove-voice", "glove-voice-s2s", "glove-realtime", "glove-mesh"],
           },
           {
             href: "/docs/harnesses/research",

@@ -6,6 +6,7 @@ import type { IGloveRunnable, Message } from "glove-core";
 import type { S2SAdapter, S2SEvents, S2SSessionConfig } from "glove-voice-s2s";
 import { WebSocket } from "ws";
 import type { AgentHandlerContext } from "../src/definition.js";
+import type { FoundryDelegationUpdate } from "../src/delegation.js";
 import type { FoundryMeshMessage } from "../src/mesh.js";
 import {
   VOICE_EXCLUDED_FOUNDRY_TOOLS,
@@ -56,8 +57,8 @@ function fakeAgent(saved: Message[]): IGloveRunnable {
     tools: [
       tool("lookup_order"),
       tool("refund", { requiresPermission: true }),
-      tool("glove_mesh_list_agents"),
-      tool("glove_mesh_send_message"),
+      tool("glove_foundry_delegate"),
+      tool("glove_foundry_reply"),
       ...VOICE_EXCLUDED_FOUNDRY_TOOLS.map((name) => tool(name)),
     ],
     getSystemPrompt: () => "You are Nova.",
@@ -68,8 +69,10 @@ function fakeAgent(saved: Message[]): IGloveRunnable {
 function fakeContext(options: { kind?: string; messageText?: string } = {}) {
   const events: Array<{ type: string; data?: unknown }> = [];
   const controller = new AbortController();
-  let deliver: ((messages: ReadonlyArray<FoundryMeshMessage>) => void | Promise<void>) | undefined;
+  let deliver: ((updates: ReadonlyArray<FoundryDelegationUpdate>) => void | Promise<void>) | undefined;
+  let deliverMesh: ((messages: ReadonlyArray<FoundryMeshMessage>) => void | Promise<void>) | undefined;
   let listening = false;
+  let listeningMesh = false;
   const context = {
     runId: "run_voice",
     request: { source: { kind: options.kind ?? "direct" } },
@@ -77,18 +80,25 @@ function fakeContext(options: { kind?: string; messageText?: string } = {}) {
     messageText: options.messageText ?? "",
     signal: controller.signal,
     emit: (event: { type: string; data?: unknown }) => { events.push(event); },
-    onMeshMessage: (handler: typeof deliver) => {
+    onDelegationUpdate: (handler: typeof deliver) => {
       deliver = handler;
       listening = true;
       return async () => { listening = false; };
+    },
+    onMeshMessage: (handler: typeof deliverMesh) => {
+      deliverMesh = handler;
+      listeningMesh = true;
+      return async () => { listeningMesh = false; };
     },
   } as unknown as AgentHandlerContext;
   return {
     context,
     events,
     abort: () => controller.abort(),
-    deliver: (messages: FoundryMeshMessage[]) => deliver!(messages),
+    deliver: (updates: FoundryDelegationUpdate[]) => deliver!(updates),
+    deliverMesh: (messages: FoundryMeshMessage[]) => deliverMesh!(messages),
     get listening() { return listening; },
+    get listeningMesh() { return listeningMesh; },
   };
 }
 
@@ -120,7 +130,7 @@ test("a call greets the first caller, saves the transcript and keeps bookkeeping
   await hand.opened;
 
   const offered = adapter.session?.tools?.map((item) => item.name).sort();
-  assert.deepEqual(offered, ["glove_mesh_list_agents", "glove_mesh_send_message", "lookup_order"]);
+  assert.deepEqual(offered, ["glove_foundry_delegate", "glove_foundry_reply", "lookup_order"]);
 
   hand.call.joined();
   hand.call.joined();
@@ -144,7 +154,7 @@ test("a call greets the first caller, saves the transcript and keeps bookkeeping
   assert.equal(fake.listening, false);
 });
 
-test("a reply from another agent waits for a pause, then is spoken and saved in full", async () => {
+test("a delegation result waits for a pause, then is spoken and saved in full", async () => {
   const adapter = new FakeAdapter();
   const saved: Message[] = [];
   const hand = handRoom();
@@ -155,23 +165,21 @@ test("a reply from another agent waits for a pause, then is spoken and saved in 
 
   adapter.emit("agent_speech_started");
   await fake.deliver([{
-    kind: "reply",
-    id: "msg_1",
-    threadId: "thread_1",
-    from: { agentId: "maya-coder", name: "Coder" },
-    to: "maya",
-    content: "Fixed in PR 12.",
-    createdAt: "",
+    kind: "result",
+    delegationId: "delegation_1",
+    agent: "coder",
+    task: "Fix the login bug",
+    result: "Fixed in PR 12.",
   }]);
   await tick();
   assert.equal(adapter.injected.length, 0, "never over the agent's own speech");
 
   adapter.emit("agent_speech_stopped");
   assert.equal(adapter.injected.length, 1);
-  assert.match(adapter.injected[0]!.text, /Coder \(maya-coder\) replied to what you sent them \(thread thread_1\):\nFixed in PR 12\./);
+  assert.match(adapter.injected[0]!.text, /The coder agent finished "Fix the login bug"[\s\S]*Fixed in PR 12\./);
   assert.equal(adapter.injected[0]!.respond, true);
   await tick();
-  assert.match(saved[0]!.text, /<mesh-message id="msg_1" thread="thread_1" from="maya-coder" name="Coder" status="replied">/);
+  assert.match(saved[0]!.text, /<delegation id="delegation_1" agent="coder" status="completed">/);
 
   hand.call.end("done");
   const result = await running as VoiceCallResult;
@@ -189,6 +197,63 @@ test("an update nobody heard stays in the conversation for the next turn", async
   hand.call.joined();
   adapter.emit("user_speech_started");
   await fake.deliver([{
+    kind: "question",
+    delegationId: "delegation_2",
+    agent: "browser",
+    task: "Book the table",
+    question: "Indoors or outside?",
+  }]);
+  hand.call.end("caller hung up");
+  await running;
+  assert.equal(adapter.injected.length, 0);
+  assert.match(saved.at(-1)!.text, /status="question"[\s\S]*Indoors or outside\?/);
+});
+
+test("a reply from a peer on the mesh waits for a pause, then is spoken and saved in full", async () => {
+  const adapter = new FakeAdapter();
+  const saved: Message[] = [];
+  const hand = handRoom();
+  const fake = fakeContext();
+  const running = voiceCall({ room: hand.room, realtime: { adapter } })(fakeAgent(saved), fake.context);
+  await hand.opened;
+  hand.call.joined();
+  assert.equal(fake.listeningMesh, true);
+
+  adapter.emit("agent_speech_started");
+  await fake.deliverMesh([{
+    kind: "reply",
+    id: "msg_1",
+    threadId: "thread_1",
+    from: { agentId: "maya-coder", name: "Coder" },
+    to: "maya",
+    content: "Fixed in PR 12.",
+    createdAt: "",
+  }]);
+  await tick();
+  assert.equal(adapter.injected.length, 0, "never over the agent's own speech");
+
+  adapter.emit("agent_speech_stopped");
+  assert.equal(adapter.injected.length, 1);
+  assert.match(adapter.injected[0]!.text, /Coder \(maya-coder\) replied to what you sent them \(thread thread_1\):\nFixed in PR 12\./);
+  await tick();
+  assert.match(saved[0]!.text, /<mesh-message id="msg_1" thread="thread_1" from="maya-coder" name="Coder" status="replied">/);
+
+  hand.call.end("done");
+  const result = await running as VoiceCallResult;
+  assert.equal(result.updatesSpoken, 1);
+  assert.equal(fake.listeningMesh, false);
+});
+
+test("a peer's question nobody heard stays in the conversation for the next turn", async () => {
+  const adapter = new FakeAdapter();
+  const saved: Message[] = [];
+  const hand = handRoom();
+  const fake = fakeContext();
+  const running = voiceCall({ room: hand.room, realtime: { adapter } })(fakeAgent(saved), fake.context);
+  await hand.opened;
+  hand.call.joined();
+  adapter.emit("user_speech_started");
+  await fake.deliverMesh([{
     kind: "message",
     id: "msg_2",
     threadId: "thread_2",
@@ -227,6 +292,19 @@ test("a call ends when nobody joins, when the run is cancelled, or when it runs 
   await long.opened;
   long.call.joined();
   assert.equal((await longRun as VoiceCallResult).endedBecause, "time limit");
+});
+
+test("a delegation run on a voice agent saves the update instead of opening a room", async () => {
+  const saved: Message[] = [];
+  let opened = false;
+  const room: FoundryVoiceRoom = { open: () => { opened = true; }, close: () => undefined };
+  const result = await voiceCall({ room, realtime: { adapter: new FakeAdapter() } })(
+    fakeAgent(saved),
+    fakeContext({ kind: "delegation", messageText: "<delegation id=\"d\">…</delegation>" }).context,
+  );
+  assert.equal(opened, false);
+  assert.equal((result as VoiceCallResult).endedBecause, "not a call");
+  assert.deepEqual(saved, [{ sender: "user", text: "<delegation id=\"d\">…</delegation>" }]);
 });
 
 test("a mesh run on a voice agent saves the message instead of opening a room", async () => {
@@ -288,7 +366,7 @@ test("the WebSocket room carries audio and text both ways and refuses a wrong to
     sessionId: "run_voice",
     agent: "Nova",
     model: "",
-    tools: ["lookup_order", "glove_mesh_list_agents", "glove_mesh_send_message"],
+    tools: ["lookup_order", "glove_foundry_delegate", "glove_foundry_reply"],
   });
 
   socket.send(Buffer.from(new Int16Array(320).buffer), { binary: true });

@@ -57,7 +57,7 @@ export default function OpenAIDotsRebuildPage() {
         <tbody>
           <tr><td>A dot you name</td><td>An instance of one <code>dot</code> definition; its name, responsibilities, rules and routing are its data</td><td><code>lib/dot.ts</code></td></tr>
           <tr><td>Ongoing responsibilities</td><td>A list on the instance; research reads every one&apos;s sources</td><td><code>lib/dot.ts</code></td></tr>
-          <tr><td>Proactive research, read-only</td><td>A <code>research</code> schedule every 2 hours. On read-only runs (research, new mail, work the dot started that isn&apos;t a follow-up, and every run of a paused dot), the <code>tools</code> resolver returns only read tools, the Gmail app mounts only its reads, and the mesh, the computer and the tools that start runs aren&apos;t mounted</td><td><code>agents/dot/</code></td></tr>
+          <tr><td>Proactive research, read-only</td><td>A <code>research</code> schedule every 2 hours. On read-only runs (research, new mail, work the dot started that isn&apos;t a follow-up, and every run of a paused dot), the <code>tools</code> resolver returns only read tools, the Gmail app mounts only its reads, and the builder&apos;s tools, the computer and the tools that start runs aren&apos;t mounted</td><td><code>agents/dot/</code></td></tr>
           <tr><td>Triggers</td><td><code>glove_foundry_schedule</code> with <code>every</code>, <code>at</code>, or <code>cron</code> and a time zone. On a run that may act, what the dot schedules or spawns is stamped <code>followUp: true</code> and acts under your rules. New mail is an event trigger that here only reads</td><td><code>agents/dot/research.ts</code></td></tr>
           <tr><td>Works in your apps</td><td>A Gmail app installed with the mailbox the dot works from: Google&apos;s MCP server for reads (in code), the Gmail transmission for sending, a connection for new mail</td><td><code>agents/dot/apps/gmail.app.ts</code></td></tr>
           <tr><td>Memory: the chat, ChatGPT memory, its own notes</td><td>The conversation; the person&apos;s account memory (one namespace per workspace) under the dot&apos;s own (one per instance), shared by every channel; and <code>keep_note</code>, one file per dot</td><td><code>lib/memory.ts</code>, <code>lib/sources.ts</code></td></tr>
@@ -66,8 +66,8 @@ export default function OpenAIDotsRebuildPage() {
           <tr><td>Safety monitoring</td><td>A run hook that pauses the dot after three hand-offs or denials in a row</td><td><code>lib/monitor.ts</code></td></tr>
           <tr><td>Its own computer</td><td>A working environment saved per dot with <code>foundryDataEnvironmentPersistence</code></td><td><code>agents/dot/workspace.ts</code></td></tr>
           <tr><td>ChatGPT, Slack, a call</td><td>Conversations on one instance, keyed <code>app</code> and <code>slack</code>; Slack through a transmission and a playbook; <code>voiceCall</code> for calls. Teams isn&apos;t built here</td><td><code>agents/dot/</code></td></tr>
-          <tr><td>Coordinator (background agents, Codex)</td><td>Runs of the dot started with <code>glove_foundry_spawn</code>, and the person&apos;s <code>Builder</code>, reached over the mesh</td><td><code>agents/dot/research.ts</code>, <code>agents/builder/</code></td></tr>
-          <tr><td>Activity View</td><td>The inspector: runs, mesh threads, pending approvals, and <Link href="/foundry/docs/approvals#steering">steering</Link> to redirect a run; <code>paused</code> on the dot to pause it</td><td>built in, <code>lib/dot.ts</code></td></tr>
+          <tr><td>Coordinator (background agents, Codex)</td><td>Runs of the dot started with <code>glove_foundry_spawn</code>, and the dot&apos;s builder, a <Link href="/foundry/docs/durable-subagents">durable subagent</Link> it hands coding to</td><td><code>agents/dot/research.ts</code>, <code>agents/builder/</code></td></tr>
+          <tr><td>Activity View</td><td>The inspector: runs, the builder&apos;s tasks, pending approvals, and <Link href="/foundry/docs/approvals#steering">steering</Link> to redirect a run; <code>paused</code> on the dot to pause it</td><td>built in, <code>lib/dot.ts</code></td></tr>
           <tr><td>Specialist dots (enterprise preview)</td><td>The same definition, an instance in the organisation&apos;s workspace with its own name, Slack account and connected mailbox</td><td><code>specialistFor</code> in <code>lib/dot.ts</code></td></tr>
         </tbody>
       </table>
@@ -113,7 +113,7 @@ export default function OpenAIDotsRebuildPage() {
 };`}
       />
       <p>
-        The example seeds Sam&apos;s dot and his builder with <code>defineAgentInstance</code>, with
+        The example seeds Sam&apos;s dot with <code>defineAgentInstance</code> (its builder comes on the first task), with
         the support mailbox he connected as a sample account; everyone else&apos;s is created when
         they sign up (<code>scripts/onboard.ts</code>, <code>scripts/connect.ts</code>):
       </p>
@@ -121,11 +121,10 @@ export default function OpenAIDotsRebuildPage() {
         filename="foundry.application.ts (excerpt)"
         language="typescript"
         code={`export const samsDot = defineAgentInstance(dot, primaryDot(SAM.id, SAM.dot, [installationFor(samsGmail)]));
-export const samsBuilder = defineAgentInstance(builder, builderFor(SAM.id));
 
 export const data = new FileFoundryDataAdapter({
   file: dataPath("foundry.json"),
-  agents: [samsDot, samsBuilder],
+  agents: [samsDot],
   conversations: [createConversation(samsDot, { id: \`\${samsDot.id}-app\`, title: "App", context: { conversationKey: "app" } })],
 });`}
       />
@@ -158,11 +157,10 @@ export const data = new FileFoundryDataAdapter({
   // Its own computer, but not on read-only runs.
   workingEnvironment: async (_agent, ctx) => (readOnly(ctx.request, await currentDot(ctx)) ? undefined : dotComputer),
 
-  // Coding jobs start on the person's builder over the mesh. Research runs get
-  // no mesh tools; a paused dot loses them in configureDot.
-  mesh: {
-    peers: (_self, peer) => peer.definitionId === "builder",
-    mount: (ctx) => !readOnly(ctx.request),
+  // Coding jobs go to the dot's own builder, a durable subagent Foundry
+  // creates on the first task. Read-only runs lose its tools in configureDot.
+  durableSubagents: {
+    builder: { agent: builder, description: "Coding and heavy build jobs on its own computer." },
   },
 
   // The Slack bot user is the app's; every other account is one a person connected.
@@ -182,7 +180,7 @@ export const data = new FileFoundryDataAdapter({
       <p>
         The research schedule wakes the dot every two hours to read the sources of every
         responsibility. What makes the run safe is not an instruction in the prompt but what is
-        mounted: tools, the Gmail app&apos;s tools, the mesh and the computer all resolve per run,
+        mounted: tools, the Gmail app&apos;s tools, the builder&apos;s tools and the computer all resolve per run,
         and a read-only run gets only reads. Nothing that acts is there. New mail is a read-only
         run, because mail comes from anyone, and so is every run of a paused dot.
       </p>
@@ -205,7 +203,7 @@ export function followUp(request: FoundryRequest): boolean {
 /** Runs that only read: research, wake-ups, new mail, and every run of a paused dot. */
 export function readOnly(request: FoundryRequest, dot?: { readonly paused?: unknown }): boolean {
   if (dot?.paused === true) return true;
-  return !(startedByPerson(request) || followUp(request) || request.source?.kind === "mesh");
+  return !(startedByPerson(request) || followUp(request) || request.source?.kind === "delegation");
 }`}
       />
       <CodeBlock
@@ -377,9 +375,10 @@ export function reviewed<I>(action: Action<I>, review: Review): GloveFoldArgs<I>
         The dot works on a computer of its own: a working environment with files, scripts and
         the public web, saved per dot by Foundry&apos;s data adapter. Read-only runs don&apos;t
         get it. Like a dot, it coordinates: it splits work across runs of its own with{" "}
-        <code>glove_foundry_spawn</code>, which act under the same rules, hands coding jobs to the
-        person&apos;s builder over the mesh, the way a dot hands them to Codex, and checks the
-        builder&apos;s reply, which comes back to the conversation that asked, before it reports.
+        <code>glove_foundry_spawn</code>, which act under the same rules, hands coding jobs to its
+        builder with <code>glove_foundry_delegate</code>, the way a dot hands them to Codex, and
+        checks the builder&apos;s result, which comes back to the conversation that asked, before it
+        reports. The builder is a durable subagent: Foundry creates it on the first task.
       </p>
       <CodeBlock
         filename="agents/dot/workspace.ts"
@@ -480,9 +479,9 @@ export function reviewed<I>(action: Action<I>, review: Review): GloveFoldArgs<I>
         language="bash"
         code={`pnpm --filter glove-foundry-standing-agents verify
 
-1. Pip (sam-dot), Sam's builder and the app conversation are seeded data; research runs every 2h there; the mailbox watch is connected
+1. Pip (sam-dot) and the app conversation are seeded data; research runs every 2h there; the mailbox watch is connected
 2. research read #feedback and the mailbox in code, kept notes and suggested: "CSV export times out on large reports: …"
-   23 tools mounted, none that act (no send_email, open_draft_pr, merge_pr, change_password, Gmail send, post_to_slack), no mesh, no computer, no schedule or spawn
+   23 tools mounted, none that act (no send_email, open_draft_pr, merge_pr, change_password, Gmail send, post_to_slack), no builder, no computer, no schedule or spawn
    runs from schedules, spawn and background are read-only unless they are follow-ups; new mail always is
 3. "ask": the Gmail send waited for approval; approved: "Sent the reply to dana@acme.test."
 4. "block": merge_pr handed to Sam in Slack: "Over to you: Review PR #42 and merge it yourself."
@@ -493,7 +492,7 @@ export function reviewed<I>(action: Action<I>, review: Review): GloveFoldArgs<I>
    a stranger's mention started nothing
 7. new mail started a read-only run: "New mail from ken@umbrella.test about the CSV export; noted with the other reports."
 8. on Pip's own computer: /workspace/feedback-this-week.md
-9. started on Builder (sam-builder) over the mesh; back in the app: "The builder finished. Wrote /out/weekly-feedback.md: …"
+9. handed to Pip's builder (dot/workers/builder, a durable subagent); back in the app: "The builder finished. Wrote /out/weekly-feedback.md: …"
 10. a follow-up Sam set, every Monday at 9:00 in his time zone: "Set: every Monday at 9:00 New York time, I'll open a draft PR for the week's export fixes."
     open_draft_pr on "when_asked": no approval when Sam asks; on the follow-up's run it asked first, and Sam denied it
 11. a denial and two hand-offs in a row paused Pip; asked for a draft PR, the tool wasn't there

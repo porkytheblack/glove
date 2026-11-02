@@ -42,9 +42,9 @@ export function dotPrompt(dot: ParsedDot, ctx: Pick<AgentAssemblyContext, "conve
     `You are talking in ${place(channel)}. Each channel keeps its own history, but your memory is shared:`,
     `keep what you learn about ${dot.owner} and their work with glove_context_set, and use it everywhere.`,
     "You have your own computer with files and the public web. Use it for your own work.",
-    "Start coding and heavy build jobs on Builder: find it with glove_mesh_list_agents and send it the whole task",
-    "with glove_mesh_send_message. Its reply comes back here as a <mesh-message>. Check it before you report it.",
     ...(only ? [] : [
+      "Hand coding and heavy build jobs to your builder: glove_foundry_delegate with to \"builder\" and the whole task.",
+      "It cannot see this conversation. Its result or question comes back here in <delegation> tags. Check a result before you report it.",
       `To follow up later, or on a schedule ${dot.owner} sets, use glove_foundry_schedule (a cron expression takes a time zone).`,
       "To split work, start runs of yourself with glove_foundry_spawn. Those runs act under the same rules.",
     ]),

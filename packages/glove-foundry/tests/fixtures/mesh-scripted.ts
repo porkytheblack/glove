@@ -20,13 +20,14 @@ export class ScriptedModel implements ModelAdapter {
   ) {}
   setSystemPrompt(): void {}
   async prompt(request: PromptRequest): Promise<ModelPromptResult> {
-    // Runtime context (open threads) rides at the tail; read past it.
-    const last = [...request.messages].reverse().find((message) => !message.framework_context)!;
+    // Runtime context (open threads) rides at the tail; read past it, but not past events.
+    const last = [...request.messages].reverse().find((message) => !message.framework_context || message.framework_context === "event")!;
     if (last.tool_results?.length) {
       const result = JSON.stringify(last.tool_results[0]!.result);
       return reply({ sender: "agent", text: this.afterTool(result) });
     }
-    const step = this.script(last.text);
+    const text = eventText(last);
+    const step = this.script(text);
     if ("say" in step) return reply({ sender: "agent", text: step.say });
     return reply({
       sender: "agent",
@@ -48,4 +49,10 @@ export function meshAttribute(text: string, name: string): string {
 /** The body of the first <mesh-message> in a text. */
 export function meshBody(text: string): string {
   return /<mesh-message[^>]*>\n([\s\S]*?)\n<\/mesh-message>/.exec(text)?.[1] ?? "";
+}
+
+export function eventText(message: Message): string {
+  return message.framework_context === "event"
+    ? [...message.text.matchAll(/<event [^>]*>\n([\s\S]*?)\n<\/event>/g)].map((match) => match[1]!.replaceAll("&lt;", "<").replaceAll("&gt;", ">").replaceAll("&quot;", '"').replaceAll("&amp;", "&")).join("\n\n")
+    : message.text;
 }

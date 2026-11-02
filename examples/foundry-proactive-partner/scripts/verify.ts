@@ -14,8 +14,8 @@ import { fileURLToPath } from "node:url";
 //   5. "Pay it" waits for her approval, then pays.
 //   6. A reply to Leo goes from her Gmail, in his thread, once she approves it.
 //   7. A card number never leaves, and she is not asked to approve it.
-//   8. A long job goes to the partner's computer over the mesh; when it is done
-//      she is notified and the thread has it.
+//   8. A long job goes to the partner's computer, a durable subagent Foundry
+//      creates on first use; when it is done she is notified and the thread has it.
 //   9. Moving money between accounts is off limits, approval or not.
 //  10. Her preferences are data: a later brief time moves the schedule.
 
@@ -58,10 +58,11 @@ const reply = (run: { output?: unknown } | null | undefined) => String((run?.out
 
 try {
   // Ada's account is data, seeded by foundry.application.ts: her partner with
-  // her preferences, its computer, and her one thread.
+  // her preferences and her one thread. Its computer comes on the first long job.
   const agents = new Map((await runtime.listAgentInstances()).map((agent) => [agent.id, agent]));
   const partner = agents.get(DEMO_PERSON.id)!;
-  assert.deepEqual([partner.definitionId, agents.get(`${DEMO_PERSON.id}-computer`)?.definitionId], ["partner", "computer"]);
+  assert.equal(partner.definitionId, "partner");
+  assert.deepEqual(await runtime.listSubagents(partner.id), [], "the computer is created on the first long job, not seeded");
   const thread = (await runtime.listConversations(partner.id)).find((item) => item.id === threadFor(DEMO_PERSON).id)!;
   assert.ok(thread, "the seeded thread");
   const finished = async (run: { id: string }) => {
@@ -156,12 +157,15 @@ try {
   assert.equal((await entries("email")).filter((item) => item.to === "sam@example.com").length, 0, "the card number did not go out");
   console.log(`7. in Ada's thread: ${reply(leak)}`);
 
-  // 8. A long job on the partner's computer, over the mesh.
+  // 8. A long job on the partner's computer, its durable subagent.
   await runtime.send(partner.id, thread.id, "Build me a dashboard of this month's invoices.");
   const built = await until(async () => (await runtime.listRuns("partner")).find((run) =>
     run.conversationId === thread.id && run.status === "completed" && /^Done: Built dashboard/.test(reply(run))), "the dashboard");
-  const [job] = await runtime.listThreads({ conversationId: thread.id });
-  assert.equal(job?.to.agentId, "ada-computer");
+  const computer = (await runtime.listSubagents(partner.id)).find((item) => item.durableSubagent?.name === "computer");
+  assert.equal(computer?.definitionId, "partner/workers/computer");
+  const [job] = await runtime.listDelegations({ agentId: partner.id, conversationId: thread.id });
+  assert.equal(job?.workerAgentId, computer?.id);
+  assert.equal(job?.status, "completed");
   assert.ok((await entries("notification")).some((note) => note.title === "Your dashboard is ready"), "she was told when it finished");
   console.log(`8. in Ada's thread: ${reply(built)}`);
 
@@ -182,7 +186,7 @@ try {
   }, "the brief to move");
   console.log(`10. brief moved to 08:15 (${moved.timing.kind === "cron" ? moved.timing.expression : ""})`);
 
-  console.log("\nPartner verified: connected Gmail and Calendar read in code, new mail pushed, brief, quiet check-in, approvals, email from her Gmail, guard, computer over the mesh, off-limits, preferences as data.");
+  console.log("\nPartner verified: connected Gmail and Calendar read in code, new mail pushed, brief, quiet check-in, approvals, email from her Gmail, guard, its computer as a durable subagent, off-limits, preferences as data.");
 } finally {
   await runtime.stop();
   await rm(dataDir, { recursive: true, force: true });

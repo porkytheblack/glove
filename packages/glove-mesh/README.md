@@ -1,8 +1,28 @@
 # glove-mesh
 
-Inter-agent communication for the [Glove](https://github.com/porkytheblack/glove) framework. Wire multiple agents together so they can send each other messages, broadcast to the network, and acknowledge receipt — all on top of the existing `glove-inbox` primitive.
+Inter-agent communication for the [Glove](https://github.com/porkytheblack/glove) framework. Wire multiple agents together so they can send each other messages, broadcast to the network, and acknowledge receipt.
 
-The package is strictly additive: it does not change `glove-core`. Each agent keeps its own `StoreAdapter`. The mesh layer routes messages and drops them into recipient inboxes as resolved items, so the existing inbox-injection path surfaces them on the next `ask()`.
+The package does not change `glove-core`; it builds on two of its primitives. By default incoming messages land in the recipient's **inbox** and appear on its next turn. With glove-core 4.4 or newer, `delivery: "events"` makes them **events** instead: a message joins the recipient's running loop at the next tool step, or wakes an idle recipient.
+
+## Delivery: events or inbox
+
+| | `delivery: "events"` (glove-core ≥ 4.4) | `delivery: "inbox"` (default) |
+|---|---|---|
+| Recipient is working | joins at the next tool step | joins at the next tool step |
+| Recipient is idle | wakes it (or waits for the user's next message, per the Glove's event policy and `whenIdle`) | waits for its next request |
+| What the model sees | escaped `<event id source="mesh:<from>" kind>` XML, marked as outside information | an `[Inbox: … resolved]` summary |
+| Duplicate deliveries | dropped by message id | stored again |
+| Blocking sends | an in-memory wait shown as `<mesh_waiting>` runtime context until the ack or reply | a pending blocking inbox item |
+| Store requirements | none | the four inbox methods |
+| Survives the runnable | no: events queue in memory unless the Glove has a durable `events.queue` | yes, with a durable store |
+
+Keep inbox delivery when a short-lived runnable must leave messages in a store for the next one (Glove Foundry builds one per run), or when your code reads mesh traffic from the inbox. Event delivery lets agents react to each other without a person prompting them, so watch for two agents that politely answer each other forever: a Glove `events.policy` can defer or drop mesh events by `source`.
+
+```ts
+await mountMesh(glove, { adapter, identity });                                         // inbox (default)
+await mountMesh(glove, { adapter, identity, delivery: "events" });                     // wake on messages
+await mountMesh(glove, { adapter, identity, delivery: "events", whenIdle: "defer" });  // wait for the user instead
+```
 
 ## Install
 
@@ -61,6 +81,8 @@ await planner.processRequest(
 await worker.processRequest("Check your inbox and acknowledge anything you see.");
 // On the planner's next ask(), the acknowledgement resolves the blocking send.
 await planner.processRequest("Continue.");
+// With delivery: "events" neither prompt is needed: the message wakes the
+// worker, and the worker's ack wakes the planner.
 ```
 
 For distributed setups (multiple processes, multiple hosts), implement `MeshAdapter` directly over your transport — Redis pub/sub, NATS, HTTP webhooks, anything.
@@ -136,18 +158,20 @@ class RedisMeshAdapter implements MeshAdapter {
 
 ## Blocking sends
 
+In event mode a blocking send records an in-memory wait. The model sees every open wait as `<mesh_waiting>` runtime context on each model call, and the ack or reply that ends it arrives as an event (`kind="ack"` or `kind="reply"`); acks that end no wait are not delivered. In inbox mode the same sends use pending inbox items:
+
 | Tool call | Pending inbox item? | Resolves on |
 |---|---|---|
 | `glove_mesh_send_message({ blocking: false })` | No | n/a — returns immediately. |
 | `glove_mesh_send_message({ blocking: true })` | Yes, tagged `mesh:waiting:<msg_id>` | An ack with `ack_of === msg_id`, **or** a reply (`glove_mesh_send_message` with `in_reply_to === msg_id`). |
-| `glove_mesh_broadcast({ blocking: true })` | Yes, tagged `mesh:waiting:<msg_id>` | The first ack received from any peer. Later acks arrive as ordinary inbox items. |
+| `glove_mesh_broadcast({ blocking: true })` | Yes, tagged `mesh:waiting:<msg_id>` | The first ack received from any peer. Later acks are not delivered. |
 | `glove_mesh_acknowledge` (this agent acking an inbound) | No | n/a — itself. |
 
 The pending blocking inbox item synthesises a transient reminder each turn via `Agent.buildPendingBlockingMessage` (built into glove-core's agent loop) until it resolves. When the ack/reply arrives, the resolved item shows up in the model's view via the standard `[Inbox: N item(s) resolved]` injection.
 
 ## Inbox tag convention
 
-Mesh-originated inbox items use namespaced tags so consumers can filter mesh traffic out of inbox histories:
+In inbox mode, mesh-originated inbox items use namespaced tags so consumers can filter mesh traffic out of inbox histories:
 
 | Tag prefix | Direction | Meaning |
 |---|---|---|
@@ -164,7 +188,7 @@ The `from` field on every `MeshMessage` is sender-claimed and not verified. If y
 - `InMemoryMeshAdapter` is process-local and loses state on restart. Use a real transport for anything that needs to survive restarts or span machines.
 - The `MeshNetwork` LRU that maps `message_id → sender_id` (for ack routing) is bounded at 1024 entries. Acks for very old messages are best-effort.
 - Broadcast blocking resolves on the FIRST ack, not all — document this for your operators.
-- No new `SubscriberEvent` types: observability rides on the existing `tool_use_result` events for the four mesh tools, plus your `StoreAdapter`'s inbox writes.
+- No mesh-specific `SubscriberEvent` types: observability rides on `tool_use_result` for the four mesh tools, plus glove-core's `event_received` / `event_injected` (event mode, with `source: "mesh:<from>"`) or your `StoreAdapter`'s inbox writes (inbox mode).
 - No group/topic concept; broadcast targets every registered agent.
 
 ## How this differs from `glove_post_to_inbox`

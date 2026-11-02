@@ -12,7 +12,7 @@ import type {
   PromptCacheConfig,
   ResolvedPromptCache,
 } from "../core";
-import { getToolJsonSchema, resolvePromptCache } from "../core";
+import { getToolJsonSchema, promptCacheAnchors, resolvePromptCache } from "../core";
 import { isString } from "effect/String";
 
 // ─── Config ───────────────────────────────────────────────────────────────────
@@ -51,6 +51,9 @@ export interface AnthropicAdapterConfig {
  *    system prompt but there are tools, the breakpoint moves to the last tool.
  * 2. The latest turn — a breakpoint on the last content block of the last
  *    message, so each follow-up request reads the whole prior conversation.
+ *    Skipped when the messages already carry breakpoints: the adapters place
+ *    those with {@link formatAnthropicMessages}, which knows which blocks are
+ *    transient and keeps breakpoints off them.
  */
 export function applyAnthropicPromptCache(
   params: Anthropic.MessageCreateParams,
@@ -83,7 +86,10 @@ export function applyAnthropicPromptCache(
   }
 
   // 2. Latest turn: breakpoint on the last block of the last message.
-  if (out.messages.length > 0) {
+  const anchored = out.messages.some((m) =>
+    Array.isArray(m.content) && m.content.some((b) => "cache_control" in b && b.cache_control),
+  );
+  if (!anchored && out.messages.length > 0) {
     const messages = [...out.messages];
     const lastIdx = messages.length - 1;
     const lastMsg = messages[lastIdx];
@@ -223,12 +229,33 @@ function formatMessage(msg: Message): AnthropicMessage {
   return { role, content: msg.text };
 }
 
-export function formatAnthropicMessages(messages: Array<Message>): Array<AnthropicMessage> {
+/** Put a cache breakpoint on a formatted message's last block. */
+function withCacheControl(msg: AnthropicMessage, cache: ResolvedPromptCache): AnthropicMessage {
+  const cache_control = { type: "ephemeral" as const, ttl: cache.ttl };
+  if (typeof msg.content === "string") {
+    if (!msg.content) return msg;
+    return { ...msg, content: [{ type: "text", text: msg.content, cache_control }] };
+  }
+  if (!msg.content.length) return msg;
+  const content = [...msg.content];
+  content[content.length - 1] = { ...content[content.length - 1], cache_control } as Anthropic.ContentBlockParam;
+  return { ...msg, content };
+}
+
+/**
+ * Convert Glove messages to Anthropic's format, merging consecutive same-role
+ * messages. With `cache` enabled, conversation breakpoints go on the blocks
+ * {@link promptCacheAnchors} picks: never on transient runtime context, whose
+ * prefix no later request repeats.
+ */
+export function formatAnthropicMessages(messages: Array<Message>, cache?: ResolvedPromptCache): Array<AnthropicMessage> {
   // convert & merge consecutive same-role messages
   const merged: Array<AnthropicMessage> = [];
+  const anchors = new Set(cache?.enabled ? promptCacheAnchors(messages) : []);
 
-  for (const msg of messages) {
-    const formatted = formatMessage(msg);
+  for (const [index, msg] of messages.entries()) {
+    let formatted = formatMessage(msg);
+    if (anchors.has(index)) formatted = withCacheControl(formatted, cache!);
     const prev = merged[merged.length - 1];
 
     if (prev && prev.role === formatted.role) {
@@ -376,7 +403,7 @@ export class AnthropicAdapter implements ModelAdapter {
     notify: NotifySubscribersFunction,
     signal?: AbortSignal,
   ): Promise<ModelPromptResult> {
-    const messages = formatAnthropicMessages(request.messages);
+    const messages = formatAnthropicMessages(request.messages, this.cache);
     const tools =
       request.tools?.length ? formatTools(request.tools) : undefined;
 

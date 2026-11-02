@@ -43,6 +43,7 @@ const synonyms: Record<string, string> = {
   "/docs/voice-architectures": "voice layered front agent worker speech tags realtime pipeline latency barge-in fast model",
   "/docs/goal-oriented-agents": "goals forms facts intake onboarding collect information questionnaire slot filling objective",
   "/docs/realtime-voice": "openai realtime gemini live livekit avatar",
+  "/docs/realtime": "realtime multimodal gemini live openai realtime gpt-live camera video image session resumption compaction permissions",
   "/docs/memory": "remember recall knowledge graph rag",
   "/docs/code-execution": "repl eval javascript python lisp",
 };

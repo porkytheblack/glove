@@ -2,6 +2,7 @@ import { useReadSkill } from "glove-core";
 import { composeAgent, defineAgent, defineRepl } from "glove-foundry";
 import { JsSession } from "glove-js";
 import { accountSessions } from "../../lib/accounts.js";
+import computer from "../computer/agent.js";
 import { FileStore } from "../../lib/file-store.js";
 import { callModel, partnerModel } from "../../lib/models.js";
 import { loadSkills } from "../../lib/skills.js";
@@ -55,9 +56,12 @@ export default defineAgent({
     guardSends(agent, ctx);
   },
 
-  // Long jobs go to its computer, another agent in the person's workspace,
-  // over Glove Mesh. The computer is data too (lib/onboarding.ts).
-  mesh: true,
+  // Long jobs go to its computer, a durable subagent each partner owns.
+  // Foundry creates it on the first job. It inherits nothing: no apps, memory
+  // or tools.
+  durableSubagents: {
+    computer: { agent: computer, description: "Builds pages and dashboards and researches across sites. Takes minutes." },
+  },
 
   // The credential boundary: apps, the Gmail watch and every send ask for an
   // operation on an account and never see its token.

@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Realtime research front</title>
+<style>
+body { font: 17px/1.6 system-ui; max-width: 760px; margin: 3rem auto; padding: 0 1rem; }
+#messages { white-space: pre-wrap; min-height: 240px; } form { display: flex; gap: 8px; }
+input { flex: 1; min-width: 0; } input, button { font: inherit; padding: .6rem; }
+</style>
+<h1>Realtime research front</h1>
+<p>Try: “Compare Atlas, Birch and Cedar. I need EU hosting. Delegate the research and keep talking to me.”</p>
+<div id="messages" role="log" aria-live="polite"></div>
+<form><input aria-label="Message" required autocomplete="off"><button>Send</button></form>
+<button id="end" type="button">End live session</button>
+<script type="module">
+const token = location.hash.slice(1);
+history.replaceState(null, "", location.pathname);
+const headers = { authorization: `Bearer ${token}`, "content-type": "application/json" };
+const log = (role, text) => {
+  const line = document.createElement("p"); line.textContent = `${role}: ${text}`;
+  document.querySelector("#messages").append(line);
+};
+const form = document.querySelector("form"), input = form.querySelector("input");
+form.onsubmit = async (event) => {
+  event.preventDefault(); const text = input.value; input.value = "";
+  try {
+    const response = await fetch("/say", { method: "POST", headers, body: JSON.stringify({ text }) });
+    if (!response.ok) throw new Error(`Send failed (${response.status})`);
+    log("you", text);
+  } catch (error) { log("error", error.message); }
+};
+document.querySelector("#end").onclick = () => fetch("/end", { method: "POST", headers }).catch((error) => log("error", error.message));
+try {
+  const response = await fetch("/events", { headers });
+  if (!response.ok) throw new Error("Open the URL printed by the start script, including its session token.");
+  const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
+  let buffer = "";
+  for (;;) {
+    const { value, done } = await reader.read(); if (done) break;
+    buffer += value;
+    let newline;
+    while ((newline = buffer.indexOf("\n")) >= 0) {
+      const event = JSON.parse(buffer.slice(0, newline)); buffer = buffer.slice(newline + 1);
+      log(event.role, event.text);
+    }
+  }
+  log("system", "Live session ended. The Foundry controller and researcher can keep running.");
+} catch (error) { log("error", error.message); }
+</script>
+</html>

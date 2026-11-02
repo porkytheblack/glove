@@ -19,11 +19,15 @@ export default function MultiAgentPage() {
         every hop shows up in the same event trace.
       </p>
 
+      <p>For workers owned by each parent instance, see <Link href="/foundry/docs/durable-subagents">durable subagents</Link>: identity, provisioning, inheritance, direct messages and event delivery. The <Link href="/foundry/docs/durable-subagents/realtime-example">realtime front and researcher walkthrough</Link> applies those primitives in a running application.</p>
+
       <h2 id="choose">Choose the smallest boundary</h2>
       <table>
         <thead><tr><th>Mechanism</th><th>Runs where</th><th>Result comes back</th><th>Use when</th></tr></thead>
         <tbody>
-          <tr><td><a href="#mesh"><code>mesh</code></a></td><td>A new run on another agent instance, in a conversation per thread</td><td>Back in the conversation that sent it: into a listening run, or as a new turn. The other agent can ask questions too.</td><td>Agents work together: a fast agent hands off slow work and keeps talking, or teammates pass work between them.</td></tr>
+          <tr><td><Link href="/foundry/docs/layered-agents"><code>delegates</code></Link></td><td>A new run on a sibling definition, in a conversation per task on a worker instance</td><td>Back in the delegating conversation: into a listening run, or as a new turn. The worker can ask questions too.</td><td>A fast agent hands off slow or tool-heavy work and keeps talking.</td></tr>
+          <tr><td><Link href="/foundry/docs/durable-subagents"><code>durableSubagents</code></Link></td><td>A new run on a worker the instance owns, created on first use</td><td>The same as delegates, plus direct messages with <code>glove_foundry_message</code></td><td>The worker keeps its identity, memory and files across tasks.</td></tr>
+          <tr><td><a href="#mesh"><code>mesh</code></a></td><td>A new run on another agent instance, in a conversation per thread</td><td>Back in the conversation that sent it: into a listening run, or as a new turn. The other agent can ask questions too.</td><td>Agents that already exist as instances, such as a person&apos;s bots, pass work between them.</td></tr>
           <tr><td><a href="#subagents"><code>defineSubagent</code></a></td><td>Inside the parent&apos;s run and process, with its own Glove, prompt and store</td><td>As the parent&apos;s tool result</td><td>A bounded sub-task needs a different prompt or fewer tools, and the parent waits for the answer.</td></tr>
           <tr><td><a href="#calls"><code>defineCall</code></a></td><td>Inside the run; a plain function</td><td>Return value, validated by Zod</td><td>A deterministic step with a known output shape. No model involved.</td></tr>
           <tr><td><a href="#spawn"><code>glove_foundry_spawn</code></a></td><td>A new queued run, new or existing instance and conversation</td><td>Not returned (command id only)</td><td>The model decides to start separate durable work now.</td></tr>
@@ -31,13 +35,30 @@ export default function MultiAgentPage() {
           <tr><td><a href="#client-fan-out">Typed client from code</a></td><td>Any instance and conversation</td><td><code>handle.wait()</code></td><td>Deterministic fan-out / fan-in that you, not the model, control.</td></tr>
           <tr><td><a href="#shared-work">Workspace, inbox, tasks</a></td><td>Durable data</td><td>Whenever someone reads it</td><td>Handoffs that may outlive any single run.</td></tr>
           <tr><td><Link href="/foundry/docs/automation">Playbook subscriptions</Link></td><td>The runtime, on inbound events</td><td>—</td><td>An inbound event should provision or wake a workforce.</td></tr>
-          <tr><td><Link href="/foundry/docs/voice"><code>voiceCall</code></Link></td><td>A live call in a run, over the assembled agent</td><td>Mesh replies are spoken at the next pause</td><td>A speaking agent must stay responsive while durable work runs elsewhere.</td></tr>
+          <tr><td><Link href="/foundry/docs/voice"><code>voiceCall</code></Link></td><td>A live call in a run, over the assembled agent</td><td>Delegation results and mesh messages are spoken at the next pause</td><td>A speaking agent must stay responsive while durable work runs elsewhere.</td></tr>
         </tbody>
       </table>
 
-      <h2 id="mesh">The mesh: agents message each other</h2>
+      <h2 id="delegates">Delegates: hand off and hear back</h2>
       <p>
-        Foundry hosts <Link href="/docs/mesh">Glove Mesh</Link> for its agents. Turn it on
+        Most assistants want one agent that talks and remembers, and siblings that do the
+        work. List the siblings in <code>delegates</code>; the agent gets{" "}
+        <code>glove_foundry_delegate</code> and <code>glove_foundry_reply</code>, the worker
+        gets <code>glove_foundry_ask</code>, and results and questions come back to the
+        conversation that delegated. The full pattern, with a runnable example, is on{" "}
+        <Link href="/foundry/docs/layered-agents">Layered agents</Link>.
+      </p>
+      <CodeBlock filename="agents/assistant/agent.ts" language="typescript" code={`delegates: [
+  { agent: "coder", description: "Writes and runs code in its own workspace. Takes minutes." },
+  { agent: "researcher", description: "Reads the web and reports back with sources." },
+],`} />
+
+      <h2 id="mesh">The mesh: existing agents message each other</h2>
+      <p>
+        When the agents already exist as peers, each its own instance in one workspace,
+        Foundry can host <Link href="/docs/mesh">Glove Mesh</Link> between them. Workers an
+        agent owns belong in <a href="#delegates"><code>delegates</code></a> or{" "}
+        <Link href="/foundry/docs/durable-subagents">durable subagents</Link>. Turn it on
         in a definition and every instance of it can message the other agents in its
         workspace by instance id. Who is on the team is data: an agent added to the
         workspace is reachable at once, and a rename shows up the next time someone lists
@@ -77,7 +98,7 @@ await foundry.createAgent("bot", { id: "maya-bot-3", workspaceId: "maya", name: 
         <li>A thread is a conversation on the recipient. Its final reply goes back to the conversation that started the thread on its own, as a <code>&lt;mesh-message status=&quot;replied&quot;&gt;</code>; a failed or cancelled run sends <code>status=&quot;failed&quot;</code>.</li>
         <li>Messages go straight into a run that listens with <code>ctx.onMeshMessage</code>. Otherwise they wait until the conversation is free and start one run with <code>source.kind: &quot;mesh&quot;</code>.</li>
         <li>Workspaces are the boundary. Another tenant&apos;s agents are never listed and cannot be messaged, whatever the peers rule says.</li>
-        <li>Messages still owed are kept on the thread and handed over after a restart. <code>runtime.listThreads()</code> lists threads; the trace has <code>mesh.thread.started</code>, <code>mesh.message.sent</code>, <code>mesh.delivered</code>, <code>mesh.thread.replied</code> and <code>mesh.refused</code>.</li>
+        <li>Mesh messages ride the same event journal as delegation updates, so they are handed over after a restart. A <code>mesh</code> value with an <code>adapter</code> is the raw glove-mesh transport instead. <code>runtime.listThreads()</code> lists threads; the trace has <code>mesh.thread.started</code>, <code>mesh.message.sent</code>, <code>mesh.delivered</code>, <code>mesh.thread.replied</code> and <code>mesh.refused</code>.</li>
         <li>To mesh Gloves inside a single run, use <Link href="/docs/mesh">glove-mesh</Link> directly, as braind-storm&apos;s lead does with its specialists.</li>
       </ul>
       <p>
@@ -311,14 +332,15 @@ export default defineAgent({
       <p>
         A live call is a run: <code>run: voiceCall(...)</code> from{" "}
         <code>glove-foundry/voice</code> hosts a realtime speech session over the assembled
-        agent. Keep the call thin and turn on the <a href="#mesh">mesh</a>; replies and
-        questions from other agents are spoken at the next pause. See{" "}
+        agent. Keep the call thin and hand work to <a href="#delegates">delegates</a>;
+        their results and questions are spoken at the next pause, and so are mesh
+        messages. See{" "}
         <Link href="/foundry/docs/voice">Voice agents</Link>.
       </p>
       <p>
         <strong>Reference implementations.</strong>{" "}
         <code>examples/foundry-layered-assistant</code> is an assistant that takes chat or
-        calls, keeps personal memory, and messages a coder and a researcher on the mesh.{" "}
+        calls, keeps personal memory, and delegates to a coder and a researcher.{" "}
         <code>examples/foundry-braind-storm</code> is a brand workforce: its briefing line is a{" "}
         <code>voiceCall</code> with Gemini Live, its lead convenes four specialists over an
         in-process mesh with one shared working environment, and its campaign orchestrator

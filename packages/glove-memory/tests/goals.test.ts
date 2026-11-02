@@ -260,7 +260,7 @@ test("tool selection leaves host operations available and rejected selectors do 
   const { runner } = useGoalRunner(glove, new InMemoryGoalAdapter(), { scope, tools: { deny: ["start", "revise"] } });
   assert.deepEqual(glove.tools.map((t) => t.name), ["glove_goal_status", "glove_goal_update", "glove_goal_history"]);
   await runner.start(program());
-  assert.match(await glove.getRuntimeContext(), /GOALS/);
+  assert.match(await glove.getRuntimeContext(), /<goals /);
   const invalid = target();
   assert.throws(() => useGoalRunner(invalid, new InMemoryGoalAdapter(), { scope, tools: { deny: ["typo"] } }));
   assert.equal(invalid.tools.length, 0);
@@ -287,20 +287,20 @@ for (const goalsFirst of [true, false]) {
     for (let i = 0; i < 2; i++) await glove.processRequest("hello");
     const composed = await glove.getRuntimeContext();
     assert.match(composed, /Email address/);
-    assert.match(composed, /GOALS/);
+    assert.match(composed, /<goals /);
     assert.match(composed, /PINNED CONTEXT/);
-    assert.equal(composed.match(/GOALS —/g)?.length, 1);
+    assert.equal(composed.match(/<goals /g)?.length, 1);
     assert.equal(composed.match(/Email address/g)?.length, 1);
     glove.setSystemPrompt(glove.getSystemPrompt() + "\nHost added instructions");
     await mountedGoals.runner.update(done("who", ["identity"]));
-    assert.match(await glove.getRuntimeContext(), /identity: Client identity \[done\]/, "refreshes immediately after host writes");
+    assert.match(await glove.getRuntimeContext(), /<item key="identity" status="done">Client identity/, "refreshes immediately after host writes");
     assert.match(await glove.getRuntimeContext(), /Email address/);
     await glove.processRequest("next");
     assert.match(glove.getSystemPrompt(), /Host added instructions/);
     await forms.runner.fill({ email: "client@example.com" });
     await glove.processRequest("done");
     assert.doesNotMatch(await glove.getRuntimeContext(), /Email address/);
-    assert.match(await glove.getRuntimeContext(), /GOALS/);
+    assert.match(await glove.getRuntimeContext(), /<goals /);
   });
 }
 
@@ -317,7 +317,7 @@ test("scope changes and host prompt replacement clear stale goals; injection can
   glove.setSystemPrompt("Replacement host instructions");
   await glove.processRequest("one again");
   assert.match(glove.getSystemPrompt(), /^Replacement host instructions/);
-  assert.equal((await glove.getRuntimeContext()).match(/GOALS —/g)?.length, 1);
+  assert.equal((await glove.getRuntimeContext()).match(/<goals /g)?.length, 1);
   const off = target();
   const mounted = useGoalRunner(off, adapter, { scope: { subject: "one", key: "intake" }, injectStatus: false });
   await mounted.runner.update(done("who", ["identity"]));
@@ -336,12 +336,12 @@ test("a real Glove sees mounted schemas and updated goal status on the next mode
       assert.ok(request.tools!.some((t) => t.name === "glove_goal_update"));
       if (calls++ === 0) {
         assert.equal(systemPrompt, "Help the client");
-        assert.match(request.messages.at(-1)!.text!, /version 1/);
+        assert.match(request.messages.at(-1)!.text!, /version="1"/);
         return { messages: [{ sender: "agent", text: "", tool_calls: [{ id: "update", tool_name: "glove_goal_update", input_args: { ...done("who", ["identity", "parties"]), ifVersion: 1 } }] }], tokens_in: 1, tokens_out: 1 };
       }
       assert.equal(systemPrompt, "Help the client");
-      assert.match(request.messages.at(-1)!.text!, /version 2/);
-      assert.match(request.messages.at(-1)!.text!, /evidence; active/);
+      assert.match(request.messages.at(-1)!.text!, /version="2"/);
+      assert.match(request.messages.at(-1)!.text!, /key="evidence" status="active"/);
       return { messages: [{ sender: "agent", text: "Next, evidence" }], tokens_in: 1, tokens_out: 1 };
     },
   };
@@ -376,10 +376,10 @@ test("a delayed status read cannot erase a newer committed prompt refresh", asyn
   const staleRefresh = refresh();
   await snapshotCaptured;
   await runner.update(done("who", ["identity"]));
-  assert.match(await glove.getRuntimeContext(), /version 2/);
+  assert.match(await glove.getRuntimeContext(), /version="2"/);
   release();
   await staleRefresh;
-  assert.match(await glove.getRuntimeContext(), /version 2/);
+  assert.match(await glove.getRuntimeContext(), /version="2"/);
 });
 
 test("concurrent definition edits and progress writes do not lose either winner's state", async () => {
@@ -445,10 +445,10 @@ test("out-of-order commit responses cannot roll the prompt back to an older goal
   const slow = runner.update(done("who", ["identity"]));
   await firstCommitted;
   await runner.update(done("who", ["parties"]));
-  assert.match(await glove.getRuntimeContext(), /version 3/);
+  assert.match(await glove.getRuntimeContext(), /version="3"/);
   release();
   await slow;
-  assert.match(await glove.getRuntimeContext(), /version 3/);
+  assert.match(await glove.getRuntimeContext(), /version="3"/);
 });
 
 test("a stale read cannot regress the prompt after a committed update", async () => {
@@ -459,7 +459,7 @@ test("a stale read cannot regress the prompt after a committed update", async ()
   await runner.update(done("who", ["identity"]));
   adapter.get = async () => structuredClone(stale);
   await refresh();
-  assert.match(await glove.getRuntimeContext(), /version 2/);
+  assert.match(await glove.getRuntimeContext(), /version="2"/);
 });
 
 test("the complete goal tool workflow runs through a real Glove executor and serializable schemas", async () => {
@@ -486,8 +486,8 @@ test("the complete goal tool workflow runs through a real Glove executor and ser
       }
       const call = calls[step++];
       if (call) return { messages: [{ sender: "agent", text: "", tool_calls: [{ id: String(step), tool_name: `glove_goal_${call.name}`, input_args: call.input }] }], tokens_in: 1, tokens_out: 1 };
-      assert.match(request.messages.at(-1)!.text!, /version 3/);
-      assert.match(request.messages.at(-1)!.text!, /who; active/);
+      assert.match(request.messages.at(-1)!.text!, /version="3"/);
+      assert.match(request.messages.at(-1)!.text!, /key="who" status="active"/);
       assert.match(request.messages.at(-1)!.text!, /Waiting for files/);
       return { messages: [{ sender: "agent", text: "Continue with identity" }], tokens_in: 1, tokens_out: 1 };
     },
@@ -562,5 +562,5 @@ test("a pre-create null read does not let a delayed create acknowledgement regre
   await runner.update(done("who", ["identity"]));
   releaseRead(); await oldRead;
   releaseCreate(); await start;
-  assert.match(await glove.getRuntimeContext(), /version 2/);
+  assert.match(await glove.getRuntimeContext(), /version="2"/);
 });

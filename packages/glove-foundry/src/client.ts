@@ -1,3 +1,7 @@
+import type { AgentEvent } from "glove-core";
+import type { FoundryEventTarget, FoundryEventPolicy, FoundryMessageOptions } from "./event-delivery.js";
+import type { AgentMessageReceipt } from "./durable-subagents.js";
+import type { FoundryRuntime } from "./runtime.js";
 import type {
   AnyFoundryAgent,
   FoundryRouteMap,
@@ -229,6 +233,31 @@ export class FoundryClient<TRoutes extends FoundryRouteMap> {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ definitionId, ...options }),
     }));
+  }
+
+  async emitEvent(target: FoundryEventTarget, event: AgentEvent, policy: FoundryEventPolicy = {}): Promise<AgentMessageReceipt> {
+    return readResponse(await this.fetcher(`${this.baseUrl}/api/events`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ target, event, policy }),
+    }));
+  }
+
+  async subagents(parentAgentId: string): Promise<ReadonlyArray<AgentInstance>> {
+    return readResponse(await this.fetcher(`${this.baseUrl}/api/agent-instances/${encodeURIComponent(parentAgentId)}/subagents`));
+  }
+
+  subagent(parentAgentId: string, name: string) {
+    const base = `${this.baseUrl}/api/agent-instances/${encodeURIComponent(parentAgentId)}/subagents/${encodeURIComponent(name)}`;
+    const post = async <T>(suffix: string, body: unknown = {}): Promise<T> => readResponse(await this.fetcher(`${base}${suffix}`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+    }));
+    return {
+      ensure: () => post<AgentInstance>(""),
+      send: (message: string, delivery: FoundryMessageOptions = {}) => post<AgentMessageReceipt>("/messages", { message, delivery }),
+      data: async (): Promise<Awaited<ReturnType<FoundryRuntime["subagentData"]>>> => readResponse(await this.fetcher(`${base}/data`)),
+      archive: () => post<AgentInstance>("/archive"),
+      resume: () => post<AgentInstance>("/resume"),
+      purge: () => post<{ purged: true }>("/purge"),
+    };
   }
 
   async agentInstances(definitionId?: string): Promise<ReadonlyArray<AgentInstance>> {

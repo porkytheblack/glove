@@ -18,7 +18,7 @@ export {
 } from "./session";
 export { currentPerson, requirePerson, type SignedIn } from "./person";
 export { ownedAgent, ownedAgents, ownedApproval, ownedConversation, ownedRun } from "./guards";
-export { defaultIncoming, displayMessages, toolLabel, type DisplayOptions, type ToolLabel, type TranscriptMessage } from "./messages";
+export { defaultIncoming, displayMessages, eventBodies, toolLabel, type DisplayOptions, type ToolLabel, type TranscriptMessage } from "./messages";
 export { liveRun, reduceEvent, resumeAfter, type LiveOptions } from "./live";
 export { approvalView, pendingApprovals } from "./approvals";
 export { appsSummary, type AppsOptions, type PlaybookLine } from "./apps";

@@ -11,12 +11,14 @@ approval.
 This is an independent example. It is not affiliated with or endorsed by
 Anthropic.
 
-The partner and its computer are data: `lib/onboarding.ts` describes them in the
+The partner is data: `lib/onboarding.ts` describes it in the
 person's own workspace, with the person's name, time zone and preferences (when
 the brief goes out, which hours are worth a look, what they want to hear about).
 `foundry.application.ts` seeds Ada's account with `defineAgentInstance`, and
 `scripts/onboard.ts` creates the same records for anyone else. The definitions
-in `agents/` say what a partner and a computer can be.
+in `agents/` say what a partner and a computer can be. Each partner owns its
+computer as a durable subagent (`durableSubagents` in `agents/partner/agent.ts`);
+Foundry creates it on the first long job.
 
 ```
    07:30 morning brief      10:00 · 13:00 · 16:00 · 19:00 check-ins      new mail
@@ -29,7 +31,7 @@ in `agents/` say what a partner and a computer can be.
    │ gmail.search_threads(…), calendar.list_events(…) in code               │  notify_person (push)
    │ memory · skills · guard on every email                                 │
    └────┬────────────────────────────────────────┬─────────────────────────┘
-        │ email · pay · sign · delete             │ glove_mesh_send_message
+        │ email · pay · sign · delete             │ glove_foundry_delegate
         ▼                                         ▼
    approval: you say yes                     computer: files + web, long jobs
 ```
@@ -67,7 +69,7 @@ the account (`lib/connect.ts`).
 | Flags problems you didn't ask about | The brief looks for clashes, like a client call during a flight, and offers the fix |
 | One ongoing thread | One instance and one conversation per person; schedules land in it |
 | Hand it work by text or voice | The same agent takes chat or a call (`voiceCall`) |
-| Its own virtual machine with a browser | A `computer` agent in the person's workspace, reached over Glove Mesh; it notifies them when a job is done |
+| Its own virtual machine with a browser | A `computer` agent the partner owns as a durable subagent; jobs go to it with `glove_foundry_delegate`, and the partner notifies the person when a result comes back |
 | Memory and skills from your account | `defineMemory` on SQLite; `skills/*.md` read with `glove_read_skill` |
 | Asks before sending, paying, signing or deleting | Gmail's send, `pay_invoice`, `sign_document` and `delete_file` wait for approval |
 | Some actions are off limits even with approval | No tool for trading or moving money between accounts |
@@ -85,7 +87,7 @@ else, at times that are a choice in `schedules.ts`.
 ```
 agents/
   partner/
-    agent.ts             assembly: apps, REPL, model per surface, schedules, playbook, guard, mesh, call
+    agent.ts             assembly: apps, REPL, model per surface, schedules, playbook, guard, computer, call
     apps/                gmail (MCP + send + watch), calendar (MCP)
     transmissions/  connections/  events/  actions/  playbook.ts   new mail into the thread
     send.ts              Gmail's send behind the guard
@@ -104,7 +106,7 @@ lib/
   ledger.ts       what the partner did
   skills.ts       skills/*.md as skills
   models.ts       one model per job; scripted with no key
-  onboarding.ts   a person's account as data: partner, preferences, computer
+  onboarding.ts   a person's account as data: partner, preferences, thread
 demo/             local Gmail and Calendar MCP servers for sample accounts
 skills/           how the person likes things done
 fixtures/         a sample inbox and calendar

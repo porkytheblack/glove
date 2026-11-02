@@ -103,7 +103,11 @@ export class FoundryExecutionBackend {
     })();
     return this.stopping;
   }
-  triggerSignal(name: string, input: unknown): Promise<string> { return this.request({ method: "trigger", name, input }); }
+  triggerSignal(name: string, input: unknown, options: { parked?: boolean } = {}): Promise<string> {
+    return this.request({ method: "trigger", name, input, ...(options.parked ? { parked: true } : {}) });
+  }
+  /** Make a parked run due, with the input it should start from. False when it is no longer pending. */
+  releaseRun(id: string, input: unknown): Promise<boolean> { return this.request({ method: "release", id, input }); }
   getRun(id: string): Promise<Run | null> { return this.request({ method: "get", id }); }
   listAllRuns(options: { signalName?: string } = {}): Promise<Run[]> { return this.request({ method: "list", ...options }); }
   cancel(id: string): Promise<boolean> { return this.request({ method: "cancel", id }); }

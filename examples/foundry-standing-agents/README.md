@@ -10,8 +10,8 @@ responsibilities you hand it and researches them in the background with tools
 that can only read. Before it acts, an auto-review checks the action against
 your Custom Rules and built-in safety. You reach the same dot in the app, in
 Slack and on a call. It works in the apps you connect (here the support
-mailbox, in Gmail). It has its own computer, and it starts coding jobs on a
-builder.
+mailbox, in Gmail). It has its own computer, and it hands coding jobs to its
+builder, a durable subagent.
 
 This is an independent example. It is not affiliated with or endorsed by OpenAI.
 
@@ -23,12 +23,12 @@ This is an independent example. It is not affiliated with or endorsed by OpenAI.
    │   "app"   "slack"   a call   — one memory, notes       │  Custom Rules, routing
    │   its own computer (files, web)                        │
    └────┬──────────────────┬───────────────────┬───────────┘
-        │ every 2h         │ acting tools      │ mesh message
+        │ every 2h         │ acting tools      │ glove_foundry_delegate
    ┌────▼───────────┐ ┌────▼──────────────┐ ┌──▼───────────────────┐
-   │ research run   │ │ auto-review       │ │ Builder (Sam's)      │
+   │ research run   │ │ auto-review       │ │ builder (Pip's own)  │
    │ read_channel   │ │ Custom Rules, on  │ │ coding jobs on its   │
-   │ gmail.* in code│ │ actions and on    │ │ own computer; reply  │
-   │ keep_note      │ │ Gmail's send      │ │ goes back to Pip     │
+   │ gmail.* in code│ │ actions and on    │ │ own computer; result │
+   │ keep_note      │ │ Gmail's send      │ │ comes back to Pip    │
    │ suggest        │ │ change_password:  │ └──────────────────────┘
    │                │ │ always yours      │
    │ nothing acts,  │ └───────────────────┘
@@ -41,9 +41,11 @@ This is an independent example. It is not affiliated with or endorsed by OpenAI.
 There is one `dot` definition (`agents/dot/agent.ts`). It says what a dot can
 be. Each dot is an instance, and what makes it yours is its data
 (`lib/dot.ts`): the name you gave it, its responsibilities, your Custom Rules
-and where updates go. Sam's dot, Pip, and his builder are seeded in
-`foundry.application.ts` with `defineAgentInstance`, so `pnpm dev` opens with
-them in place; everyone else's dot is created at runtime (`scripts/onboard.ts`).
+and where updates go. Sam's dot, Pip, is seeded in `foundry.application.ts`
+with `defineAgentInstance`, so `pnpm dev` opens with it in place; everyone
+else's dot is created at runtime (`scripts/onboard.ts`). A dot's builder is a
+durable subagent (`durableSubagents` in `agents/dot/agent.ts`): Foundry creates
+it on the dot's first coding task.
 Renaming a dot, giving it a new responsibility or changing a rule is a write
 (`configureAgent`), not a deploy.
 
@@ -76,7 +78,7 @@ bot user stays the app's own account.
 | --- | --- |
 | Your primary dot, with a name you give it | `primaryDot(ownerId, { name, … })`: an instance in the person's workspace, named by them |
 | Ongoing responsibilities, several at once | `responsibilities: [{ job, sources, attention, mustNot }]` on the instance. One research run covers them all |
-| Proactive research with read-only tools | The `research` schedule, every 2 hours (`DOTS_RESEARCH_EVERY` changes it). On read-only runs (research, wake-ups, new mail, work the dot started that isn't a follow-up, and every run of a paused dot), the `tools` resolver returns only `read_channel`, `read_notes`, `keep_note` and `suggest`, and the Gmail app mounts only its reads. The Slack post tool, Gmail's send, the mesh (`mount`), the computer (`workingEnvironment`) and Foundry's tools that start runs are not there at all |
+| Proactive research with read-only tools | The `research` schedule, every 2 hours (`DOTS_RESEARCH_EVERY` changes it). On read-only runs (research, wake-ups, new mail, work the dot started that isn't a follow-up, and every run of a paused dot), the `tools` resolver returns only `read_channel`, `read_notes`, `keep_note` and `suggest`, and the Gmail app mounts only its reads. The Slack post tool, Gmail's send, the builder (`configureDot` removes `glove_foundry_delegate`, `glove_foundry_reply` and `glove_foundry_message`), the computer (`workingEnvironment`) and Foundry's tools that start runs are not there at all |
 | Triggers: follow-ups it schedules, schedules with a time zone, event triggers | `glove_foundry_schedule` (`every`, `at`, or `cron` with a time zone). On a run that may act, `followUps()` in `agents/dot/research.ts` stamps what the dot schedules or spawns with `followUp: true`, so those runs act under the Custom Rules. New mail is an event trigger, and here it only reads |
 | Works in your apps (4,000+ through plugins) | Foundry apps installed with your accounts: Gmail here, through Google's MCP server for reads, the Gmail transmission for sending and a connection for new mail |
 | Notes to itself | `keep_note` and `read_notes`, one file per dot |
@@ -85,12 +87,12 @@ bot user stays the app's own account.
 | Built-in safety: password changes and money transfers are always yours; permanent deletion, software installs and saved-card purchases need approval | `ALWAYS_YOURS` (`change_password`, `transfer_money`) is handed to you and `ALWAYS_ASKS` (`delete_permanently`, `install_software`, `buy_with_saved_card`) never goes below ask first, whatever `rules` says. Of these, only `change_password` exists here; the sets apply to any action registered under those names |
 | Auto-review checks sensitive actions (such as sending email) before they run; you can't switch it off | `reviewed()` in `lib/auto-review.ts` wraps every acting tool, and Gmail's send, so the dot never sees an unreviewed one. Email to an address that never wrote in asks, even on `allow` (the function form of `requiresPermission`) |
 | Its own cloud computer and browser | `workingEnvironment` with files and the public web (`env:fetch`), saved per dot by Foundry's data adapter (`foundryDataEnvironmentPersistence({ scope: "agent" })`) |
-| Coordinates: splits work across background agents, hands coding to Codex and long jobs to ChatGPT Work, checks the results | `glove_foundry_spawn` starts runs of the dot, which act under the same rules. Coding goes to the person's `Builder` over the mesh (`glove_mesh_send_message`); its reply comes back to the conversation that asked, and the dot checks it before it reports |
+| Coordinates: splits work across background agents, hands coding to Codex and long jobs to ChatGPT Work, checks the results | `glove_foundry_spawn` starts runs of the dot, which act under the same rules. Coding goes to the dot's builder, a durable subagent (`glove_foundry_delegate`); its result or question comes back to the conversation that asked, and the dot checks it before it reports |
 | ChatGPT, Slack and Teams, with context in every channel | Conversations on one instance, keyed `app` and `slack`. Slack messages join with `conversationKey: "slack"`. Teams isn't built here; it would be a second transmission and forwarder like Slack's |
 | Hop on a call | `voiceCall` over the same assembled dot (`agents/dot/call.ts`) |
 | Slack: DMs and channel mentions | The webhook passes only DMs and mentions, so, as with dots, adding the bot to a channel doesn't make it watch the channel. Answering only its owner is this example's choice: the `from-owner` predicate on `slackUserId`, in the playbook |
 | Notification rules on schedules | `routing`, this example's choice, set per dot rather than per schedule: progress to the app, decisions to Slack, so a hand-off reaches the person as a Slack DM |
-| Activity View: progress, files and pending requests; redirect or pause | The web app's Activity screen: the dot's and builder's runs in progress, with Redirect (Foundry's steering), approvals and hand-offs, follow-ups and the files on both computers. Pause sets `paused: true` on the dot (`configureAgent`). The inspector shows the runs and mesh threads too |
+| Activity View: progress, files and pending requests; redirect or pause | The web app's Activity screen: the dot's and builder's runs in progress, with Redirect (Foundry's steering), approvals and hand-offs, follow-ups and the files on both computers. Pause sets `paused: true` on the dot (`configureAgent`). The inspector shows the runs and the builder's tasks too |
 | Safety monitoring can pause a dot; stopping doesn't undo what it already did | `monitored()` in `lib/monitor.ts`, around every run except calls: after three hand-offs or denials in a row it sets `paused: true`, and every run of a paused dot only reads until you set it back. As with dots, pausing doesn't undo actions already taken |
 | Saved passwords used without the model seeing them | Account sessions: the Slack token and the mailbox's tokens are read only by `accountSessions`, never by the dot |
 | Specialist dots (enterprise preview), provisioned by IT with their own identity, credentials and system access | `specialistFor(org, { name, responsibilities, rules, account })`: the same definition, an instance in the organisation's workspace with its own name, its own Slack account and its own connected mailbox |
@@ -103,7 +105,7 @@ the review, the actions and the sources live in `lib/`.
 ```
 agents/
   dot/
-    agent.ts                     what a dot can be: model, memory, tools, schedule, playbook, computer, mesh, call
+    agent.ts                     what a dot can be: model, memory, tools, schedule, playbook, computer, builder, call
     prompt.ts                    the prompt, built from the dot's data
     tools.ts                     read-only tools on read-only runs; reviewed actions and Gmail's send otherwise
     research.ts                  the research schedule; which runs may act; follow-ups
@@ -117,7 +119,7 @@ agents/
     predicates/from-owner.predicate.ts             only the owner's messages
     playbook.ts                  Slack messages from the owner; new mail
     topology.ts  events/  actions/
-  builder/  agent.ts prompt.ts workspace.ts        where a person's dot starts coding jobs
+  builder/  agent.ts prompt.ts workspace.ts        the builder each dot owns as a durable subagent
 lib/
   dot.ts           a dot as data: primaryDot(), specialistFor(), builderFor(), Sam, channels
   auto-review.ts   reviewed(): built-in safety, Custom Rules, the recipient check
@@ -135,7 +137,7 @@ lib/
   host.ts          what the web app's server calls in lib/, with discovery's ids bound
   file-store.ts  paths.ts  authorization.ts
 app/                     the web app (Next.js): sign-in, the dot and its conversation, Activity, Rules, Apps
-foundry.application.ts   Sam's dot, builder and app conversation, seeded with defineAgentInstance
+foundry.application.ts   Sam's dot and app conversation, seeded with defineAgentInstance
 demo/              a local Gmail MCP server over the sample support inbox
 fixtures/          the #feedback channel and the support inbox the demo reads
 scripts/
@@ -163,11 +165,11 @@ pnpm connect ada gmail                               # needs GOOGLE_CLIENT_ID an
 `verify` runs eleven steps on the real runtime with scripted models and the
 support inbox as a sample account:
 
-1. Sam's dot, Pip, his builder and their app conversation are seeded data, with the support
+1. Sam's dot, Pip, and its app conversation are seeded data, with the support
    mailbox connected and watched. Pip's research schedule (every 2 hours) joins the app conversation.
 2. A research run reads #feedback and the mailbox (in code, through the Gmail app), keeps a note
    and suggests one thing. The scripted model also tries Gmail's send, and the tool is not there.
-   No acting tool, no mesh, no computer and no tool that starts a run is mounted.
+   No acting tool, no builder, no computer and no tool that starts a run is mounted.
 3. "Ask": a reply to a customer waits for approval, then goes from the support mailbox in her thread.
 4. "Block": "Merge the fix PR" is not run; a Slack DM tells Sam what to do. `change_password` is
    his too, even after its rule is set to `allow`. Both are kept as hand-offs Sam can list.
@@ -177,8 +179,8 @@ support inbox as a sample account:
    Sam told Pip in the app. A stranger's mention starts nothing.
 7. New mail from a customer starts a read-only run: Pip notes it and sends nothing.
 8. Pip saves a file on its own computer.
-9. Sam asks for a weekly report. Pip starts it on his builder over the mesh, and the builder's
-   reply comes back to the app.
+9. Sam asks for a weekly report. Pip hands it to its builder with `glove_foundry_delegate`.
+   Foundry creates the builder on this first task, and the result comes back to the app.
 10. Sam sets a follow-up every Monday at 9:00 New York time; the schedule is stamped as a
     follow-up. With `open_draft_pr` on "act when asked", a draft PR opens with no approval when
     Sam asks, and on the follow-up's run it asks first. Sam denies it.
@@ -388,8 +390,8 @@ watch pulls its subscription from inside the unit.
   armed (porkytheblack/glove#199). The dot's resolvers read the
   instance fresh (`storedInstance` in `lib/dot.ts`), so a change to the rules,
   the responsibilities or `paused` reaches the next scheduled run. Slack's post,
-  the mailbox's tool filter and the mesh decide by who started the run, so on a
-  paused dot `configureDot` removes them.
+  the mailbox's tool filter and the builder's tools decide by who started the run,
+  so on a paused dot `configureDot` removes them.
 - Foundry's own tools stay mounted on research runs, except those that start
   runs (`glove_foundry_schedule`, `glove_foundry_spawn`,
   `glove_foundry_background`), and schedules can only be listed. The rest act on

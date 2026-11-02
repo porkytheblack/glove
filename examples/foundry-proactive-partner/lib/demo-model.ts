@@ -29,14 +29,14 @@ export class DemoModel implements ModelAdapter {
   setSystemPrompt(): void {}
 
   async prompt(request: PromptRequest): Promise<ModelPromptResult> {
-    const messages = request.messages.filter((message) => !message.framework_context);
+    const messages = request.messages.filter((message) => !message.framework_context || message.framework_context === "event");
     let start = messages.length - 1;
     while (start > 0 && (messages[start]!.sender !== "user" || messages[start]!.tool_results?.length)) start--;
     const after = messages.slice(start + 1);
     const called = after.flatMap((message) => message.tool_calls?.map((call) => call.tool_name) ?? []);
     const results = after.flatMap((message) => message.tool_results ?? []);
     const step = this.script({
-      text: messages[start]?.text ?? "",
+      text: messages[start] ? eventText(messages[start]!) : "",
       called,
       lastResult: results.length > 0 ? JSON.stringify(results.at(-1)!.result) : "",
       results: results.map((item) => JSON.stringify(item.result)),
@@ -48,12 +48,13 @@ export class DemoModel implements ModelAdapter {
   }
 }
 
-/** An attribute of the first <mesh-message> in a text. */
-export function meshAttribute(text: string, name: string): string {
-  return new RegExp(`<mesh-message[^>]* ${name}="([^"]*)"`).exec(text)?.[1] ?? "";
-}
-
-/** The body of the first <mesh-message> in a text. */
-export function meshBody(text: string): string {
-  return /<mesh-message[^>]*>\n([\s\S]*?)\n<\/mesh-message>/.exec(text)?.[1] ?? "";
+/**
+ * The text of a message. Deliveries (a transmission, a delegation's result)
+ * arrive as one Glove event message: the escaped body of each <event>, joined.
+ */
+export function eventText(message: Message): string {
+  if (message.framework_context !== "event") return message.text;
+  return [...message.text.matchAll(/<event [^>]*>\n([\s\S]*?)\n<\/event>/g)]
+    .map((match) => match[1]!.replaceAll("&lt;", "<").replaceAll("&gt;", ">").replaceAll("&quot;", '"').replaceAll("&amp;", "&"))
+    .join("\n\n");
 }

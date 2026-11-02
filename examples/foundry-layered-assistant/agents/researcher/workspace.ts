@@ -9,7 +9,7 @@ export const researcherWorkspace = defineWorkingEnvironment({
   options: {
     stdlib: [fetchFiles({ maxResponseBytes: 2_000_000 })],
   },
-  // Saved per mesh thread: each job is its own conversation, and a follow-up
-  // in the same thread finds the files it left.
+  // Saved per delegation: each task is its own conversation, and a follow-up
+  // on the same delegation finds the files it left.
   persistence: foundryDataEnvironmentPersistence({ scope: "conversation" }),
 });

@@ -1,23 +1,18 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
-import { join } from "node:path";
 import type { GloveFoldArgs } from "glove-core";
 import type { AgentIdentity } from "glove-mesh";
 import { z } from "zod";
 import type { AgentAssemblyContext } from "./definition.js";
 import type { AgentInstance } from "./primitives.js";
 
-// Glove Mesh, hosted by Foundry. Agents are peers addressed by their instance
-// id; who they are (name, description) is instance data, so it changes without
-// touching code. A message to an agent starts a thread: a conversation on the
-// recipient. Messages in a thread go to the other side's conversation, into a
-// run that is listening (a call) or as a new run once that conversation is
-// free. The recipient's final reply goes back on its own.
-
-/** @internal Directory the runtime uses to hand messages to runs that are listening. */
-export const FOUNDRY_MAILBOX_DIRECTORY_ENV = "GLOVE_FOUNDRY_MAILBOX_DIRECTORY";
-/** @internal A run reports when it starts and stops listening on its conversation. */
-export const FOUNDRY_CONVERSATION_LISTEN_EVENT = "foundry.conversation.listen";
+// Glove Mesh, hosted by Foundry, for agents that are peers: existing instances
+// in one workspace, addressed by instance id. Who they are (name, description)
+// is instance data, so it changes without touching code. A message to an agent
+// starts a thread: a conversation on the recipient. Messages in a thread go to
+// the other side's conversation through Foundry's durable event delivery (the
+// "mesh" delivery kind in delegation.ts): into the run working there, or as one
+// run once that conversation is free. The recipient's final reply goes back on
+// its own. For workers an agent owns, use durableSubagents or delegates.
 
 const THREAD_ID = /^thread_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -86,8 +81,9 @@ export interface FoundryMeshThread {
   readonly reply?: string;
   readonly error?: string;
   /**
-   * Bookkeeping: messages not handed over yet, for the starter's conversation
-   * and for this one. Foundry hands them over again after a restart.
+   * Older records only: messages not handed over yet, for the starter's
+   * conversation and for this one. On start Foundry moves them to the event
+   * journal and drops these lists.
    */
   readonly undelivered?: ReadonlyArray<FoundryMeshMessage>;
   readonly pending?: ReadonlyArray<FoundryMeshMessage>;
@@ -420,122 +416,4 @@ export function createMeshTools(context: MeshToolContext): ReadonlyArray<GloveFo
       },
     },
   ];
-}
-
-// ── Mailbox ────────────────────────────────────────────────────────────────
-//
-// The runtime hands messages to a run that is listening on its conversation
-// by writing files into a per-conversation directory; the run polls it. Files
-// are written under a temporary name and renamed, so a reader never sees half
-// of one.
-
-function conversationDirectory(directory: string, conversationId: string): string {
-  return join(directory, Buffer.from(conversationId, "utf8").toString("hex"));
-}
-
-export async function writeMailboxDelivery(
-  directory: string,
-  conversationId: string,
-  message: FoundryMeshMessage,
-): Promise<void> {
-  const target = conversationDirectory(directory, conversationId);
-  await mkdir(target, { recursive: true, mode: 0o700 });
-  const name = `${Date.now().toString().padStart(15, "0")}-${randomUUID()}.json`;
-  const temporary = join(target, `.tmp-${name}`);
-  await writeFile(temporary, `${JSON.stringify(message)}\n`, { encoding: "utf8", mode: 0o600 });
-  await rename(temporary, join(target, name));
-}
-
-const MESSAGE_SCHEMA = z.object({
-  kind: z.enum(["message", "reply", "failed", "ack"]),
-  id: z.string(),
-  threadId: z.string(),
-  from: z.object({ agentId: z.string(), name: z.string() }),
-  to: z.string(),
-  content: z.string(),
-  inReplyTo: z.string().optional(),
-  createdAt: z.string(),
-});
-
-/** Take every message waiting for a conversation, oldest first. */
-export async function drainMailbox(
-  directory: string,
-  conversationId: string,
-): Promise<FoundryMeshMessage[]> {
-  const target = conversationDirectory(directory, conversationId);
-  let names: string[];
-  try {
-    names = (await readdir(target)).filter((name) => name.endsWith(".json") && !name.startsWith(".tmp-")).sort();
-  } catch (cause) {
-    if ((cause as NodeJS.ErrnoException).code === "ENOENT") return [];
-    throw cause;
-  }
-  const messages: FoundryMeshMessage[] = [];
-  for (const name of names) {
-    const path = join(target, name);
-    let text: string;
-    try {
-      text = await readFile(path, "utf8");
-      await unlink(path);
-    } catch (cause) {
-      // Another reader took it first.
-      if ((cause as NodeJS.ErrnoException).code === "ENOENT") continue;
-      throw cause;
-    }
-    const parsed = MESSAGE_SCHEMA.safeParse(JSON.parse(text));
-    if (parsed.success) messages.push(parsed.data as FoundryMeshMessage);
-  }
-  return messages;
-}
-
-export interface ConversationListener {
-  stop(): Promise<void>;
-}
-
-/**
- * Listen for messages to this run's conversation. While a run listens, the
- * runtime writes them to its mailbox instead of starting a new run. `report`
- * tells the runtime when listening starts and stops.
- */
-export function listenToConversation(options: {
-  readonly directory: string;
-  readonly conversationId: string;
-  readonly report: (state: "on" | "off") => Promise<void> | void;
-  /** Called with each batch of messages, oldest first. */
-  readonly handler: (messages: ReadonlyArray<FoundryMeshMessage>) => void | Promise<void>;
-  readonly pollMs?: number;
-}): ConversationListener {
-  const pollMs = options.pollMs ?? 100;
-  let stopped = false;
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  let polling: Promise<void> = Promise.resolve();
-  const reported = Promise.resolve(options.report("on"));
-  const poll = async (): Promise<void> => {
-    const messages = await drainMailbox(options.directory, options.conversationId);
-    if (messages.length > 0) await options.handler(messages);
-  };
-  const tick = (): void => {
-    if (stopped) return;
-    polling = poll()
-      .catch((cause) => {
-        process.stderr.write(
-          `Foundry mailbox read failed: ${cause instanceof Error ? cause.message : String(cause)}\n`,
-        );
-      })
-      .finally(() => {
-        if (!stopped) timer = setTimeout(tick, pollMs);
-      });
-  };
-  void reported.then(tick);
-  return {
-    async stop() {
-      if (stopped) return;
-      stopped = true;
-      if (timer) clearTimeout(timer);
-      await reported;
-      await polling;
-      // Anything that lands after this is the runtime's to redeliver.
-      await options.report("off");
-    },
-  };
 }

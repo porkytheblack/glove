@@ -1,5 +1,6 @@
+export type { FoundryEventTarget, FoundryEventPolicy, FoundryMessageOptions, FoundryEventRecord } from "./event-delivery.js";
 export { defineFacts, defineGoals, defineForms, foundryGuidanceSubject,
-  type FoundryFactsOptions, type FoundryGoalsOptions, type FoundryFormsOptions,
+  type FoundryFactsOptions, type FoundryGoalsOptions, type FoundryFormsOptions, type FoundryContextProvider,
   type FoundryGuidanceHandles, type FoundryGuidanceScope } from "./guidance.js";
 export {
   EMPTY_AGENT_COMPOSITION,
@@ -66,6 +67,9 @@ export {
   type FoundryCallContext,
   type FoundryCallOptions,
   type FoundryExecutionContext,
+  type FoundryMeshConfig,
+  hostedMeshOptions,
+  isMeshTransport,
   type FoundryResolver,
   type FoundryListResolver,
   type FoundryAgentConventionModule,
@@ -90,6 +94,7 @@ export {
   type FoundryDataAdapter,
   type FoundryActivationRecord,
   type FoundryMessageInput,
+  type FoundryPendingInbound,
   type InboundDeliveryClaim,
   type ProvisionAgentOptions,
   type FoundryRequest,
@@ -115,6 +120,15 @@ export {
   type FoundryMeshThread,
   type FoundryMeshThreadStatus,
 } from "./mesh.js";
+export {
+  type FoundryDelegate,
+  type FoundryDelegateOptions,
+  type FoundryDelegation,
+  type FoundryDelegationReply,
+  type FoundryTransmissionDelivery,
+  type FoundryDelegationStatus,
+  type FoundryDelegationUpdate,
+} from "./delegation.js";
 export {
   FOUNDRY_PLAYBOOK_ACTION_BRAND,
   FOUNDRY_COMPOSED_PLAYBOOK_BRAND,
@@ -407,3 +421,6 @@ export {
   type PlaybookSubscriptionTarget,
   type PlaybookSubscriptionTargetInput,
 } from "./subscription.js";
+
+export { restrictApp, type AppRestrictions } from "./capabilities.js";
+export type { DurableSubagents, DurableSubagentOptions, DurableSubagentOwnership, AgentMessageReceipt } from "./durable-subagents.js";

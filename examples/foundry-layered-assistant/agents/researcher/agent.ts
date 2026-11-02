@@ -11,5 +11,4 @@ export default defineAgent({
   systemPrompt: researcherPrompt,
   store: ({ conversationId }) => FileStore.open(conversationId),
   workingEnvironment: researcherWorkspace,
-  mesh: true,
 });

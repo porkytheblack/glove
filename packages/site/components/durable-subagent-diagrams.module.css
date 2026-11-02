@@ -1,0 +1,65 @@
+.figure { --diagram-blue: var(--c-network); }
+.canvas { border: 1px solid var(--border-strong); border-radius: var(--radius); padding: 1.25rem; background: var(--bg-elevated); font-size: 0.85rem; line-height: 1.5; }
+.canvas strong { color: var(--text-primary); font-weight: 500; }
+.canvas code { font-size: 0.76rem; overflow-wrap: anywhere; }
+.label { display: block; font-family: var(--mono); font-size: 0.64rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-secondary); }
+.blueprint { display: grid; gap: 0.5rem; justify-items: center; text-align: center; padding: 0.6rem 0 1.25rem; border-bottom: 1px dashed var(--border-strong); color: var(--text-secondary); }
+.blueprint .label { color: var(--diagram-blue); }
+.instances { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.25rem; padding-top: 1.25rem; }
+.lane { min-width: 0; }
+.parent { border: 1px solid color-mix(in srgb, var(--diagram-blue) 40%, transparent); background: color-mix(in srgb, var(--diagram-blue) 6%, transparent); border-radius: 8px; padding: 0.8rem 1rem; }
+.parent .label { color: var(--diagram-blue); margin-bottom: 0.15rem; }
+.ownershipArrow { position: relative; display: flex; align-items: center; gap: 0.6rem; padding: 1rem 0 1rem 2.25rem; font-size: 0.72rem; color: var(--text-secondary); }
+.ownershipArrow::before { content: ""; position: absolute; left: 1.25rem; top: 0; bottom: 0; width: 1px; background: var(--accent-soft); }
+.ownershipArrow::after { content: ""; position: absolute; left: calc(1.25rem - 3px); bottom: 1px; border-left: 3.5px solid transparent; border-right: 3.5px solid transparent; border-top: 6px solid var(--accent-soft); }
+.worker { border: 1px solid var(--accent-soft); border-radius: 8px; padding: 1rem; background: var(--accent-glow); }
+.worker > .label { color: var(--accent); margin-bottom: 0.35rem; }
+.conversations { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0.85rem 0; }
+.conversations span { font-family: var(--mono); font-size: 0.66rem; border: 1px solid var(--border-strong); border-radius: 4px; padding: 0.3rem 0.45rem; color: var(--text-secondary); background: var(--bg); }
+.runs { border-top: 1px dashed var(--accent-line); padding-top: 0.75rem; color: var(--text-secondary); font-size: 0.72rem; }
+.memoryModes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.5rem; }
+.memoryMode { min-width: 0; }
+.memoryMode + .memoryMode { border-left: 1px solid var(--border-strong); padding-left: 1.5rem; }
+.modeTitle { display: flex; justify-content: space-between; align-items: baseline; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1rem; }
+.memoryStore { text-align: center; border: 1px solid var(--accent-soft); background: var(--accent-dim); border-radius: 8px; padding: 0.9rem 0.6rem; }
+.memoryBranches { height: 1.6rem; display: grid; grid-template-columns: 1fr 1fr; margin: 0 25%; border-top: 0; position: relative; }
+.memoryBranches::before { content: ""; position: absolute; top: 0; left: 50%; width: 1px; height: 0.8rem; background: var(--accent-soft); }
+.memoryBranches span { border-top: 1px solid var(--accent-soft); margin-top: 0.8rem; }
+.memoryBranches span:first-child { border-left: 1px solid var(--accent-soft); }
+.memoryBranches span:last-child { border-right: 1px solid var(--accent-soft); }
+.consumers { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.5rem; }
+.consumers > div { display: grid; gap: 0.15rem; text-align: center; padding: 0.6rem 0.2rem; border: 1px solid var(--border-strong); border-radius: 6px; }
+.consumers span { color: var(--text-secondary); font-size: 0.72rem; }
+.namespaces { display: grid; gap: 0.85rem; }
+.privateStore { border: 1px solid var(--border-strong); border-left: 2px solid var(--accent-soft); border-radius: 6px; padding: 0.8rem; }
+.privateStore + .privateStore { margin-left: 1.25rem; }
+.modeNote { font-size: 0.76rem; color: var(--text-secondary); margin-top: 0.8rem; }
+.delivery :global(.dg-svg) { min-width: 850px; }
+.delivery :global(.fs-box.rest), .delivery :global(.fs-edge:not(.on)) { opacity: 0.82; }
+.lifecycle { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr); gap: 0.65rem; align-items: stretch; }
+.state { display: grid; align-content: start; gap: 0.6rem; border-top: 2px solid var(--accent); padding: 1rem 0.25rem 0.5rem; }
+.state .label { color: var(--accent); }
+.state > span:last-child { font-size: 0.76rem; color: var(--text-secondary); }
+.tombstone { border-top-style: dashed; border-top-color: var(--text-secondary); }
+.tombstone .label { color: var(--text-secondary); }
+.transition { display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 0.45rem; color: var(--text-secondary); font-family: var(--mono); font-size: 0.65rem; }
+.transition small { font-size: 0.6rem; max-width: 6rem; text-align: center; }
+.forward, .backward { font-style: normal; color: var(--accent); }
+.forward::after { content: "→"; }
+.backward::after { content: "←"; }
+.return { color: var(--accent); }
+.cleanup { border-top: 1px dashed var(--border-strong); border-bottom: 1px dashed var(--border-strong); padding: 0.75rem 0; margin: 1rem 0; font-size: 0.75rem; color: var(--text-secondary); }
+.retention { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.5rem; }
+.retention > div { display: grid; align-content: start; gap: 0.5rem; }
+.retention span { font-size: 0.76rem; color: var(--text-secondary); }
+@media (max-width: 680px) {
+  .canvas { padding: 1rem; }
+  .instances, .memoryModes, .retention { grid-template-columns: minmax(0, 1fr); }
+  .memoryMode + .memoryMode { border-left: 0; padding-left: 0; border-top: 1px solid var(--border-strong); padding-top: 1.25rem; }
+  .lifecycle { grid-template-columns: minmax(0, 1fr); gap: 0.85rem; }
+  .state { padding-bottom: 0.25rem; }
+  .transition { flex-direction: row; justify-content: flex-start; gap: 1.5rem; padding: 0.5rem 0; }
+  .transition small { max-width: none; }
+  .forward::after { content: "↓"; }
+  .backward::after { content: "↑"; }
+}

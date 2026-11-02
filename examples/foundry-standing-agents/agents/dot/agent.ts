@@ -6,6 +6,7 @@ import { FileStore } from "../../lib/file-store.js";
 import { callModel, dotModel } from "../../lib/models.js";
 import { monitored } from "../../lib/monitor.js";
 import { OFFLINE_SLACK_TOKEN } from "../../lib/slack-api.js";
+import builder from "../builder/agent.js";
 import gmailApp from "./apps/gmail.app.js";
 import slackApp from "./apps/slack.app.js";
 import { call, isCall } from "./call.js";
@@ -52,11 +53,12 @@ export default defineAgent({
   // Its own computer, but not on read-only runs.
   workingEnvironment: async (_agent, ctx) => (readOnly(ctx.request, await currentDot(ctx)) ? undefined : dotComputer),
 
-  // Coding jobs start on the person's builder over the mesh. Research runs get
-  // no mesh tools; a paused dot loses them in configureDot.
-  mesh: {
-    peers: (_self, peer) => peer.definitionId === "builder",
-    mount: (ctx) => !readOnly(ctx.request),
+  // Coding jobs go to the dot's own builder, a durable subagent Foundry
+  // creates on the first task. It inherits nothing: no memory, apps or tools.
+  // Read-only runs (research, new mail, a paused dot) lose the delegation
+  // tools in configureDot.
+  durableSubagents: {
+    builder: { agent: builder, description: "Coding and heavy build jobs on its own computer." },
   },
 
   // The credential boundary: Foundry asks for an operation, never sees the

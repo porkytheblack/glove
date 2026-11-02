@@ -397,7 +397,12 @@ export default defineSchedule({
         </tbody>
       </table>
       <p>
-        Two more sets appear only where they apply. An agent with <code>mesh</code> set gets{" "}
+        More sets appear only where they apply. An agent with{" "}
+        <code>delegates</code> or <code>durableSubagents</code> gets <code>glove_foundry_delegate</code> and{" "}
+        <code>glove_foundry_reply</code> (and <code>glove_foundry_message</code> for durable workers),
+        and a run working on a delegated task gets{" "}
+        <code>glove_foundry_ask</code>; see <Link href="/foundry/docs/layered-agents">Layered agents</Link>.
+        An agent with <code>mesh: true</code> gets{" "}
         <code>glove_mesh_list_agents</code>, <code>glove_mesh_send_message</code>,{" "}
         <code>glove_mesh_broadcast</code> and <code>glove_mesh_acknowledge</code>, to message the
         other agents in its workspace by instance id; see{" "}

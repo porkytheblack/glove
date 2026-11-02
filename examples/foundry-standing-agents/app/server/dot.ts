@@ -34,13 +34,17 @@ export interface Team {
 
 const ACTIVE = new Set(["pending", "running"]);
 
-/** The person's own dot and builder, or null when they have no dot yet. */
+/**
+ * The person's own dot and builder, or null when they have no dot yet. The
+ * builder is the dot's durable subagent, there once the dot has handed it a
+ * first task.
+ */
 export async function teamOf(personId: string): Promise<Team | null> {
-  const [dots, builders, { dots: model }] = await Promise.all([ownedAgents(personId, "dot"), ownedAgents(personId, "builder"), host()]);
+  const [dots, { dots: model }] = await Promise.all([ownedAgents(personId, "dot"), host()]);
   const primary = dots.filter((item) => item.context.kind !== "specialist");
   const dot = primary.find((item) => item.id === `${personId}-dot`) ?? primary[0];
   if (!dot) return null;
-  const builder = builders.find((item) => item.id === `${personId}-builder`) ?? builders[0];
+  const builder = (await foundry().subagents(dot.id)).find((item) => item.durableSubagent?.name === "builder" && item.workspaceId === personId);
   return { dot, data: model.Dot.parse(dot.context), ...(builder ? { builder } : {}) };
 }
 
@@ -73,8 +77,8 @@ const clip = (text: string, max = 90) => {
   return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat;
 };
 
-/** New mail and the builder's replies as one line each; other framework turns stay out. */
-export function incoming(names: { readonly gmail: string; readonly builder: string }) {
+/** New mail and what comes back from the builder as one line each; other framework turns stay out. */
+export function incoming(names: { readonly gmail: string }) {
   return (text: string): string | null => {
     if (text.startsWith('<transmission direction="inbound"')) {
       const definition = /definition="([^"]+)"/.exec(text)?.[1];
@@ -88,8 +92,11 @@ export function incoming(names: { readonly gmail: string; readonly builder: stri
         return "New mail";
       }
     }
-    const mesh = /^<mesh-message [^>]*name="([^"]*)"/.exec(text);
-    if (mesh) return `${decode(mesh[1]!) === names.builder ? "The builder" : decode(mesh[1]!)} replied`;
+    const delegation = /^<delegation [^>]*status="([^"]*)"/.exec(text);
+    if (delegation) {
+      const status = delegation[1];
+      return status === "completed" ? "The builder finished" : status === "question" ? "The builder has a question" : "The builder stopped";
+    }
     return null;
   };
 }
@@ -103,7 +110,7 @@ export function describeTool(names: { readonly sendTool: string; readonly gmailA
       const to = (args.payload as { to?: unknown } | undefined)?.to;
       return typeof to === "string" ? `Email to ${to}` : "Email";
     }
-    if (name === "glove_mesh_send_message") return { label: "Handed to the builder · its reply comes back here", chip: true };
+    if (name === "glove_foundry_delegate") return { label: "Handed to the builder · its result comes back here", chip: true };
     if (name === "execute_js") return text("code").includes("gmail.") ? "Read the mailbox in one program" : "Ran a program";
     if (name.startsWith(`${names.gmailApp}__`)) return name.endsWith("create_draft") ? "Drafted a reply" : "Read the mailbox";
     const known: Record<string, string> = {
@@ -115,7 +122,7 @@ export function describeTool(names: { readonly sendTool: string; readonly gmailA
       open_draft_pr: text("title") ? `Draft PR: ${text("title")}` : "Draft PR",
       merge_pr: typeof args.pr === "number" ? `Merge PR #${args.pr}` : "Merge a PR",
       change_password: "Change a password",
-      glove_mesh_list_agents: "Looked for the builder",
+      glove_foundry_reply: "Answered the builder",
       glove_foundry_schedule: "Set a follow-up",
       glove_foundry_schedules: "Checked its follow-ups",
       glove_foundry_spawn: "Split off some work",
@@ -128,10 +135,10 @@ export function describeTool(names: { readonly sendTool: string; readonly gmailA
 }
 
 /** The display options for the dot's conversations and live runs. */
-export async function displayOf(team: Team): Promise<DisplayOptions> {
+export async function displayOf(_team: Team): Promise<DisplayOptions> {
   const { ids } = await host();
   return {
-    incoming: incoming({ gmail: ids.gmail, builder: team.builder?.name ?? "Builder" }),
+    incoming: incoming({ gmail: ids.gmail }),
     describeTool: describeTool(ids),
   };
 }
@@ -202,7 +209,7 @@ export interface DotStatus {
 /** The person's runs of their dot and builder, newest first. */
 async function runsOf(personId: string, team: Team): Promise<FoundryRun[]> {
   const client = foundry();
-  const [dotRuns, builderRuns] = await Promise.all([client.runs("dot"), team.builder ? client.runs("builder") : Promise.resolve([])]);
+  const [dotRuns, builderRuns] = await Promise.all([client.runs("dot"), team.builder ? client.runs(team.builder.definitionId) : Promise.resolve([])]);
   const agents = [team.dot.id, ...(team.builder ? [team.builder.id] : [])];
   return [...dotRuns, ...builderRuns]
     .filter((run) => run.workspaceId === personId && run.agentId !== undefined && agents.includes(run.agentId))
@@ -344,14 +351,15 @@ export interface ActivityState {
   readonly files: ReadonlyArray<FileLine>;
 }
 
-const meshBody = (text: string) => /<mesh-message[^>]*>\n?([\s\S]*?)\n?<\/mesh-message>/.exec(text)?.[1] ?? text.replace(/<[^>]+>/g, " ");
+/** The task in a builder run's message, or the message with its tags dropped. */
+const taskOf = (text: string) => /<delegated-task[^>]*>\n?([\s\S]*?)\n?<\/delegated-task>/.exec(text)?.[1] ?? text.replace(/<[^>]+>/g, " ");
 
 /** What a run is doing, in a few words. Only this line reaches the page. */
 async function whatOf(run: FoundryRun, team: Team, activations: ReadonlyArray<FoundryActivationRecord>): Promise<string> {
   const { ids } = await host();
   const input = (run.input ?? {}) as Partial<FoundryRequest>;
   const message = typeof input.message === "string" ? input.message : "";
-  if (run.agentId === team.builder?.id) return clip(meshBody(message)) || "A job for your dot";
+  if (run.agentId === team.builder?.id) return clip(taskOf(message)) || "A job for your dot";
   switch (input.source?.kind) {
     case "activation": {
       const activation = activations.find((item) => item.id === input.source?.id);
@@ -361,8 +369,8 @@ async function whatOf(run: FoundryRun, team: Team, activations: ReadonlyArray<Fo
     }
     case "transmission":
       return input.source.provider === ids.gmail ? "Reading new mail" : "Answering you in Slack";
-    case "mesh":
-      return "Checking the builder's reply";
+    case "delegation":
+      return "Checking what the builder sent back";
     case "spawn":
     case "background":
       return `Split off: ${clip(message)}`;
@@ -401,7 +409,7 @@ export async function activityState(personId: string, team: Team): Promise<Activ
 
   const owners = [team.dot, ...(team.builder ? [team.builder] : [])];
   const files = (await Promise.all(owners.map(async (agent) =>
-    (await computer.computerFiles(agent)).map((file): FileLine => ({ agentId: agent.id, owner: agent.name ?? agent.id, ...file }))))).flat();
+    (await computer.computerFiles(agent)).map((file): FileLine => ({ agentId: agent.id, owner: agent.name ?? (agent === team.builder ? "Builder" : agent.id), ...file }))))).flat();
 
   return {
     paused: team.data.paused,

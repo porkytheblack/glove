@@ -11,11 +11,14 @@ import { createAgentInstance } from "../src/primitives.js";
 import { FoundryRuntime, type FoundryRun } from "../src/runtime.js";
 import {
   drainMailbox,
-  listenToConversation,
+  openRunMailbox,
+  writeMailboxDelivery,
+  type FoundryConversationDelivery,
+} from "../src/delegation.js";
+import {
   meshIdentity,
   renderMeshMessage,
   renderOpenThreads,
-  writeMailboxDelivery,
   type FoundryMeshMessage,
   type FoundryMeshThread,
 } from "../src/mesh.js";
@@ -347,34 +350,41 @@ test("messages read as tagged text, and open threads as runtime context", () => 
   assert.match(String(renderOpenThreads([open])), /Bug Triage \(maya-bugs\), thread thread_x: waiting for your answer to "Which branch\?"/);
 });
 
-test("the mailbox hands each message over once, oldest first", async () => {
+test("mesh messages share the run's mailbox: each handed over once, a blocking send gets its answer, a lone read receipt is dropped", async () => {
   const directory = await mkdtemp(join(tmpdir(), "glove-foundry-mailbox-"));
   try {
     const base = { threadId: "thread_x", from: { agentId: "a", name: "A" }, to: "b", createdAt: "" };
     const first: FoundryMeshMessage = { kind: "message", id: "msg_1", content: "one", ...base };
     const second: FoundryMeshMessage = { kind: "message", id: "msg_2", content: "two", ...base };
-    await writeMailboxDelivery(directory, "conversation/1", first);
+    const delivery = (message: FoundryMeshMessage): FoundryConversationDelivery => ({ kind: "mesh", side: "starter", message, deliveryId: message.id });
+    await writeMailboxDelivery(directory, "conversation/1", delivery(first));
     await new Promise((resolveWait) => setTimeout(resolveWait, 5));
-    await writeMailboxDelivery(directory, "conversation/1", second);
-    assert.deepEqual(await drainMailbox(directory, "conversation/1"), [first, second]);
+    await writeMailboxDelivery(directory, "conversation/1", delivery(second));
+    assert.deepEqual(await drainMailbox(directory, "conversation/1"), [delivery(first), delivery(second)]);
     assert.deepEqual(await drainMailbox(directory, "conversation/1"), []);
 
     const states: string[] = [];
-    const received: string[] = [];
-    const listener = listenToConversation({
+    const forwarded: FoundryConversationDelivery[] = [];
+    const consumed: FoundryConversationDelivery[] = [];
+    const mailbox = openRunMailbox({
       directory,
       conversationId: "conversation/2",
       pollMs: 10,
       report: (state) => { states.push(state); },
-      handler: (messages) => {
-        for (const message of messages) received.push(message.content);
-      },
+      sink: { forward: async (items) => { forwarded.push(...items); }, reclaim: async () => [] },
+      consumed: (items) => { consumed.push(...items); },
     });
-    await writeMailboxDelivery(directory, "conversation/2", first);
-    await eventually(async () => (received.length === 1 ? true : undefined), "the listener to read", 2_000);
-    await listener.stop();
+    // A blocking send to "a" gets a's next message as its answer.
+    const answer = mailbox.waitForMesh("a", 2_000, new AbortController().signal);
+    await writeMailboxDelivery(directory, "conversation/2", delivery(first));
+    assert.equal((await answer)?.content, "one");
+    // A message nobody waits for joins the turn; a read receipt nobody waits for is dropped.
+    await writeMailboxDelivery(directory, "conversation/2", delivery({ ...second, from: { agentId: "c", name: "C" } }));
+    await writeMailboxDelivery(directory, "conversation/2", delivery({ ...base, kind: "ack", id: "msg_3", content: "" }));
+    await eventually(async () => (forwarded.length === 1 && consumed.some((item) => item.kind === "mesh" && item.message.kind === "ack") ? true : undefined), "the mailbox to route both", 2_000);
+    assert.equal(forwarded[0]?.kind === "mesh" ? forwarded[0].message.content : undefined, "two");
+    await mailbox.close();
     assert.deepEqual(states, ["on", "off"]);
-    assert.deepEqual(received, ["one"]);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

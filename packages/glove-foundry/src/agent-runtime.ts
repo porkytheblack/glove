@@ -1,8 +1,10 @@
+import { createAgentMessagingTool, refreshDurableAuthority } from "./durable-subagents.js";
 import { pathToFileURL } from "node:url";
 import type {
   DefineSkillArgs,
   DefineSubAgentArgs,
   GloveFoldArgs,
+  IGloveRunnable,
   InboxItem,
   ModelAdapter,
   SubscriberAdapter,
@@ -11,6 +13,7 @@ import type {
 } from "glove-core";
 import { Glove } from "glove-core";
 import { mountFoundryGuidance } from "./guidance.js";
+import { mountMesh } from "glove-mesh";
 import { Effect } from "effect";
 import { signal, type AnySignal } from "station-signal";
 import { z } from "zod";
@@ -22,8 +25,8 @@ import {
 import {
   EMPTY_CAPABILITY_REGISTRY,
   installRegistry,
-  type FoundryInstalledApp,
   isInboxCapableStore,
+  type FoundryInstalledApp,
   mountAgentDefinitionMemory,
   type FoundryMemorySelection,
 } from "./capabilities.js";
@@ -41,9 +44,29 @@ import {
   type FoundryAgentConventionModule,
   type FoundryAgentDefinition,
   type FoundryCall,
+  type FoundryMeshConfig,
   type FoundryExecutionContext,
   type Resolvable,
+  hostedMeshOptions,
+  isMeshTransport,
 } from "./definition.js";
+import { FOUNDRY_MODEL_REQUESTS_ENV, requestTracer } from "./request-trace.js";
+import {
+  FOUNDRY_CORE_COMMAND_DIRECTORY_ENV,
+  createFoundryCoreCommandRequest,
+  waitForFoundryCoreCommandResult,
+} from "./core-command-result.js";
+import {
+  createMeshTools,
+  isOpenThread,
+  renderOpenThreads,
+  renderOwnThread,
+  threadFromContext,
+  type FoundryMeshCommand,
+  type FoundryMeshMessage,
+  type FoundryMeshThread,
+  type PendingMeshReply,
+} from "./mesh.js";
 import {
   mountFoundrySurfaces,
   type FoundryLayerSelection,
@@ -82,7 +105,6 @@ import {
   materializeComposedPlaybook,
   type ComposedAgentPlaybook,
 } from "./playbook.js";
-import { FOUNDRY_MODEL_REQUESTS_ENV, requestTracer } from "./request-trace.js";
 import {
   mountFoundryWorkbench,
   type FoundryReplDefinition,
@@ -94,26 +116,33 @@ import {
   withFoundryPermissions,
 } from "./approval.js";
 import {
-  FOUNDRY_CORE_COMMAND_DIRECTORY_ENV,
-  createFoundryCoreCommandRequest,
-  waitForFoundryCoreCommandResult,
-} from "./core-command-result.js";
-import {
+  FOUNDRY_CONVERSATION_LEASE_EVENT,
   FOUNDRY_CONVERSATION_LISTEN_EVENT,
   FOUNDRY_MAILBOX_DIRECTORY_ENV,
-  createMeshTools,
-  isOpenThread,
-  listenToConversation,
-  renderOpenThreads,
-  renderOwnThread,
-  threadFromContext,
-  writeMailboxDelivery,
-  type FoundryMeshCommand,
-  type FoundryMeshMessage,
-  type FoundryMeshThread,
-  type PendingMeshReply,
-} from "./mesh.js";
+  createDelegatorTools,
+  createWorkerTools,
+  delegationFromContext,
+  RunEventQueue,
+  deliveryEvent,
+  renderDeliveries,
+  formatRunEvents,
+  isDelegationUpdate,
+  isOpenDelegation,
+  normalizeDelegates,
+  openRunMailbox,
+  renderOpenDelegations,
+  waitForConversationLease,
+  type FoundryConversationDelivery,
+  type FoundryDelegate,
+  type FoundryDelegation,
+  type FoundryDelegationCommand,
+  type FoundryDelegationReply,
+  type FoundryDelegationUpdate,
+  type PendingQuestion,
+  type RunMailbox,
+} from "./delegation.js";
 
+const DEFAULT_ANSWER_WAIT_MS = 90_000;
 
 const INBOX_ITEMS_SCHEMA = z.array(z.object({
   id: z.string().min(1),
@@ -340,23 +369,54 @@ async function executeDefinition(
   id: string,
   runtimeValue: unknown,
 ): Promise<FoundryResult> {
-  const envelope = runtimeValue as {
+  let envelope = runtimeValue as {
     readonly request: FoundryRequest;
     readonly agent: AgentInstance;
     readonly conversation: Conversation;
+    readonly events?: ReadonlyArray<FoundryConversationDelivery>;
+    readonly eventTurn?: boolean;
     readonly activations?: ReadonlyArray<FoundryActivationRecord>;
+    readonly delegations?: ReadonlyArray<FoundryDelegation>;
     readonly threads?: ReadonlyArray<unknown>;
+    /** The runtime admitted this run, so it already holds its conversation. */
+    readonly conversationLease?: true;
   };
-  const request = envelope.request;
-  const input = request;
+  const expiredDeliveries = (envelope.events ?? []).filter((delivery) => delivery.durable?.event.expiresAt && Date.parse(delivery.durable.event.expiresAt) <= Date.now());
+  const expiredIds = new Set(expiredDeliveries.map((delivery) => delivery.durable!.id));
+  envelope = { ...envelope, events: (envelope.events ?? []).filter((delivery) => !delivery.durable || !expiredIds.has(delivery.durable.id)) };
+  let request = envelope.request;
+  if (envelope.eventTurn && expiredIds.size) {
+    if (!envelope.events!.length) return { status: "completed", value: null, agentId: request.agentId, conversationId: request.conversationId, workspaceId: request.workspaceId, consumedEventIds: [...expiredIds] };
+    request = { ...request, message: renderDeliveries(envelope.events!) };
+    envelope = { ...envelope, request };
+  }
+  let input = request;
   const runId = process.env.STATION_SIGNAL_RUN_ID ?? "unknown";
   const subscriber = executionSubscriber();
   const abortController = new AbortController();
   const onTerminate = (): void => abortController.abort();
   process.once("SIGTERM", onTerminate);
+  // One run at a time per conversation: a run the runtime did not admit (a
+  // schedule firing) waits here, before it reads any history, for its turn.
+  const leaseDirectory = process.env[FOUNDRY_MAILBOX_DIRECTORY_ENV];
+  if (!envelope.conversationLease && leaseDirectory) {
+    try {
+      await writeAgentEvent(FOUNDRY_CONVERSATION_LEASE_EVENT, { conversationId: request.conversationId });
+      await waitForConversationLease(leaseDirectory, runId, abortController.signal);
+    } catch (cause) {
+      process.removeListener("SIGTERM", onTerminate);
+      throw cause;
+    }
+  }
   let disposeSurfaces: (() => Promise<void>) | undefined;
   const cleanups: Array<() => void | Promise<void>> = [];
   const application = await loadRuntimeApplication();
+  if (envelope.agent.durableSubagent && application.data) {
+    const refreshed = await refreshDurableAuthority(definition, envelope.agent, application.data);
+    request = { ...request, context: { ...request.context, durableMemoryOwners: refreshed.owners } };
+    envelope = { ...envelope, request, agent: refreshed.agent };
+    input = request;
+  }
   const storeFactory = definition.store ?? application.conversationStore;
   const store = storeFactory
     ? await storeFactory({
@@ -403,6 +463,10 @@ async function executeDefinition(
       agentInstance: envelope.agent,
       conversation: envelope.conversation,
       activations: Object.freeze([...(envelope.activations ?? [])]),
+      delegations: Object.freeze([...(envelope.delegations ?? [])]),
+      ...(delegationFromContext(envelope.conversation.context)
+        ? { delegation: delegationFromContext(envelope.conversation.context)! }
+        : {}),
       threads: Object.freeze([...((envelope.threads ?? []) as ReadonlyArray<FoundryMeshThread>)]),
       ...(threadFromContext(envelope.conversation.context)?.to.agentId === envelope.agent.id
         ? { thread: threadFromContext(envelope.conversation.context)! }
@@ -411,6 +475,7 @@ async function executeDefinition(
       input,
       message,
       messageInput: request.message,
+      events: (envelope.events ?? []).map(deliveryEvent),
       messageText: message.text,
       history,
       messages,
@@ -456,8 +521,14 @@ async function executeDefinition(
         resolveOptional("compactionInstructions", definition.compactionInstructions, "Preserve goals, decisions, unresolved work, tool results, and pending inbox items."),
         resolveOptional<number | undefined>("maxTurns", definition.maxTurns, undefined),
       ]);
+    // The controller owns durable idle wake/defer timers across process lifetimes.
+    // A run never wakes itself: an event that arrives while no turn runs waits
+    // for the run's next request, and delegation deliveries still waiting
+    // when the run ends go back to the runtime.
+    const eventQueue = new RunEventQueue();
     const base = new Glove({
       ...(runtimeStore ? { store: runtimeStore } : {}),
+      events: { queue: eventQueue, policy: () => "defer", deferTimeoutMs: Infinity, formatter: formatRunEvents },
       model,
       displayManager,
       systemPrompt,
@@ -475,12 +546,13 @@ async function executeDefinition(
     }).build();
     base.addSubscriber(subscriber);
 
-    const [tools, hooks, skills, subagents, memory, inboxItems, layers, subscribers, calls, playbooks, schedules, workingEnvironment, repl] =
+    const [tools, hooks, skills, subagents, delegates, memory, inboxItems, layers, subscribers, calls, playbooks, schedules, mesh, workingEnvironment, repl] =
       await Promise.all([
         resolveOptional<ReadonlyArray<GloveFoldArgs<any>>>("tools", definition.tools, []),
         resolveOptional<ReadonlyArray<FoundryHookDefinition>>("hooks", definition.hooks, []),
         resolveOptional<ReadonlyArray<DefineSkillArgs>>("skills", definition.skills, []),
         resolveOptional<ReadonlyArray<DefineSubAgentArgs>>("subagents", definition.subagents, []),
+        resolveOptional<ReadonlyArray<FoundryDelegate>>("delegates", definition.delegates, []),
         resolveOptional<ReadonlyArray<FoundryMemorySelection>>("memory", definition.memory, []),
         definition.inboxes
           ? resolveAgentValue<ReadonlyArray<InboxItem>, FoundryRequest>(
@@ -495,6 +567,8 @@ async function executeDefinition(
         resolveOptional<ReadonlyArray<FoundryCall>>("calls", definition.calls, []),
         resolveOptional<ReadonlyArray<ComposedAgentPlaybook>>("playbooks", definition.playbooks, []),
         resolveOptional<ReadonlyArray<FoundryScheduleDefinition>>("schedules", definition.schedules, []),
+        // Your own mesh transport; the mesh Foundry hosts is mounted below.
+        resolveOptional<FoundryMeshConfig | undefined>("mesh", isMeshTransport(definition.mesh) ? definition.mesh : undefined, undefined),
         resolveOptional<FoundryWorkingEnvironmentDefinition | undefined>("workingEnvironment", definition.workingEnvironment, undefined),
         resolveOptional<FoundryReplDefinition | undefined>("repl", definition.repl, undefined),
       ]);
@@ -592,62 +666,160 @@ async function executeDefinition(
     for (const skill of skills) base.defineSkill(skill);
     for (const subagent of subagents) base.defineSubAgent(subagent);
 
-    // Mesh: message other agents by id, and hear back.
+    // Delegation: hand work to sibling agents, and hear back.
     const mailboxDirectory = process.env[FOUNDRY_MAILBOX_DIRECTORY_ENV];
+    const emitDelegationCommand = (command: FoundryDelegationCommand): void => {
+      controls.commands.push(command);
+      controls.emit({ type: FOUNDRY_CORE_COMMAND_EVENT, data: command });
+    };
+    // Deliveries the turn has not read yet, by event id.
+    const forwarded = new Map<string, FoundryConversationDelivery>();
+    const initialDeliveries = envelope.eventTurn ? envelope.events ?? [] : [];
+    const consumedEventIds = new Set<string>(expiredIds);
+    const consumed = (deliveries: ReadonlyArray<FoundryConversationDelivery>): void => {
+      for (const delivery of deliveries) if (delivery.durable) consumedEventIds.add(delivery.durable.id);
+    };
+    // Build may replace the assembled runnable. Hold arrivals until the final
+    // recipient and its receipt subscriber are ready, including during build.
+    let eventRecipient: IGloveRunnable | undefined;
+    const bufferedDeliveries = initialDeliveries.length ? [] : [...envelope.events ?? []];
+    const forwardDeliveries = async (deliveries: ReadonlyArray<FoundryConversationDelivery>): Promise<void> => {
+      if (!eventRecipient) { bufferedDeliveries.push(...deliveries); return; }
+      for (const delivery of deliveries) {
+        // The controller owns idle policy; seeding must not start a second,
+        // unawaited wake on an independently built runnable's default policy.
+        const event = { ...deliveryEvent(delivery), whenIdle: "defer" as const };
+        forwarded.set(event.id, delivery);
+        await eventRecipient.emitEvent(event);
+      }
+    };
+
+    // What this run has heard about, or said to, delegations it lists as open.
+    const heard = new Map<string, FoundryDelegationUpdate | "replied">();
+    const pendingQuestion: PendingQuestion = {};
+    const ownDelegation = assemblyContext.delegation?.workerAgentId === request.agentId
+      ? assemblyContext.delegation
+      : undefined;
+    let runMailbox: RunMailbox | undefined;
+    const mailbox = (): RunMailbox => {
+      if (!mailboxDirectory) {
+        throw new Error("Foundry cannot deliver to this run without its parent runtime.");
+      }
+      if (!runMailbox) {
+        runMailbox = openRunMailbox({
+          directory: mailboxDirectory,
+          conversationId: request.conversationId,
+          report: (state) =>
+            writeAgentEvent(FOUNDRY_CONVERSATION_LISTEN_EVENT, { state }).catch(() => undefined),
+          consumed,
+          sink: {
+            async forward(deliveries) {
+              await forwardDeliveries(deliveries);
+            },
+            async reclaim(match) {
+              const buffered = bufferedDeliveries.filter(match);
+              for (let i = bufferedDeliveries.length - 1; i >= 0; i--) if (match(bufferedDeliveries[i]!)) bufferedDeliveries.splice(i, 1);
+              const taken = await eventQueue.reclaim(match);
+              for (const { id } of taken) forwarded.delete(id);
+              return [...buffered, ...taken.map(({ delivery }) => delivery)];
+            },
+          },
+        });
+        const opened = runMailbox;
+        cleanups.push(() => opened.close());
+      }
+      return runMailbox;
+    };
+    const deliverySubscriber: SubscriberAdapter = {
+      async record(type, data) {
+        if (type === "event_dropped") {
+          const id = (data as { id: string }).id;
+          const delivery = forwarded.get(id);
+          if (delivery) { consumed([delivery]); forwarded.delete(id); }
+          return;
+        }
+        if (type !== "event_injected") return;
+        for (const id of (data as { ids: string[] }).ids) {
+          const delivery = forwarded.get(id);
+          if (!delivery) continue;
+          forwarded.delete(id);
+          consumed([delivery]);
+          if (isDelegationUpdate(delivery)) heard.set(delivery.delegationId, delivery);
+          else if (delivery.kind === "reply" && pendingQuestion.current?.delegationId === delivery.delegationId) {
+            // The answer reached this run after all; it no longer waits on it.
+            pendingQuestion.current = undefined;
+          }
+        }
+      },
+    };
+    base.addSubscriber(deliverySubscriber);
+    const delegationTarget = {
+      definitionId: id,
+      agentId: request.agentId,
+      conversationId: request.conversationId,
+      workspaceId: request.workspaceId,
+      emit: emitDelegationCommand,
+    };
+    const startedHere: FoundryDelegation[] = [];
+    const durableNames = Object.keys(definition.durableSubagents ?? {});
+    const normalizedDelegates = normalizeDelegates([
+      ...delegates,
+      ...durableNames.filter((name) => !delegates.some((item) => (typeof item === "string" ? item : item.agent) === name)).map((name) => ({ agent: name, description: definition.durableSubagents![name]!.description ?? `Persistent ${name} worker.` })),
+    ]);
+    if (durableNames.length || envelope.agent.durableSubagent) base.fold(createAgentMessagingTool(assemblyContext, durableNames, Boolean(envelope.agent.durableSubagent)));
+    const onReplied = (delegationId: string): void => {
+      heard.set(delegationId, "replied");
+    };
+    for (const tool of createDelegatorTools(delegationTarget, normalizedDelegates, (started) => {
+      const now = new Date().toISOString();
+      startedHere.push({
+        id: started.id,
+        to: started.to,
+        workerAgentId: "",
+        workspaceId: request.workspaceId,
+        from: { definitionId: id, agentId: request.agentId, conversationId: request.conversationId, runId },
+        task: started.task,
+        status: "working",
+        createdAt: now,
+        updatedAt: now,
+      });
+    }, onReplied)) base.fold(tool);
+    if (normalizedDelegates.length > 0 || assemblyContext.delegations.length > 0) {
+      base.addContextProvider(() =>
+        renderOpenDelegations(
+          [...assemblyContext.delegations.filter(isOpenDelegation), ...startedHere].flatMap((item) => {
+            const update = heard.get(item.id);
+            if (!update) return [item];
+            if (update === "replied") return [{ ...item, status: "working" as const }];
+            if (update.kind === "question") return [{ ...item, status: "waiting" as const, question: update.question }];
+            return [];
+          }),
+        ),
+      );
+      controls.emit({
+        type: "foundry.definition.delegates.loaded",
+        data: { delegates: normalizedDelegates.map((delegate) => delegate.agent), open: assemblyContext.delegations.length },
+      });
+    }
+    if (ownDelegation) {
+      const answerWaitMs = definition.answerWaitMs ?? DEFAULT_ANSWER_WAIT_MS;
+      const waitForReply = async (timeoutMs: number): Promise<FoundryDelegationReply | null> =>
+        mailboxDirectory
+          ? mailbox().waitForReply(ownDelegation.id, timeoutMs, abortController.signal)
+          : null;
+      for (const tool of createWorkerTools(delegationTarget, ownDelegation, {
+        answerWaitMs,
+        pending: pendingQuestion,
+        waitForReply,
+      })) base.fold(tool);
+    }
+    // The mesh Foundry hosts: message peers (existing instances in the
+    // workspace) by id, and hear back through this run's mailbox.
+    const coreCommandDirectory = process.env[FOUNDRY_CORE_COMMAND_DIRECTORY_ENV];
     const emitMeshCommand = (command: FoundryMeshCommand): void => {
       controls.commands.push(command);
       controls.emit({ type: FOUNDRY_CORE_COMMAND_EVENT, data: command });
     };
-    const listen = (
-      handler: (messages: ReadonlyArray<FoundryMeshMessage>) => void | Promise<void>,
-    ) => {
-      if (!mailboxDirectory) {
-        throw new Error("Foundry cannot deliver to this run without its parent runtime.");
-      }
-      return listenToConversation({
-        directory: mailboxDirectory,
-        conversationId: request.conversationId,
-        report: (state) =>
-          writeAgentEvent(FOUNDRY_CONVERSATION_LISTEN_EVENT, { state }).catch(() => undefined),
-        handler,
-      });
-    };
-    /** Wait in this run for the next message from an agent. */
-    const waitFrom = (agentId: string, timeoutMs: number) => {
-      let finish: (message: FoundryMeshMessage | null) => void = () => undefined;
-      const message = new Promise<FoundryMeshMessage | null>((resolveMessage) => {
-        if (!mailboxDirectory || timeoutMs <= 0) {
-          resolveMessage(null);
-          return;
-        }
-        let settled = false;
-        let timer: ReturnType<typeof setTimeout> | undefined;
-        finish = (answer) => {
-          if (settled) return;
-          settled = true;
-          if (timer) clearTimeout(timer);
-          abortController.signal.removeEventListener("abort", onAbort);
-          resolveMessage(answer);
-          void listener.stop();
-        };
-        const onAbort = (): void => finish(null);
-        const listener = listen(async (messages) => {
-          const answers = messages.filter((item) => item.from.agentId === agentId);
-          // Anything else, or anything too late for this run, goes back for redelivery.
-          const others = settled ? messages : messages.filter((item) => !answers.includes(item));
-          for (const item of others) {
-            await writeMailboxDelivery(mailboxDirectory, request.conversationId, item);
-          }
-          if (settled || answers.length === 0) return;
-          finish({ ...answers.at(-1)!, content: answers.map((item) => item.content).join("\n\n") });
-        });
-        timer = setTimeout(() => finish(null), timeoutMs);
-        abortController.signal.addEventListener("abort", onAbort, { once: true });
-        if (abortController.signal.aborted) finish(null);
-      });
-      return { message, cancel: () => finish(null) };
-    };
-    const coreCommandDirectory = process.env[FOUNDRY_CORE_COMMAND_DIRECTORY_ENV];
     /** Send a mesh command and wait for the runtime's answer. */
     const callMesh = async (command: FoundryMeshCommand): Promise<unknown> => {
       if (!coreCommandDirectory) throw new Error("Foundry cannot answer mesh calls without its parent runtime.");
@@ -660,16 +832,27 @@ async function executeDefinition(
       emitMeshCommand(command);
       return waitForFoundryCoreCommandResult(coreCommandDirectory, pending, abortController.signal, { cleanup: true });
     };
+    /** Wait in this run for the next message from an agent. Start it before sending. */
+    const waitFrom = (agentId: string, timeoutMs: number) => {
+      const stop = new AbortController();
+      const onAbort = (): void => stop.abort();
+      abortController.signal.addEventListener("abort", onAbort, { once: true });
+      const message = (mailboxDirectory
+        ? mailbox().waitForMesh(agentId, timeoutMs, stop.signal)
+        : Promise.resolve(null)
+      ).finally(() => abortController.signal.removeEventListener("abort", onAbort));
+      return { message, cancel: () => stop.abort() };
+    };
     const pendingReply: PendingMeshReply = {};
     const ownThread = assemblyContext.thread;
-    const meshOptions = definition.mesh === true ? {} : definition.mesh;
-    if (meshOptions && (meshOptions.mount?.(assemblyContext) ?? true)) {
+    const hostedMesh = hostedMeshOptions(definition.mesh);
+    if (hostedMesh && (hostedMesh.mount?.(assemblyContext) ?? true)) {
       for (const tool of createMeshTools({
         definitionId: id,
         agentId: request.agentId,
         conversationId: request.conversationId,
         workspaceId: request.workspaceId,
-        options: meshOptions,
+        options: hostedMesh,
         call: callMesh,
         waitFrom,
         pending: pendingReply,
@@ -679,12 +862,18 @@ async function executeDefinition(
         data: { open: assemblyContext.threads.length, thread: ownThread?.id ?? null },
       });
     }
-    if (definition.mesh || assemblyContext.threads.length > 0 || ownThread) {
+    if (hostedMesh || assemblyContext.threads.length > 0 || ownThread) {
       base.addContextProvider(() => [
         ownThread ? renderOwnThread(ownThread) : null,
         renderOpenThreads(assemblyContext.threads.filter(isOpenThread)),
       ].filter(Boolean).join("\n\n") || null);
     }
+
+    // The run listens on its conversation for as long as it lasts: what
+    // arrives for it (delegation updates, inbound events on its thread) joins
+    // its turn at the next tool step, and the rest goes back to the runtime
+    // as the conversation's next run when this one ends.
+    if (mailboxDirectory) mailbox();
 
     const installedApps: FoundryInstalledApp[] = [];
     const workbench = await mountFoundryWorkbench({
@@ -736,23 +925,21 @@ async function executeDefinition(
     const callContext: FoundryExecutionContext<FoundryRequest> = {
       ...surfaceContext,
       ...guidance.handles,
+      events: assemblyContext.events,
+      delegations: assemblyContext.delegations,
       agentInstance: assemblyContext.agentInstance,
       conversation: assemblyContext.conversation,
       data: assemblyContext.data,
       installations: effectiveInstallations,
       onCleanup: (cleanup) => { cleanups.push(cleanup); },
       invoke,
+      onDelegationUpdate: (handler: (updates: ReadonlyArray<FoundryDelegationUpdate>) => void | Promise<void>) => {
+        const stop = mailbox().onUpdates(handler);
+        cleanups.push(stop);
+        return stop;
+      },
       onMeshMessage: (handler: (messages: ReadonlyArray<FoundryMeshMessage>) => void | Promise<void>) => {
-        const listener = listen(async (messages) => {
-          const heard = messages.filter((message) => message.kind !== "ack");
-          if (heard.length > 0) await handler(heard);
-        });
-        let stopped = false;
-        const stop = async (): Promise<void> => {
-          if (stopped) return;
-          stopped = true;
-          await listener.stop();
-        };
+        const stop = mailbox().onMesh(handler);
         cleanups.push(stop);
         return stop;
       },
@@ -790,6 +977,16 @@ async function executeDefinition(
       installRegistry({
         registry: registry.capabilities,
         installations: effectiveInstallations,
+        ...(envelope.agent.durableSubagent && application.data ? {
+          authorizeInstallation: (installation: import("./capabilities.js").AgentInstallation) => Effect.tryPromise({
+            try: async () => {
+              const refreshed = await refreshDurableAuthority(definition, envelope.agent, application.data!);
+              const current = refreshed.agent.installations.find((item) => item.kind === installation.kind && item.id === installation.id);
+              if (!current || current.accountId !== installation.accountId || JSON.stringify(current.config) !== JSON.stringify(installation.config)) throw new Error(`Installation "${installation.id}" changed or was revoked; start a new run.`);
+            },
+            catch: (cause) => cause,
+          }),
+        } : {}),
         context: {
           definitionId: id,
           agentId: request.agentId,
@@ -839,6 +1036,27 @@ async function executeDefinition(
     if (definition.inboxes) {
       await hydrateInbox(base.store, inboxItems, controls.emit);
     }
+    if (mesh) {
+      await mountMesh(base, {
+        // Optional live mesh transport. Durable addressed delivery belongs to the controller journal.
+        delivery: mesh.delivery ?? "inbox",
+        ...(mesh.whenIdle ? { whenIdle: mesh.whenIdle } : {}),
+        adapter: mesh.adapter,
+        identity: {
+          id: mesh.identity?.id ?? request.agentId,
+          name: mesh.identity?.name ?? request.agentId,
+          description: mesh.identity?.description ?? definition.description,
+          ...(mesh.identity?.capabilities ? { capabilities: mesh.identity.capabilities } : {}),
+          metadata: {
+            definitionId: id,
+            conversationId: request.conversationId,
+            workspaceId: request.workspaceId,
+            ...(mesh.identity?.metadata ?? {}),
+          },
+        },
+      });
+      cleanups.push(() => mesh.adapter.unregister());
+    }
     if (definition.configure) {
       await resolveResolvable(definition.configure(base, callContext));
     }
@@ -849,16 +1067,29 @@ async function executeDefinition(
     const glove = definition.build
       ? (await resolveResolvable(definition.build(base, assemblyContext))) ?? base
       : base;
+    if (glove !== base) {
+      // Wrappers can forward subscriber methods to base; remove before adding
+      // to avoid duplicate notifications in that case.
+      base.removeSubscriber(subscriber);
+      base.removeSubscriber(deliverySubscriber);
+      glove.addSubscriber(subscriber);
+      glove.addSubscriber(deliverySubscriber);
+    }
+    cleanups.push(() => { glove.removeSubscriber(subscriber); glove.removeSubscriber(deliverySubscriber); });
+    eventRecipient = glove;
+    await forwardDeliveries(bufferedDeliveries.splice(0));
     const runtimeContext = { ...callContext, glove };
+    let initialEventsPending = initialDeliveries.length > 0;
     const defaultRun = async (
       messageInput: FoundryMessageInput = assemblyContext.messageInput,
-    ) =>
-      extractOutput(
-        await glove.processRequest(
-          toGloveRequestInput(messageInput),
-          abortController.signal,
-        ),
-      );
+    ) => {
+      if (initialEventsPending && messageInput === assemblyContext.messageInput) {
+        initialEventsPending = false;
+        await forwardDeliveries(initialDeliveries);
+        return extractOutput(await glove.processEvents(abortController.signal));
+      }
+      return extractOutput(await glove.processRequest(toGloveRequestInput(messageInput), abortController.signal));
+    };
     const spawn = async (
       messageInput: FoundryMessageInput = assemblyContext.messageInput,
     ): Promise<unknown> =>
@@ -882,19 +1113,24 @@ async function executeDefinition(
         : definition.spawn
           ? await spawn()
           : await defaultRun();
+    if (initialEventsPending) consumed(initialDeliveries);
     await guidance.snapshot();
     const sleep = [...controls.commands].reverse().find(
       (command: FoundryCoreCommand) => command.type === "sleep",
     );
+    const question = pendingQuestion.current;
     const waiting = pendingReply.current;
     return {
-      status: sleep || waiting ? "suspended" : "completed",
+      status: sleep || question || waiting ? "suspended" : "completed",
       value: serializable(result),
+      ...(consumedEventIds.size ? { consumedEventIds: [...consumedEventIds] } : {}),
       agentId: request.agentId,
       conversationId: request.conversationId,
       workspaceId: request.workspaceId,
-      ...(waiting
-        ? { suspension: { kind: "mesh" as const, ...waiting } }
+      ...(question
+        ? { suspension: { kind: "question" as const, ...question } }
+        : waiting
+          ? { suspension: { kind: "mesh" as const, ...waiting } }
         : sleep && sleep.type === "sleep"
           ? { suspension: { commandId: sleep.id, wakeAt: sleep.wakeAt } }
           : {}),
@@ -934,7 +1170,7 @@ export function compileAgentDefinition(
     payload: z.unknown().optional(),
     context: z.record(z.string(), z.unknown()).optional(),
     source: z.object({
-      kind: z.enum(["direct", "transmission", "activation", "spawn", "background", "mesh"]),
+      kind: z.enum(["direct", "transmission", "activation", "spawn", "background", "delegation", "agent-message", "mesh"]),
       id: z.string().optional(),
       provider: z.string().optional(),
       eventId: z.string().optional(),
@@ -944,10 +1180,13 @@ export function compileAgentDefinition(
   const executionEnvelope = z.object({
     [FOUNDRY_EXECUTION_MARKER]: z.literal(true),
     request: requestSchema,
+    events: z.array(z.custom<FoundryConversationDelivery>()).optional(),
+    eventTurn: z.boolean().optional(),
     agent: z.object({
       id: z.string(), definitionId: z.string(), workspaceId: z.string(),
       provisioningKey: z.string().optional(),
       name: z.string().optional(), description: z.string().optional(),
+      durableSubagent: z.object({ parentAgentId: z.string(), name: z.string(), status: z.enum(["active", "archived", "purged"]) }).optional(),
       context: z.record(z.string(), z.unknown()),
       installations: z.array(z.object({
         kind: z.enum(["tool", "application", "mcp"]),
@@ -999,11 +1238,23 @@ export function compileAgentDefinition(
       createdByRunId: z.string(), lastRunId: z.string().optional(),
       createdAt: z.string(), updatedAt: z.string(),
     })).default([]),
+    delegations: z.array(z.object({
+      id: z.string(), to: z.string(), workerAgentId: z.string(), workspaceId: z.string(),
+      from: z.object({
+        definitionId: z.string(), agentId: z.string(), conversationId: z.string(), runId: z.string(),
+      }),
+      task: z.string(),
+      status: z.enum(["working", "waiting", "completed", "failed", "cancelled"]),
+      question: z.string().optional(), result: z.string().optional(), error: z.string().optional(),
+      createdAt: z.string(), updatedAt: z.string(),
+    })).default([]),
     threads: z.array(z.record(z.string(), z.unknown())).default([]),
+    conversationLease: z.literal(true).optional(),
   });
   let builder = signal(internalAgentName(route))
     .input(executionEnvelope)
     .output(z.object({
+      consumedEventIds: z.array(z.string()).readonly().optional(),
       status: z.enum(["completed", "suspended"]),
       value: z.unknown(),
       agentId: z.string(),
@@ -1012,6 +1263,12 @@ export function compileAgentDefinition(
       suspension: z.union([
         z.object({ kind: z.literal("sleep").optional(), commandId: z.string(), wakeAt: z.string() }),
         z.object({
+          kind: z.literal("question"),
+          commandId: z.string(),
+          delegationId: z.string(),
+          question: z.string(),
+        }),
+        z.object({
           kind: z.literal("mesh"),
           commandId: z.string(),
           threadId: z.string(),
@@ -1019,6 +1276,8 @@ export function compileAgentDefinition(
         }),
       ]).optional(),
     }));
+  if (definition.runTimeoutMs !== undefined) builder = builder.timeout(definition.runTimeoutMs);
+  if (definition.maxConcurrentRuns !== undefined) builder = builder.concurrency(definition.maxConcurrentRuns);
   const built = builder.run((value) =>
     runDefinition(definition, route, value),
   );

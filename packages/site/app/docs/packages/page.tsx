@@ -377,6 +377,38 @@ rt.inject("The order shipped.", { respond: true });`}
         </p>
       </Pkg>
 
+      <Pkg name="glove-realtime" tag="realtime multimodal">
+        <p>
+          Run a built Glove agent on a realtime multimodal model (OpenAI
+          Realtime, Gemini Live, GPT-Live). The adapter owns what lives on the
+          provider&apos;s side: tool registration, context injection,
+          compaction, and audio, text, image and video input.{" "}
+          <code>RealtimeSession</code> runs the agent&apos;s tools through the
+          Executor, enforces permissions, writes the call to the store, injects
+          runtime context and the inbox, and reconnects or resumes when the
+          provider drops.
+        </p>
+        <CodeBlock
+          filename="terminal"
+          language="bash"
+          code={`pnpm add glove-realtime`}
+        />
+        <CodeBlock
+          filename="realtime.ts"
+          language="typescript"
+          code={`import { RealtimeSession, realtimeModel } from "glove-realtime";
+
+// agent built with model: realtimeModel({ provider: "gemini", voice: "Puck" })
+const session = new RealtimeSession({ agent, compaction: { contextLimit: 24_000 } });
+session.on("audio", (pcm, format) => speaker.play(pcm, format.sampleRate));
+await session.start();
+
+session.sendAudio(micPcm);
+session.sendVideoFrame(jpegFrame);
+session.inject({ kind: "user", text: "The order shipped." });`}
+        />
+      </Pkg>
+
       <Pkg name="glove-voice-avatar" tag="a face over the voice">
         <p>
           An avatar provider is a lip-sync renderer over an audio stream — the

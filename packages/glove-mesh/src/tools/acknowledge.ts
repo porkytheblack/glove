@@ -7,7 +7,7 @@ const AckSchema = z.object({
     .string()
     .min(1)
     .describe(
-      "The id of the incoming mesh message being acknowledged. Look for 'message id: <id>' in the inbox notification.",
+      "The id of the incoming mesh message being acknowledged: the id=\"…\" of its <event>, or 'message id: <id>' in an inbox notification.",
     ),
   note: z
     .string()

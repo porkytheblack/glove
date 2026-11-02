@@ -1,3 +1,4 @@
+import type { DurableMessageCommand } from "./durable-subagents.js";
 import { randomUUID } from "node:crypto";
 import type { GloveFoldArgs } from "glove-core";
 import { Effect, Either, JSONSchema, ParseResult, Schema } from "effect";
@@ -11,6 +12,7 @@ import type {
 } from "./capabilities.js";
 import type { AnyFoundryTransmission } from "./integration.js";
 import type { AgentPlaybook } from "./playbook.js";
+import type { FoundryDelegationCommand } from "./delegation.js";
 import type { FoundryMeshCommand } from "./mesh.js";
 import {
   durationMillis,
@@ -152,6 +154,8 @@ export type FoundryCoreCommand =
       readonly applicationId?: string;
       readonly transmissionId?: string;
     }
+  | FoundryDelegationCommand
+  | DurableMessageCommand
   | FoundryMeshCommand;
 
 function commandId(): string {
@@ -247,6 +251,7 @@ export function createInstalledApplicationTransmissionTools(
   for (const application of applications) {
     if (!installed.has(application.id)) continue;
     for (const transmission of application.transmissions ?? []) {
+      if (application.restrictions && !application.restrictions.transmissions?.includes(transmission.id)) continue;
       if (!transmission.outbound) continue;
       const routeIds = [...new Set(
         playbooks
@@ -277,13 +282,14 @@ export function createInstalledApplicationTransmissionTools(
         jsonSchema: outboundToolSchema(transmission, routeIds),
         ...(requiresPermission !== undefined
           ? {
-              requiresPermission: (input: { readonly routeId: string; readonly payload: unknown }) => {
+              requiresPermission: (input: { readonly routeId: string; readonly payload: unknown }): boolean | Promise<boolean> => {
                 if (routeIds.length > 0 && !routeIds.includes(input.routeId)) return false;
                 try {
                   const payload = Schema.decodeUnknownSync(transmission.outbound!.input)(input.payload);
-                  return typeof requiresPermission === "function"
-                    ? requiresPermission(payload)
-                    : requiresPermission;
+                  // A synchronous predicate stays synchronous. An async one's
+                  // promise is returned as is: a rejected policy check fails
+                  // the call instead of skipping the approval.
+                  return typeof requiresPermission === "function" ? requiresPermission(payload) : requiresPermission;
                 } catch {
                   // Malformed input is rejected by do(); it must not create an approval request first.
                   return false;
@@ -412,8 +418,12 @@ function declaredOutbound(
   return new Map([...routes].map(([routeId, candidates]) => [routeId, [...candidates]]));
 }
 
-/** Whether a transmission asks before delivering this payload. */
-function asksFirst(transmission: AnyFoundryTransmission, payload: unknown): boolean {
+/**
+ * Whether a transmission asks before delivering this payload. A synchronous
+ * rule answers synchronously; an async one's promise is returned as is, so a
+ * rejected policy check fails the call instead of skipping the approval.
+ */
+function asksFirst(transmission: AnyFoundryTransmission, payload: unknown): boolean | Promise<boolean> {
   const rule = transmission.outbound?.requiresPermission;
   if (rule === undefined) return false;
   if (typeof rule !== "function") return rule;
@@ -723,8 +733,12 @@ export function createFoundryCoreTools(
       }),
       // The route's transmission decides, as for its application's send tool. When
       // more than one could own the route, any that would ask makes this ask.
-      requiresPermission: (input: { readonly routeId: string; readonly payload: unknown }) =>
-        (routes.get(input.routeId) ?? []).some((transmission) => asksFirst(transmission, input.payload)),
+      requiresPermission: (input: { readonly routeId: string; readonly payload: unknown }): boolean | Promise<boolean> => {
+        const answers = (routes.get(input.routeId) ?? []).map((transmission) => asksFirst(transmission, input.payload));
+        if (answers.some((answer) => answer === true)) return true;
+        const pending = answers.filter((answer): answer is Promise<boolean> => typeof answer !== "boolean");
+        return pending.length ? Promise.all(pending).then((all) => all.some(Boolean)) : false;
+      },
       async do(input) {
         if (!routes.has(input.routeId)) {
           return {

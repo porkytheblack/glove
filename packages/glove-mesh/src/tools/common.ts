@@ -109,14 +109,65 @@ export async function peerNameOrId(
   }
 }
 
+/**
+ * Where a blocking send waits for its ack or reply. Inbox mode records a
+ * pending blocking inbox item; event mode keeps the wait in memory and shows
+ * it to the model as runtime context.
+ */
+export interface PendingWaits {
+  /** Record that `messageId` is waiting. Throws if it cannot be recorded. */
+  begin(messageId: string, request: string, createdAt: string): Promise<void>;
+  /** The send failed: drop the wait without reporting a resolution. */
+  cancel(messageId: string, reason: string): Promise<void>;
+  /** An ack or reply arrived. Returns true when a wait was resolved. */
+  resolve(messageId: string, response: string): Promise<boolean>;
+}
+
+/** Blocking sends as pending blocking inbox items (the original behaviour). */
+export function inboxWaits(
+  store: Required<Pick<StoreAdapter, "addInboxItem" | "updateInboxItem">>,
+  pending: PendingMap,
+): PendingWaits {
+  return {
+    async begin(messageId, request, createdAt) {
+      const item: InboxItem = {
+        id: generateInboxItemId(),
+        tag: `mesh:waiting:${messageId}`,
+        request,
+        response: null,
+        status: "pending",
+        blocking: true,
+        created_at: createdAt,
+        resolved_at: null,
+      };
+      await store.addInboxItem(item);
+      pending.set(messageId, item.id);
+    },
+    async cancel(messageId, reason) {
+      const inboxItemId = pending.get(messageId);
+      if (!inboxItemId) return;
+      // Roll back the pending entry no matter what — even if the inbox
+      // update fails, the in-memory pending map must not leak.
+      try {
+        await store.updateInboxItem(inboxItemId, {
+          status: "consumed",
+          response: reason,
+          resolved_at: nowIso(),
+        });
+      } catch (rollbackErr) {
+        // eslint-disable-next-line no-console
+        console.warn(`[glove-mesh] failed to roll back pending inbox item ${inboxItemId}:`, rollbackErr);
+      } finally {
+        pending.delete(messageId);
+      }
+    },
+    resolve: (messageId, response) => resolvePendingFor(messageId, response, store, pending),
+  };
+}
+
 export interface ToolContext {
   adapter: MeshAdapter;
   identity: AgentIdentity;
-  store: Required<
-    Pick<
-      StoreAdapter,
-      "getInboxItems" | "addInboxItem" | "updateInboxItem" | "getResolvedInboxItems"
-    >
-  >;
-  pending: PendingMap;
+  /** How blocking sends wait for their ack or reply. */
+  waits: PendingWaits;
 }

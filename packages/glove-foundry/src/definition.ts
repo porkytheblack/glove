@@ -1,3 +1,5 @@
+import { eventPolicySchema } from "./event-delivery.js";
+import { validateDurableSubagents, type DurableSubagents } from "./durable-subagents.js";
 import type {
   DefineSkillArgs,
   DefineSubAgentArgs,
@@ -11,11 +13,11 @@ import type {
   StoreAdapter,
   SubscriberAdapter,
   SubAgentFactoryContext,
-  RuntimeContextProvider,
 } from "glove-core";
 import { Displaymanager, Glove } from "glove-core";
 import { Effect } from "effect";
 import { z } from "zod";
+import type { AgentIdentity, MeshAdapter } from "glove-mesh";
 import type {
   AgentInstallation,
   FoundryAccountSessionAdapter,
@@ -33,6 +35,11 @@ import {
 } from "./surfaces.js";
 import type { FoundryCoreCommand } from "./core-tools.js";
 import type {
+  FoundryDelegate,
+  FoundryDelegation,
+  FoundryDelegationUpdate,
+} from "./delegation.js";
+import type {
   FoundryMeshMessage,
   FoundryMeshOptions,
   FoundryMeshThread,
@@ -46,7 +53,7 @@ import type {
   FoundryWorkingEnvironmentDefinition,
 } from "./workbench.js";
 import type { WorkingEnvironment } from "glove-working-environment";
-import type { FoundryFactsOptions, FoundryGoalsOptions, FoundryFormsOptions, FoundryGuidanceHandles } from "./guidance.js";
+import type { FoundryContextProvider, FoundryFactsOptions, FoundryGoalsOptions, FoundryFormsOptions, FoundryGuidanceHandles } from "./guidance.js";
 import type {
   AgentInstance,
   Conversation,
@@ -96,9 +103,13 @@ export interface AgentAssemblyContext<TInput = unknown> {
   readonly conversation: Conversation;
   /** Parent-runtime snapshot used by agent schedule management tools. */
   readonly activations: ReadonlyArray<FoundryActivationRecord>;
+  /** Delegations this conversation started that were still open when the run began. */
+  readonly delegations: ReadonlyArray<FoundryDelegation>;
+  /** The task this run works on, when another agent delegated it. */
+  readonly delegation?: FoundryDelegation;
   /** Mesh threads this conversation started that were still open when the run began. */
   readonly threads: ReadonlyArray<FoundryMeshThread>;
-  /** The thread this conversation answers, when another agent messaged this one. */
+  /** The thread this conversation answers, when a peer on the mesh messaged this one. */
   readonly thread?: FoundryMeshThread;
   readonly data: FoundryDataAdapter;
   readonly input: TInput;
@@ -106,6 +117,8 @@ export interface AgentAssemblyContext<TInput = unknown> {
   readonly message: Message;
   /** Exact input that will be passed to `Glove.processRequest`. */
   readonly messageInput: FoundryMessageInput;
+  /** Spontaneous events that started this run. Custom handlers acknowledge them on successful return. */
+  readonly events?: ReadonlyArray<import("glove-core").AgentEvent>;
   /** Convenience text projection matching Glove's multimodal normalization. */
   readonly messageText: string;
   /** Persisted native Glove messages before the current inbound turn. */
@@ -170,6 +183,8 @@ export interface FoundryExecutionContext<TInput = unknown>
   readonly conversation: Conversation;
   readonly data: FoundryDataAdapter;
   readonly installations: ReadonlyArray<AgentInstallation>;
+  readonly events?: ReadonlyArray<import("glove-core").AgentEvent>;
+  readonly delegations?: ReadonlyArray<FoundryDelegation>;
   /** Register run-scoped teardown for an explicitly mounted capability. Runs in reverse order, even if assembly fails. */
   readonly onCleanup: (cleanup: () => void | Promise<void>) => void;
   /** Native persistent environment mounted for this run, when configured. */
@@ -180,10 +195,20 @@ export interface FoundryExecutionContext<TInput = unknown>
   readonly repl?: FoundryMountedRepl;
   readonly invoke: (name: string, input: unknown) => Promise<unknown>;
   /**
-   * Receive mesh messages for this conversation inside this run while it stays
+   * Receive delegation results and questions inside this run while it stays
    * live, such as a voice call, instead of Foundry starting a new run for each.
-   * Returns a function that stops listening; anything that arrives after it
-   * is delivered as a new run.
+   * Without a handler, an update joins the run's turn at its next tool step
+   * while the turn is still working. Returns a function that stops listening;
+   * anything that arrives after it goes to that turn, or to a new run.
+   */
+  readonly onDelegationUpdate: (
+    handler: (updates: ReadonlyArray<FoundryDelegationUpdate>) => void | Promise<void>,
+  ) => () => Promise<void>;
+  /**
+   * Receive messages from peers on the mesh Foundry hosts inside this run
+   * while it stays live, such as a voice call. Without a handler, a message
+   * joins the run's turn at its next tool step. Returns a function that stops
+   * listening; anything that arrives after it goes to that turn, or to a new run.
    */
   readonly onMeshMessage: (
     handler: (messages: ReadonlyArray<FoundryMeshMessage>) => void | Promise<void>,
@@ -212,6 +237,10 @@ export interface AgentAssemblyOptions<TInput = unknown> {
   readonly systemPrompt?: FoundryResolver<string, TInput>;
   readonly displayManager?: FoundryResolver<DisplayManagerAdapter, TInput>;
   readonly serverMode?: boolean;
+  /** Maximum wall time for one run; independent workers can allow hours. */
+  readonly runTimeoutMs?: number;
+  /** Limit concurrent runs of this definition to leave capacity for other agents. */
+  readonly maxConcurrentRuns?: number;
   readonly maxRetries?: number;
   readonly maxConsecutiveErrors?: number;
   readonly compactionLimit?: FoundryResolver<number, TInput>;
@@ -222,13 +251,31 @@ export interface AgentAssemblyOptions<TInput = unknown> {
   readonly hooks?: FoundryListResolver<FoundryHookDefinition, TInput>;
   readonly skills?: FoundryListResolver<DefineSkillArgs, TInput>;
   readonly subagents?: FoundryListResolver<DefineSubAgentArgs, TInput>;
+  /**
+   * Sibling agents this one may hand work to, by route. Adds
+   * glove_foundry_delegate and glove_foundry_reply. Each delegation runs as
+   * its own conversation on a worker instance; its result, or a question it
+   * needs answered, comes back to this conversation.
+   */
+  readonly delegates?: FoundryListResolver<FoundryDelegate, TInput>;
+  readonly durableSubagents?: DurableSubagents;
+  readonly eventDelivery?: import("./event-delivery.js").FoundryEventPolicy;
+  /**
+   * When this agent works on a delegated task, how long glove_foundry_ask
+   * waits in the same run for an answer before the run suspends. Default 90s.
+   */
+  readonly answerWaitMs?: number;
   /** Definition-owned Glove memory surfaces; may resolve lazily from run context. */
   readonly memory?: FoundryListResolver<FoundryMemorySelection, TInput>;
   readonly goals?: FoundryResolver<FoundryGoalsOptions | undefined, TInput>;
   readonly facts?: FoundryResolver<FoundryFactsOptions | undefined, TInput>;
   readonly forms?: FoundryResolver<FoundryFormsOptions | undefined, TInput>;
-  /** Native providers re-read transient context before each model iteration. */
-  readonly contextProviders?: FoundryListResolver<RuntimeContextProvider, TInput>;
+  /**
+   * Native context providers. A bare provider is re-read before each model
+   * iteration; `{ provider, delivery: "request" | "history", key }` freezes it
+   * per request or saves it to history on change.
+   */
+  readonly contextProviders?: FoundryListResolver<FoundryContextProvider, TInput>;
   /** Lazily load native Glove inbox items into this run's conversation store. */
   readonly inboxes?: (
     agent: FoundryAgentDefinition,
@@ -245,12 +292,19 @@ export interface AgentAssemblyOptions<TInput = unknown> {
   /** Runtime policy composed from transmission primitives and persisted on the instance. */
   readonly playbooks?: FoundryListResolver<ComposedAgentPlaybook, TInput>;
   /**
-   * Put this agent on Glove Mesh, hosted by Foundry: it gets
-   * glove_mesh_list_agents, glove_mesh_send_message, glove_mesh_broadcast and
-   * glove_mesh_acknowledge, and messages other agents by instance id. Who its
-   * peers are, and their names, come from data. `true` uses the defaults.
+   * Put this agent on Glove Mesh, in one of two ways.
+   *
+   * - Hosted by Foundry: `true` or `{ peers, waitMs, mount }`. The agent gets
+   *   glove_mesh_list_agents, glove_mesh_send_message, glove_mesh_broadcast and
+   *   glove_mesh_acknowledge, and messages peers that are existing instances
+   *   in its workspace, by instance id. Their names come from data. Messages
+   *   travel through Foundry's durable event delivery.
+   * - Your own transport: a `FoundryMeshConfig` with an `adapter` (or a
+   *   resolver returning one). Foundry mounts glove-mesh on it as is.
+   *
+   * For workers an agent owns, use `durableSubagents` or `delegates`.
    */
-  readonly mesh?: true | FoundryMeshOptions;
+  readonly mesh?: true | FoundryMeshOptions | FoundryResolver<FoundryMeshConfig | undefined, TInput>;
   /** Sandboxed persistent files + named script execution, assembled per context. */
   readonly workingEnvironment?: FoundryResolver<
     FoundryWorkingEnvironmentDefinition | undefined,
@@ -283,6 +337,32 @@ export interface AgentAssemblyOptions<TInput = unknown> {
   readonly handler?: (
     context: AgentHandlerContext<TInput>,
   ) => Resolvable<unknown>;
+}
+
+export interface FoundryMeshConfig {
+  readonly delivery?: "events" | "inbox";
+  readonly whenIdle?: "wake" | "defer" | "auto";
+  readonly adapter: MeshAdapter;
+  readonly identity?: Omit<AgentIdentity, "id"> & { readonly id?: string };
+}
+
+/**
+ * Whether a definition's `mesh` names your own transport (a config with an
+ * adapter, or a resolver for one) rather than the mesh Foundry hosts.
+ */
+export function isMeshTransport<TInput>(
+  mesh: true | FoundryMeshOptions | FoundryResolver<FoundryMeshConfig | undefined, TInput> | undefined,
+): mesh is FoundryResolver<FoundryMeshConfig | undefined, TInput> {
+  if (mesh === undefined || mesh === true) return false;
+  return typeof mesh === "function" || (typeof mesh === "object" && mesh !== null && "adapter" in mesh);
+}
+
+/** The hosted-mesh options a definition asks for, if it asks for the hosted mesh. */
+export function hostedMeshOptions<TInput>(
+  mesh: true | FoundryMeshOptions | FoundryResolver<FoundryMeshConfig | undefined, TInput> | undefined,
+): FoundryMeshOptions | undefined {
+  if (mesh === undefined || isMeshTransport(mesh)) return undefined;
+  return mesh === true ? {} : mesh;
 }
 
 export interface DefineAgentOptions extends AgentAssemblyOptions<FoundryRequest> {
@@ -326,6 +406,10 @@ export interface FoundryAgentConventionModule {
   readonly systemPrompt?: AgentAssemblyOptions["systemPrompt"];
   readonly displayManager?: AgentAssemblyOptions["displayManager"];
   readonly serverMode?: boolean;
+  /** Maximum wall time for one run; independent workers can allow hours. */
+  readonly runTimeoutMs?: number;
+  /** Limit concurrent runs of this definition to leave capacity for other agents. */
+  readonly maxConcurrentRuns?: number;
   readonly maxRetries?: number;
   readonly maxConsecutiveErrors?: number;
   readonly compactionLimit?: AgentAssemblyOptions["compactionLimit"];
@@ -336,6 +420,10 @@ export interface FoundryAgentConventionModule {
   readonly hooks?: AgentAssemblyOptions["hooks"];
   readonly skills?: AgentAssemblyOptions["skills"];
   readonly subagents?: AgentAssemblyOptions["subagents"];
+  readonly delegates?: AgentAssemblyOptions["delegates"];
+  readonly durableSubagents?: DurableSubagents;
+  readonly eventDelivery?: import("./event-delivery.js").FoundryEventPolicy;
+  readonly answerWaitMs?: number;
   readonly memory?: AgentAssemblyOptions["memory"];
   readonly goals?: AgentAssemblyOptions["goals"];
   readonly facts?: AgentAssemblyOptions["facts"];
@@ -395,6 +483,11 @@ export function isFoundryAgentDefinition(value: unknown): value is FoundryAgentD
 export const isFoundryAgent = isFoundryAgentDefinition;
 
 function validateDefinition(options: DefineAgentOptions, route?: string): void {
+  validateDurableSubagents(options.durableSubagents);
+  if (options.eventDelivery) eventPolicySchema.parse(options.eventDelivery);
+  for (const key of ["runTimeoutMs", "maxConcurrentRuns"] as const) {
+    if (options[key] !== undefined && (!Number.isSafeInteger(options[key]) || options[key]! <= 0)) throw new Error(`${key} must be a positive safe integer.`);
+  }
   const id = route ?? options.id;
   if (id) assertAgentRoute(id);
   if (!options.model && !options.run && !options.handler && !options.spawn) {
@@ -403,9 +496,15 @@ function validateDefinition(options: DefineAgentOptions, route?: string): void {
   if (options.model && options.systemPrompt === undefined) {
     throw new Error(`Foundry agent "${id ?? "<file route>"}" must define systemPrompt when it defines a model.`);
   }
-  if (options.mesh !== undefined && options.mesh !== true) {
+  if (
+    options.answerWaitMs !== undefined &&
+    (!Number.isFinite(options.answerWaitMs) || options.answerWaitMs < 0)
+  ) {
+    throw new Error(`Foundry agent "${id ?? "<file route>"}" answerWaitMs must be a non-negative number.`);
+  }
+  if (options.mesh !== undefined && options.mesh !== true && !isMeshTransport(options.mesh)) {
     if (typeof options.mesh !== "object" || options.mesh === null) {
-      throw new Error(`Foundry agent "${id ?? "<file route>"}" mesh must be true or an object.`);
+      throw new Error(`Foundry agent "${id ?? "<file route>"}" mesh must be true, hosted-mesh options, or a mesh config with an adapter.`);
     }
     if (options.mesh.mount !== undefined && typeof options.mesh.mount !== "function") {
       throw new Error(`Foundry agent "${id ?? "<file route>"}" mesh.mount must be a function of the run's context.`);
@@ -447,10 +546,10 @@ export function defineAgent(options: DefineAgentOptions): FoundryAgentDefinition
 const CONVENTION_EXPORTS = [
   "id", "description", "tags", "components", "mcpAdapter",
   "accountSessions", "store", "model", "systemPrompt",
-  "displayManager", "serverMode", "maxRetries", "maxConsecutiveErrors",
+  "displayManager", "serverMode", "runTimeoutMs", "maxConcurrentRuns", "maxRetries", "maxConsecutiveErrors",
   "compactionLimit", "compactionInstructions", "maxTurns",
   "enableToolResultSummary", "tools", "hooks", "skills", "subagents",
-  "memory", "goals", "facts", "forms", "contextProviders", "inboxes", "subscribers", "layers", "calls", "schedules", "playbooks", "mesh",
+  "delegates", "durableSubagents", "eventDelivery", "answerWaitMs", "memory", "goals", "facts", "forms", "contextProviders", "inboxes", "subscribers", "layers", "calls", "schedules", "playbooks", "mesh",
   "workingEnvironment", "repl", "configure", "build",
   "spawn", "run", "handler",
 ] as const;

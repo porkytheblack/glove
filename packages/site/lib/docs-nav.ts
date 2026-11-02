@@ -209,7 +209,7 @@ export const docsSections: DocsNavSection[] = [
         label: "Core Concepts",
         href: "/docs/concepts",
         summary:
-          "The agent loop, tools, the display stack, stores, adapters and context compaction.",
+          "The agent loop, tools, the display stack, stores, adapters, runtime context, events and context compaction.",
       },
       {
         label: "Core API Reference",
@@ -275,6 +275,14 @@ export const docsSections: DocsNavSection[] = [
     blurb:
       "Reference: what the agent sees on every call and what it carries between them.",
     items: [
+      {
+        label: "Runtime Context",
+        href: "/docs/runtime-context",
+        badge: "new",
+        summary:
+          "Live state for the model: providers read every call, once per request, or saved to history on change — plus events from other systems and the turn queue.",
+        packages: ["glove-core", "glove-memory"],
+      },
       {
         label: "The Inbox",
         href: "/docs/inbox",
@@ -418,6 +426,13 @@ export const docsSections: DocsNavSection[] = [
         summary:
           "Speech-to-speech models, live avatars, and LiveKit as the room transport.",
         packages: ["glove-voice-s2s", "glove-voice-avatar", "glove-voice-livekit"],
+      },
+      {
+        label: "Realtime Agents",
+        href: "/docs/realtime",
+        summary:
+          "Run an agent on OpenAI Realtime, Gemini Live or GPT-Live with its tools, permissions, store, context and goals intact.",
+        packages: ["glove-realtime"],
       },
     ],
   },

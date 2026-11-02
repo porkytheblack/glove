@@ -52,7 +52,9 @@ export {
   buildContextTools,
   useContext,
   type ContextEnableTarget,
+  type UseContextOptions,
 } from "./context";
+export type { MemoryContextDelivery } from "./runtime-context";
 
 /**
  * Anything that exposes `glove-core`'s `fold` is sufficient for tool

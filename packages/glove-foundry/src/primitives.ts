@@ -1,3 +1,4 @@
+import type { DurableSubagentOwnership } from "./durable-subagents.js";
 import { randomUUID } from "node:crypto";
 import { Effect } from "effect";
 import type { ContentPart, Message } from "glove-core";
@@ -15,6 +16,7 @@ import type { FoundryAgentDefinition } from "./definition.js";
 import type { FoundryScheduleTiming } from "./schedule.js";
 
 export interface AgentInstance {
+  readonly durableSubagent?: DurableSubagentOwnership;
   readonly id: string;
   readonly definitionId: string;
   readonly workspaceId: string;
@@ -95,6 +97,22 @@ export interface InboundDeliveryClaim {
   readonly completedAt?: string;
 }
 
+/**
+ * An inbound event handed to one agent and not yet finished with: kept from
+ * dispatch until the run that handles it settles, so a restart delivers it
+ * again instead of losing it with the in-memory run queue.
+ */
+export interface FoundryPendingInbound {
+  /** `<routeId>:<eventId>:<agentId>`. */
+  readonly id: string;
+  readonly definitionId: string;
+  /** The request a run for this event starts from. */
+  readonly request: FoundryRequest;
+  /** The run handling it now; absent while the event waits for its conversation. */
+  readonly runId?: string;
+  readonly createdAt: string;
+}
+
 export interface FoundryWorkingEnvironmentSnapshotOwner {
   /**
    * "agent": one snapshot per instance. "conversation": one per conversation.
@@ -134,7 +152,13 @@ export interface FoundryActivationRecord {
 }
 
 export interface FoundryDataAdapter {
+  /** Atomic insert-if-absent, scoped by eventRecordId. Required for durable event delivery. */
+  claimEvent?(record: import("./event-delivery.js").FoundryEventRecord): Effect.Effect<boolean, unknown, never>;
+  putEvent?(record: import("./event-delivery.js").FoundryEventRecord): Effect.Effect<void, unknown, never>;
+  listEvents?(): Effect.Effect<ReadonlyArray<import("./event-delivery.js").FoundryEventRecord>, unknown, never>;
   readonly identifier: string;
+  /** Purge an archived worker's owned records, retaining an identity tombstone. Shared workspace data is untouched. */
+  purgeAgentData?(agentId: string): Effect.Effect<void, unknown, never>;
   getAgent(id: string): Effect.Effect<AgentInstance | null, unknown, never>;
   putAgent(agent: AgentInstance): Effect.Effect<void, unknown, never>;
   listAgents(definitionId?: string): Effect.Effect<ReadonlyArray<AgentInstance>, unknown, never>;
@@ -147,6 +171,14 @@ export interface FoundryDataAdapter {
   claimInboundDelivery(key: string): Effect.Effect<boolean, unknown, never>;
   completeInboundDelivery(key: string, runIds: ReadonlyArray<string>): Effect.Effect<void, unknown, never>;
   releaseInboundDelivery(key: string): Effect.Effect<void, unknown, never>;
+  /**
+   * Pending inbound events (optional). With these, an inbound event survives
+   * a restart until the run that handles it finishes; without them, an event
+   * whose run was still queued or running when the process stopped is lost.
+   */
+  putPendingInbound?(record: FoundryPendingInbound): Effect.Effect<void, unknown, never>;
+  deletePendingInbound?(id: string): Effect.Effect<void, unknown, never>;
+  listPendingInbound?(): Effect.Effect<ReadonlyArray<FoundryPendingInbound>, unknown, never>;
   getActivation(id: string): Effect.Effect<FoundryActivationRecord | null, unknown, never>;
   putActivation(activation: FoundryActivationRecord): Effect.Effect<void, unknown, never>;
   listActivations(workspaceId?: string): Effect.Effect<ReadonlyArray<FoundryActivationRecord>, unknown, never>;
@@ -183,7 +215,7 @@ export interface FoundryRequest {
   readonly payload?: unknown;
   readonly context?: Readonly<Record<string, unknown>>;
   readonly source?: {
-    readonly kind: "direct" | "transmission" | "activation" | "spawn" | "background" | "mesh";
+    readonly kind: "direct" | "transmission" | "activation" | "spawn" | "background" | "delegation" | "agent-message" | "mesh";
     readonly id?: string;
     readonly provider?: string;
     readonly eventId?: string;
@@ -242,6 +274,8 @@ function cloneContentPart(part: ContentPart): ContentPart {
 }
 
 export interface FoundryResult {
+  /** Internal event receipts, acknowledged by the controller only after successful completion. */
+  readonly consumedEventIds?: ReadonlyArray<string>;
   readonly status: "completed" | "suspended";
   readonly value: unknown;
   readonly agentId: string;
@@ -250,9 +284,18 @@ export interface FoundryResult {
   readonly suspension?: FoundrySuspension;
 }
 
-/** Why a run ended without finishing: it went to sleep, or it is waiting for another agent's reply. */
+/**
+ * Why a run ended without finishing: it went to sleep, it asked a question
+ * about a task delegated to it, or it is waiting for a peer's reply on the mesh.
+ */
 export type FoundrySuspension =
   | { readonly kind?: "sleep"; readonly commandId: string; readonly wakeAt: string }
+  | {
+      readonly kind: "question";
+      readonly commandId: string;
+      readonly delegationId: string;
+      readonly question: string;
+    }
   | {
       readonly kind: "mesh";
       readonly commandId: string;
@@ -261,6 +304,8 @@ export type FoundrySuspension =
     };
 
 export interface CreateAgentInstanceOptions {
+  /** @internal Set only by durable worker provisioning. */
+  readonly durableSubagent?: DurableSubagentOwnership;
   readonly id?: string;
   readonly workspaceId?: string;
   readonly name?: string;
@@ -301,6 +346,8 @@ export class MemoryFoundryDataAdapter implements FoundryDataAdapter {
   private readonly agentsByProvisioningKey = new Map<string, string>();
   private readonly subscriptions = new Map<string, PlaybookSubscription>();
   private readonly inboundDeliveries = new Map<string, InboundDeliveryClaim>();
+  private readonly events = new Map<string, import("./event-delivery.js").FoundryEventRecord>();
+  private readonly pendingInbound = new Map<string, FoundryPendingInbound>();
   private readonly activations = new Map<string, FoundryActivationRecord>();
   private readonly conversations = new Map<string, Conversation>();
   private readonly workspace = new Map<string, WorkspaceEntry>();
@@ -369,6 +416,7 @@ export class MemoryFoundryDataAdapter implements FoundryDataAdapter {
     this.materializeSeeds();
     const existingId = this.agentsByProvisioningKey.get(input.provisioningKey);
     if (existingId) return this.agents.get(existingId)!;
+    if (input.id && this.agents.has(input.id)) throw new Error(`Agent instance "${input.id}" already exists with another provisioning key.`);
     const created = createAgentInstance(input.definitionId, {
       ...input,
       id: input.id ?? `agent_${randomUUID()}`,
@@ -376,6 +424,24 @@ export class MemoryFoundryDataAdapter implements FoundryDataAdapter {
     this.agents.set(created.id, created);
     this.agentsByProvisioningKey.set(input.provisioningKey, created.id);
     return created;
+  }); }
+  purgeAgentData(agentId: string) { return Effect.sync(() => {
+    this.materializeSeeds();
+    const agent = this.agents.get(agentId);
+    if (!agent?.durableSubagent || agent.durableSubagent.status !== "archived") throw new Error("Only archived durable workers can be purged.");
+    const conversationIds = new Set([...this.conversations.values()].filter((item) => item.agentId === agentId).map((item) => item.id));
+    for (const [id, item] of this.events) if (item.target.agentId === agentId) this.events.delete(id);
+    for (const [id, item] of this.pendingInbound) if (item.request.agentId === agentId) this.pendingInbound.delete(id);
+    for (const [id, item] of this.activations) if (item.agentId === agentId) this.activations.delete(id);
+    for (const id of conversationIds) this.conversations.delete(id);
+    for (const [id, item] of this.inbox) if (item.agentId === agentId || conversationIds.has(item.conversationId ?? "")) this.inbox.delete(id);
+    for (const [id, item] of this.tasks) if (item.agentId === agentId || conversationIds.has(item.conversationId ?? "")) this.tasks.delete(id);
+    for (let i = this.environment.length - 1; i >= 0; i--) {
+      const item = this.environment[i]!;
+      if (item.scope !== "workspace" && (item.agentId === agentId || conversationIds.has(item.conversationId ?? ""))) this.environment.splice(i, 1);
+    }
+    for (const key of this.workingEnvironments.keys()) if (key.split("\u0000")[3] === agentId) this.workingEnvironments.delete(key);
+    this.agents.set(agentId, reconstructAgentInstance({ ...agent, context: {}, installations: [], playbooks: [], durableSubagent: { ...agent.durableSubagent, status: "purged" }, updatedAt: new Date().toISOString() }));
   }); }
   getPlaybookSubscription(id: string) { return Effect.sync(() => {
     this.materializeSeeds();
@@ -419,6 +485,22 @@ export class MemoryFoundryDataAdapter implements FoundryDataAdapter {
       this.inboundDeliveries.delete(key);
     }
   }); }
+  claimEvent(record: import("./event-delivery.js").FoundryEventRecord) { return Effect.sync(() => {
+    if (this.agents.get(record.target.agentId)?.durableSubagent?.status === "purged") throw new Error("Cannot deliver an event to a purged worker.");
+    if (this.events.has(record.id)) return false;
+    this.events.set(record.id, structuredClone(record)); return true;
+  }); }
+  putEvent(record: import("./event-delivery.js").FoundryEventRecord) { return Effect.sync(() => {
+    if (this.agents.get(record.target.agentId)?.durableSubagent?.status !== "purged") this.events.set(record.id, structuredClone(record));
+  }); }
+  listEvents() { return Effect.sync(() => [...this.events.values()].map((record) => structuredClone(record))); }
+
+  putPendingInbound(record: FoundryPendingInbound) { return Effect.sync(() => {
+    this.pendingInbound.set(record.id, structuredClone(record));
+  }); }
+  deletePendingInbound(id: string) { return Effect.sync(() => { this.pendingInbound.delete(id); }); }
+  listPendingInbound() { return Effect.sync(() =>
+    [...this.pendingInbound.values()].map((record) => structuredClone(record))); }
   getActivation(id: string) { return Effect.succeed(this.activations.get(id) ?? null); }
   putActivation(activation: FoundryActivationRecord) { return Effect.sync(() => {
     this.activations.set(activation.id, reconstructActivation(activation));
@@ -505,6 +587,7 @@ export function createAgentInstance(
   return reconstructAgentInstance({
     id: options.id ?? `agent_${randomUUID()}`,
     definitionId,
+    ...(options.durableSubagent ? { durableSubagent: options.durableSubagent } : {}),
     workspaceId: options.workspaceId ?? "default",
     ...(provisioningKey ? { provisioningKey } : {}),
     ...(options.name !== undefined ? { name: options.name } : {}),
@@ -545,6 +628,7 @@ export function defineAgentInstance(
 export function reconstructAgentInstance(agent: AgentInstance): AgentInstance {
   return Object.freeze({
     ...agent,
+    ...(agent.durableSubagent ? { durableSubagent: Object.freeze({ ...agent.durableSubagent }) } : {}),
     context: freezeInstanceData(structuredClone(agent.context)),
     installations: normalizeAgentInstallations(agent.installations),
     playbooks: Object.freeze(agent.playbooks.map(reconstructPlaybook)),

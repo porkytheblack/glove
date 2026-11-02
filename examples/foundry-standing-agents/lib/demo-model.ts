@@ -32,14 +32,14 @@ export class DemoModel implements ModelAdapter {
 
   async prompt(request: PromptRequest, notify?: NotifySubscribersFunction): Promise<ModelPromptResult> {
     const context = request.messages.filter((message) => message.framework_context === "runtime").map((message) => message.text).join("\n");
-    const messages = request.messages.filter((message) => !message.framework_context);
+    const messages = request.messages.filter((message) => !message.framework_context || message.framework_context === "event");
     let start = messages.length - 1;
     while (start > 0 && (messages[start]!.sender !== "user" || messages[start]!.tool_results?.length)) start--;
     const after = messages.slice(start + 1);
     const called = after.flatMap((message) => message.tool_calls?.map((call) => call.tool_name) ?? []);
     const results = after.flatMap((message) => message.tool_results ?? []);
     const step = this.script({
-      text: messages[start]?.text ?? "",
+      text: messages[start] ? eventText(messages[start]!) : "",
       called,
       lastResult: results.length > 0 ? JSON.stringify(results.at(-1)!.result) : "",
       results: results.map((item) => JSON.stringify(item.result)),
@@ -72,14 +72,14 @@ export function inboundEvent<T>(text: string): T | undefined {
     .replaceAll("&amp;", "&")) as T;
 }
 
-/** An attribute of the first <mesh-message> in a text. */
-export function meshAttribute(text: string, name: string): string {
-  return new RegExp(`<mesh-message[^>]* ${name}="([^"]*)"`).exec(text)?.[1] ?? "";
+/** An attribute of the first <delegation> in a text: a task's result, question or failure. */
+export function delegationAttribute(text: string, name: string): string {
+  return new RegExp(`<delegation [^>]*\\b${name}="([^"]*)"`).exec(text)?.[1] ?? "";
 }
 
-/** The body of the first <mesh-message> in a text. */
-export function meshBody(text: string): string {
-  return /<mesh-message[^>]*>\n([\s\S]*?)\n<\/mesh-message>/.exec(text)?.[1] ?? "";
+/** The result in the first completed <delegation> in a text. */
+export function delegationResult(text: string): string {
+  return /<delegation [^>]*>\n[\s\S]*?\nResult:\n([\s\S]*?)\n<\/delegation>/.exec(text)?.[1] ?? "";
 }
 
 /** The message of the last tool result, if it had one. */
@@ -89,4 +89,15 @@ export function resultMessage(lastResult: string): string {
   } catch {
     return "";
   }
+}
+
+/**
+ * The text of a message. Deliveries (a transmission, a delegation's result)
+ * arrive as one Glove event message: the escaped body of each <event>, joined.
+ */
+export function eventText(message: Message): string {
+  if (message.framework_context !== "event") return message.text;
+  return [...message.text.matchAll(/<event [^>]*>\n([\s\S]*?)\n<\/event>/g)]
+    .map((match) => match[1]!.replaceAll("&lt;", "<").replaceAll("&gt;", ">").replaceAll("&quot;", '"').replaceAll("&amp;", "&"))
+    .join("\n\n");
 }

@@ -2,4 +2,5 @@
 export type FoundryRoutes = {
   readonly "builder": typeof import("../agents/builder/agent.js");
   readonly "dot": typeof import("../agents/dot/agent.js");
+  readonly "dot/workers/builder": typeof import("../agents/dot/agent.js");
 };

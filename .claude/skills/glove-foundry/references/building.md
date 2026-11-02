@@ -37,7 +37,7 @@ A definition is the realm of what a kind of agent can be, like a server-rendered
   }
   ```
 
-- A workspace is a tenant (a person, a team): its agents are mesh peers and share workspace entries. Conversations carry data too, such as the members of a group chat in `conversation.context`.
+- A workspace is a tenant (a person, a team): its agents share workspace entries, and with `mesh` they are peers. Conversations carry data too, such as the members of a group chat in `conversation.context`.
 - Add a definition only when a kind of agent runs differently, loads different things, or must never have another kind's tools (a voice front, a sandboxed worker, a read-only researcher). Its agents are still instances.
 
 ## Author colocated, composable definitions
@@ -76,7 +76,7 @@ Prefer the definition helper that owns the contract (`defineAgent`, `defineApp`,
 
 Agent assembly is contextual. Use a direct value for fixed behavior and a resolver when the result can depend on the instance, conversation, workspace, installation state, current Glove message, prior messages, or request.
 
-Common lazy fields include model, system prompt, tools, memory, inboxes, layers, subscribers, calls, subagents, mesh, playbooks, schedules, working environment, REPL, build, and run.
+Common lazy fields include model, system prompt, tools, memory, inboxes, layers, subscribers, calls, subagents, delegates, durable subagents, mesh, playbooks, schedules, working environment, REPL, build, and run.
 
 - Inboxes must be lazy; do not model an inbox as a static singleton.
 - Applications, MCPs, and shared tools are available through composition but mounted only when installed on the current instance.
@@ -161,7 +161,7 @@ Foundry mounts native Glove surfaces instead of reimplementing them.
 
 ## Goals, facts, and prepared workflows
 
-Goals, forms, and pinned context require glove-core >=4.0.0 for live runtime snapshots. They append transient user-role messages at the model-input tail before each model iteration without rewriting system instructions or saved history. Runnable proxies forward `addContextProvider` and `getRuntimeContext`; subscribers receive `runtime_context` snapshots. Realtime voice refreshes silently at start and after tools; call `await realtime.refreshContext()` after external changes.
+Goals, forms, and pinned context require glove-core >=4.0.0 for live runtime snapshots. By default they append transient user-role messages at the model-input tail before each model iteration without rewriting system instructions or saved history. `goals: { …, delivery: "history" }` (and `forms`) save the snapshot to history once per change instead; `contextProviders` entries can be bare providers or `{ provider, delivery: "request" | "history", key }`. Runnable proxies forward `addContextProvider` and `getRuntimeContext`; subscribers receive `runtime_context` snapshots. Realtime voice refreshes silently at start and after tools; call `await realtime.refreshContext()` after external changes.
 
 Use `glove-memory/goals` for dynamic goals and `glove-facts` for reusable scoped evidence; there is no standalone `glove-goals` package. Mount `useGoalRunner` or `useFormRunner` from `glove-memory/tools` on the conversational runnable, and `useFacts` from `glove-facts` for capture.
 
@@ -173,44 +173,43 @@ Use the first-class lazy `goals`, `facts`, `forms`, and `contextProviders` field
 
 Decide layers by three questions: how fast must it reply, what context must it
 keep, how long does it run. Then give each agent only the access its job needs.
-The layers talk over Glove Mesh, which Foundry hosts.
 
 - Interactor (layer 1): fast model or `s2sDrivenModel`, personal memory
   (`*.memory.ts` with glove-memory, one namespace per instance), talks to the
-  person, `mesh: true`.
+  person, lists workers in `delegates: [{ agent: "<route>", description }]`.
+  Write descriptions for the model that has to choose.
 - Workers (layer 2): ordinary definitions with their own model, tools,
   `workingEnvironment`, browser or sandbox mounts, and a durable `store`. No
-  personal memory; no tool that reaches the person. `mesh: true` so they can ask
-  back; a larger `waitMs` when a worker holds live state worth keeping while it
-  waits for an answer.
-- Your application creates the agents as instances in one workspace (the
-  person's), each with a `name` and a `description` written for the model that
-  has to choose. Never import another agent's `agent.ts` (its dependencies would
-  load in every run of the importer).
-- `mesh: true | { peers?, waitMs?, mount? }` mounts `glove_mesh_list_agents`,
-  `glove_mesh_send_message({ to, content, in_reply_to?, blocking? })`,
-  `glove_mesh_broadcast` and `glove_mesh_acknowledge`. Agents are addressed by
-  instance id. Peers are the other instances in the workspace that pass
-  `peers(self, peer)` (default: all); an agent can always answer whoever
-  messaged it. `mount(ctx)` decides per run whether the tools are there.
-- A new message starts a thread: a conversation on the recipient, id = thread
-  id, record on `context.meshThread`. The recipient's final non-empty reply goes
-  back on its own; a failed or cancelled run sends a failure. Messages arrive as
-  `<mesh-message id thread from name status?>`: into a run that listens via
-  `ctx.onMeshMessage(handler)`, else as one new run (`source.kind` `"mesh"`) once
-  no run holds the conversation. A blocking send waits `waitMs` (default 90 s)
-  in-run, then the run suspends (`suspension.kind` `"mesh"`). Open threads appear
-  in runtime context. `runtime.listThreads(filter)` lists them; trace events are
-  `mesh.thread.started|replied|failed|cancelled`, `mesh.message.sent`,
-  `mesh.delivered`, `mesh.refused`.
+  personal memory; no tool that reaches the person. Set `answerWaitMs` when a
+  worker holds live state worth keeping while it waits for an answer.
+- Name delegates by route; never import another agent's `agent.ts` (its
+  dependencies would load in every run of the importer).
+- Foundry creates one worker instance per interactor instance and route
+  (`<agentId>.<route>`, context copied from the interactor instance plus
+  `delegatedBy`) and one conversation per delegation (id = delegation id).
+  Keep secrets out of instance context.
+- Results, questions and failures arrive in the delegating conversation as
+  `<delegation id agent status>` messages: to a `ctx.onDelegationUpdate(handler)`,
+  else into the delegating turn at its next tool step while it is still calling
+  tools (a Glove event), else as one new run (`source.kind` `"delegation"`) once
+  the run has ended and no run holds the conversation. Replies reach a working
+  worker the same way. Open delegations appear in
+  runtime context. `runtime.listDelegations(filter)` lists them; trace events are
+  `delegation.started|question|replied|completed|failed|cancelled|delivered`.
+- Durable subagents: `durableSubagents: { research: { agent, inherit?, eventDelivery?, cleanup? } }`
+  gives an agent workers it owns, one per parent instance and slot, created on
+  first use (route `<parent>/workers/<slot>`). The delegate tools address them by
+  slot name; `glove_foundry_message({ to, message })` sends without a task, and
+  the worker answers with `to: "parent"`. Nothing is inherited unless `inherit`
+  selects it. Read `packages/glove-foundry/docs/durable-subagents.md`.
 - Voice: `run: voiceCall({ room, greeting?, idleMs?, maxDurationMs?, openDelayMs?,
   realtime?, announce?, offCall? })` from `glove-foundry/voice`. It hosts
   `RealtimeAgent` over the assembled agent, saves both sides to the store, speaks
-  mesh messages at the next pause (8 s max hold; `announceMeshMessage` by
-  default), and keeps Foundry's bookkeeping tools and every `requiresPermission`
-  tool off the call (the realtime path has no approval step). A mesh run with no
-  live call is saved to the conversation unless `offCall` handles it; or route
-  `source.kind === "mesh"` runs to `ctx.defaultRun()` with a text model.
+  delegation updates and mesh messages at the next pause (8 s max hold), and keeps Foundry's
+  bookkeeping tools and every `requiresPermission` tool off the call (the
+  realtime path has no approval step). A delegation run with no live call is
+  saved to the conversation unless `offCall` handles it; or route
+  `source.kind === "delegation"` runs to `ctx.defaultRun()` with a text model.
 - Rooms are `{ open(call), close() }` calling `call.joined()` / `call.left()`.
   `webSocketRoom({ port, token })` serves PCM16 + JSON on its own port (put it
   behind a proxy on single-port hosts such as Kuiper); a LiveKit room wraps
@@ -221,13 +220,40 @@ The layers talk over Glove Mesh, which Foundry hosts.
   utterance boundaries; Realtime VAD and final-turn assumptions do not apply.
   Read the [GPT-Live contract](https://github.com/porkytheblack/glove/blob/main/packages/glove-voice-s2s/README.md#gpt-live).
 
+## Messaging existing agents: the hosted mesh
+
+For agents that already exist as peers, each its own instance in one workspace
+(a person's bots), Foundry hosts Glove Mesh. Owned workers belong in
+`delegates` or `durableSubagents` instead.
+
+- `mesh: true | { peers?, waitMs?, mount? }` mounts `glove_mesh_list_agents`,
+  `glove_mesh_send_message({ to, content, in_reply_to?, blocking? })`,
+  `glove_mesh_broadcast` and `glove_mesh_acknowledge`. Agents are addressed by
+  instance id. Peers are the other instances in the workspace that pass
+  `peers(self, peer)` (default: all); an agent can always answer whoever
+  messaged it. `mount(ctx)` decides per run whether the tools are there. A
+  `mesh` value with an `adapter` is the raw glove-mesh transport instead.
+- A new message starts a thread: a conversation on the recipient, id = thread
+  id, record on `context.meshThread`. The recipient's final non-empty reply goes
+  back on its own; a failed or cancelled run sends a failure. Messages arrive as
+  `<mesh-message id thread from name status?>`: into a run that listens via
+  `ctx.onMeshMessage(handler)`, else as one new run (`source.kind` `"mesh"`) once
+  no run holds the conversation. They ride the same event journal as delegation
+  updates. A blocking send waits `waitMs` (default 90 s) in-run, then the run
+  suspends (`suspension.kind` `"mesh"`). Open threads appear in runtime context.
+  `runtime.listThreads(filter)` lists them; trace events are
+  `mesh.thread.started|replied|failed|cancelled`, `mesh.message.sent`,
+  `mesh.delivered`, `mesh.refused`.
+
 ## Multi-agent systems
 
 Choose the smallest correct composition surface:
 
-- The mesh (`mesh: true`) for agents that message each other by instance id and hear back: a fast agent handing slow work to workers, bots passing work around a team (see above).
+- `delegates` for a fast agent that hands slow or tool-heavy work to siblings and hears back (see above).
 - `defineSubagent` for an isolated nested task under a parent run. Its `tools` can project a least-privilege subset of `parent.tools`; its `layers` (including `configureLayer(layer, config)`) and `subscribers` mount on each invocation, before `configure`, and are disposed when the subagent's request ends.
 - Foundry calls for typed agent-to-agent or agent-to-service invocation.
+- `durableSubagents` for workers an agent owns that keep their identity, memory and files across tasks.
+- The hosted mesh (`mesh: true`) for agents that already exist as instances messaging each other by id: bots passing work around a team.
 - Playbook subscriptions for inbound events that can provision a workforce.
 - Workspaces, conversations, inbox items, tasks, and artifacts for durable coordination.
 

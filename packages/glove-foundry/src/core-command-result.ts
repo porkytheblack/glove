@@ -14,8 +14,11 @@ const COMMAND_ID = /^command_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]
 export interface FoundryCoreCommandRequest {
   readonly id: string;
   readonly runId: string;
-  /** "transmit" carries its command privately; "mesh" calls wait for the parent's answer. */
-  readonly type: "transmit" | "mesh";
+  /**
+   * "transmit" carries its command privately; "agent.message" and "mesh" calls
+   * wait for the parent's answer.
+   */
+  readonly type: "transmit" | "agent.message" | "mesh";
   readonly requestedAt: string;
   readonly expiresAt: string;
   readonly command?: Extract<FoundryCoreCommand, { readonly type: "transmit" }>;
@@ -60,7 +63,7 @@ function requestRecord(value: unknown): FoundryCoreCommandRequest | null {
   const item = value as Partial<FoundryCoreCommandRequest>;
   const valid = typeof item.id === "string" && COMMAND_ID.test(item.id)
     && typeof item.runId === "string"
-    && (item.type === "transmit" || item.type === "mesh")
+    && (item.type === "transmit" || item.type === "agent.message" || item.type === "mesh")
     && typeof item.requestedAt === "string"
     && typeof item.expiresAt === "string";
   if (!valid) return null;
@@ -116,7 +119,7 @@ export async function createFoundryCoreCommandRequest(
   input: {
     readonly id: string;
     readonly runId: string;
-    readonly type: "transmit" | "mesh";
+    readonly type: "transmit" | "agent.message" | "mesh";
     readonly timeoutMs?: number;
     readonly command?: Extract<FoundryCoreCommand, { readonly type: "transmit" }>;
   },

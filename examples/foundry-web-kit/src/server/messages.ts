@@ -43,6 +43,16 @@ export function defaultIncoming(text: string): string | null {
 const framework = (text: string) => /^<[a-z][\w-]*[\s>]/i.test(text.trimStart()) || /^\[Skill: /.test(text);
 
 /**
+ * What a Glove event message carries: the body of each <event>, unescaped.
+ * Foundry delivers transmissions, delegation results and agent messages to an
+ * idle conversation this way.
+ */
+export function eventBodies(text: string): string[] {
+  return [...text.matchAll(/<event [^>]*>\n([\s\S]*?)\n<\/event>/g)]
+    .map((match) => match[1]!.replaceAll("&lt;", "<").replaceAll("&gt;", ">").replaceAll("&quot;", '"').replaceAll("&amp;", "&"));
+}
+
+/**
  * A Glove transcript as a person sees it: their messages, the agent's
  * replies with the tools it used above each reply, and short lines for what
  * arrived from elsewhere. Tool input and results, system text and framework
@@ -62,6 +72,13 @@ export function displayMessages(
 
   transcript.messages.forEach((message, index) => {
     const id = String(offset + index);
+    if (message.framework_context === "event") {
+      eventBodies(message.text).forEach((body, n) => {
+        const line = incoming(body);
+        if (line) out.push({ id: n === 0 ? id : `${id}.${n}`, sender: "event", text: line });
+      });
+      return;
+    }
     if (message.framework_context || message.is_compaction || message.is_compaction_request || message.is_skill_injection) return;
     if (message.sender === "user") {
       if (message.tool_results?.length) {

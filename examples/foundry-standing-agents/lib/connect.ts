@@ -1,8 +1,6 @@
 import { Schema } from "effect";
 import {
   AgentBinding,
-  InboundRoute,
-  OutboundRoute,
   type AgentInstallation,
   type AgentInstance,
   type FoundryClient,
@@ -14,6 +12,7 @@ import dot from "../agents/dot/agent.js";
 import gmailApp from "../agents/dot/apps/gmail.app.js";
 import gmail, { sendAsOwner } from "../agents/dot/transmissions/gmail.transmission.js";
 import { accountsOf, saveAccount, type ConnectedAccount, type Tokens } from "./accounts.js";
+import { gmailRoutes, withLazy } from "./gmail-routes.js";
 import type { Provider } from "./oauth.js";
 
 // Connecting an app, as data. Your OAuth callback saves the account, then
@@ -58,25 +57,8 @@ export const writesVia = {
   }),
 };
 
-/**
- * Code ids (an app's or a transmission's, from its file name) are bound when
- * Foundry discovers the agents, which can be after this module loads. Like
- * Foundry's own install() and defineInboundRoute(), read them lazily.
- */
-function withLazy<T extends object>(value: T, key: string, read: () => string): T {
-  const copy = { ...value };
-  Object.defineProperty(copy, key, { enumerable: true, get: read });
-  return Object.freeze(copy);
-}
-
-/** A mailbox's Gmail routes. New mail joins the dot's app conversation, where progress goes. */
-export function gmailRoutes(accountId: string) {
-  const shared = { transmissionId: "pending", accountId, visibility: "private", enabled: true };
-  return {
-    in: withLazy(Schema.decodeUnknownSync(InboundRoute)({ ...shared, id: `${accountId}-in`, direction: "inbound", config: { label: "INBOX", conversation: "app" } }), "transmissionId", () => gmail.id),
-    out: withLazy(Schema.decodeUnknownSync(OutboundRoute)({ ...shared, id: `${accountId}-out`, direction: "outbound", config: {} }), "transmissionId", () => gmail.id),
-  };
-}
+/** A mailbox's Gmail routes (lib/gmail-routes.ts). */
+export { gmailRoutes };
 
 /** Lets one bot send from the account. Without it, Foundry refuses the delivery. */
 export function sendBinding(agentId: string, accountId: string): AgentBinding {

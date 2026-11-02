@@ -332,7 +332,7 @@ const result = await agent.processRequest("What is the weather in Tokyo?");`}
           [
             "do",
             "(input: I, display: DisplayManagerAdapter, glove: IGloveRunnable, signal?: AbortSignal) => Promise<ToolResultData>",
-            "The tool's implementation. Receives validated input, the parent's display manager, the running Glove instance (use to fold further tools at runtime), and the active request's AbortSignal. Forward the signal into long-running internal work so abort propagates.",
+            "The tool's implementation. Receives input parsed and validated by inputSchema when provided; jsonSchema-only tools receive raw arguments and must validate in the implementation or bridged service. Also receives the parent's display manager, the running Glove instance (use to fold further tools at runtime), and the active request's AbortSignal. Forward the signal into long-running internal work so abort propagates.",
           ],
           [
             "generateToolSummary?",
@@ -413,6 +413,36 @@ const result = await agent.processRequest("What is the weather in Tokyo?");`}
             "removeSubscriber(s)",
             "(s: SubscriberAdapter) => void",
             "Detach a previously attached SubscriberAdapter.",
+          ],
+          [
+            "addContextProvider(fn)",
+            "(fn: RuntimeContextProvider) => () => void",
+            "Append transient live state at the model-input tail before every model call. Returns an unregister function.",
+          ],
+          [
+            "getRuntimeContext(signal?)",
+            "(signal?: AbortSignal) => Promise<Message[]>",
+            "Resolve the context providers, for runtimes that build their own model input (realtime sessions).",
+          ],
+          [
+            "addTurnPreparer(fn)",
+            "(fn: TurnPreparer) => () => void",
+            "Register work to run before every turn, inside the turn queue: requests and event wakes run preparers first, in order; a throw fails that turn. Returns an unregister function.",
+          ],
+          [
+            "prepareTurn(signal?)",
+            "(signal?: AbortSignal) => Promise<void>",
+            "Run the turn preparers. For runtimes that drive the agent without processRequest.",
+          ],
+          [
+            "notifySubscribers(type, data)",
+            "NotifySubscribersFunction",
+            "Deliver an event to the subscribers added with addSubscriber, so activity from another runtime reaches them like a text turn's.",
+          ],
+          [
+            "holdTurns(options?)",
+            "({ signal?, onEvent? }) => Promise<TurnHold>",
+            "Wait for the turns ahead, then hold the turn queue until release(). Requests and event wakes wait; emitted events queue for the holder (takeEvents) instead of waking the model. historyContext() returns the \"history\" context a request would save.",
           ],
           [
             "displayManager",
@@ -1755,7 +1785,7 @@ const durable = await store.createSubAgentStore("planner", true);        // cach
           [
             "run(input, handOver?, signal?)",
             "Promise<ToolResultData>",
-            "Execute the tool with validated input. handOver delegates to the renderer / display stack. signal is the active request's AbortSignal — forward it into long-running internal work (e.g. a child Glove run) so abort propagates. Tools marked unAbortable should ignore signal.",
+            "Execute the tool with input parsed and validated by input_schema when provided. jsonSchema-only tools receive raw arguments and must validate in the implementation or bridged service. handOver delegates to the renderer / display stack. signal is the active request's AbortSignal — forward it into long-running internal work (e.g. a child Glove run) so abort propagates. Tools marked unAbortable should ignore signal.",
           ],
           [
             "generateSummary?(args)",
@@ -2075,10 +2105,11 @@ export const readFile: GloveFoldArgs<{ path: string; from?: number; to?: number 
 
       <p>
         For tools where the check itself depends on the input,{" "}
-        <code>Tool.requiresPermission</code> also accepts a function. Return{" "}
-        <code>true</code> to require a check for that input, <code>false</code>{" "}
-        to skip it entirely. This lets a single tool gate writes but not reads
-        without store-side rules.
+        <code>Tool.requiresPermission</code> also accepts a function, sync or
+        async (it is awaited). Return <code>true</code> to require a check for
+        that input, <code>false</code> to skip it entirely. This lets a single
+        tool gate writes but not reads without store-side rules, or consult a
+        policy service before deciding.
       </p>
 
       <h3 id="permission-key">permissionKey</h3>

@@ -195,6 +195,7 @@ function explainRun(run){
   if(source==="activation")return"Started by a scheduled activation or wake-up.";
   if(source==="spawn")return"Spawned by another agent run.";
   if(source==="background")return"Continued as background work.";
+  if(source==="delegation")return"Delegated work, or a delegation result or question coming back.";
   if(source==="mesh")return"A message from another agent on the mesh, or its reply coming back.";
   if(run.status==="completed")return"The agent completed the requested work.";
   return"The agent is processing a direct message.";

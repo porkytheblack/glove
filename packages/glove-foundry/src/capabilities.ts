@@ -320,6 +320,7 @@ export type FoundryAgentApplication<
 > = Readonly<AgentApplicationOptions<TConfigSchema>> & {
   readonly id: string;
   readonly [FOUNDRY_AGENT_APPLICATION_BRAND]: true;
+  readonly restrictions?: AppRestrictions;
 };
 
 export function defineAgentApplication<
@@ -384,6 +385,30 @@ export function defineAgentApplication<
     connections,
     [FOUNDRY_AGENT_APPLICATION_BRAND]: true as const,
   }, "application", id));
+}
+
+/** Explicit allowlists. Omitted lists grant nothing; nested restrictions intersect. */
+export interface AppRestrictions {
+  readonly tools?: ReadonlyArray<string>;
+  readonly operations?: ReadonlyArray<string>;
+  readonly transmissions?: ReadonlyArray<string>;
+}
+
+/** A restricted view of the same app identity, usable in a catalogue or inheritance. */
+export function restrictApp<T extends FoundryAgentApplication>(app: T, restrictions: AppRestrictions): T {
+  const intersect = (next: ReadonlyArray<string> = [], previous?: ReadonlyArray<string>) =>
+    Object.freeze([...new Set(next)].filter((name) => !previous || previous.includes(name)));
+  const limits: AppRestrictions = Object.freeze({
+    tools: intersect(restrictions.tools, app.restrictions?.tools),
+    operations: intersect(restrictions.operations, app.restrictions?.operations),
+    transmissions: intersect(restrictions.transmissions, app.restrictions?.transmissions),
+  });
+  // Build a fresh object because original definition properties are frozen.
+  const descriptors: Record<string, PropertyDescriptor> = Object.getOwnPropertyDescriptors(app);
+  delete descriptors.restrictions;
+  const result = Object.defineProperties({}, descriptors) as T;
+  Object.defineProperty(result, "restrictions", { enumerable: true, value: limits });
+  return Object.freeze(result);
 }
 
 /** Concise authoring name for an agent-local application definition. */
@@ -705,6 +730,8 @@ export function mountAgentDefinitionMemory(
 }
 
 export interface InstallRegistryOptions {
+  /** Revalidate borrowed installation authority before each tool/session operation. */
+  readonly authorizeInstallation?: (installation: AgentInstallation) => Effect.Effect<void, unknown, never>;
   readonly registry: FoundryCapabilityRegistry;
   readonly installations: ReadonlyArray<AgentInstallation>;
   readonly context: Omit<AgentInstallContext, "installation" | "config">;
@@ -739,6 +766,8 @@ function mountAppMcp(
   application: FoundryAgentApplication,
   context: AgentApplicationInstallContext,
   options: InstallRegistryOptions,
+  /** Checks the installation still holds before each call, as for the app's own tools. */
+  guard: (tool: GloveFoldArgs<any>) => GloveFoldArgs<any> = (tool) => tool,
 ): Effect.Effect<
   { readonly toolSet: MountedMcpToolSet; readonly readOnly: ReadonlyMap<string, boolean> },
   unknown,
@@ -779,6 +808,8 @@ function mountAppMcp(
     };
     const decisions = new Map<string, { readonly decision: FoundryAppToolDecision; readonly readOnly: boolean }>();
     const decide = (tool: McpToolDef): boolean => {
+      // A restricted view of the app hides every tool it doesn't list.
+      if (application.restrictions && !application.restrictions.tools?.includes(tool.name)) return false;
       const described: FoundryAppMcpTool = {
         name: tool.name,
         ...(tool.description ? { description: tool.description } : {}),
@@ -813,7 +844,7 @@ function mountAppMcp(
             // never ask. The app's decision sets the approval instead.
             wrapTool: (tool) => {
               const decided = decisions.get(tool.name);
-              return decided ? { ...tool, requiresPermission: decided.decision === "ask" } : tool;
+              return guard(decided ? { ...tool, requiresPermission: decided.decision === "ask" } : tool);
             },
           });
         } catch (cause) {
@@ -848,6 +879,9 @@ export function installRegistry(
     const seen = new Set<string>();
     const installedMcp: FoundryResolvedMcp[] = [];
     const installed: AgentInstallation[] = [];
+    const guardedTool = (tool: GloveFoldArgs<any>, installation: AgentInstallation): GloveFoldArgs<any> => options.authorizeInstallation
+      ? { ...tool, do: async (...args) => { await Effect.runPromise(options.authorizeInstallation!(installation)); return tool.do(...args); } }
+      : tool;
 
     for (const installation of options.installations) {
       assertCapabilityId(installation.id, installation.kind);
@@ -889,13 +923,13 @@ export function installRegistry(
               ...(options.accountSessions
                 ? {
                     withAccountSession: <A>(operation: string, use: (session: unknown) => Effect.Effect<A, unknown, never>) =>
-                      options.accountSessions!.withSession({
+                      Effect.zipRight(options.authorizeInstallation?.(installation) ?? Effect.void, Effect.suspend(() => options.accountSessions!.withSession({
                         accountId: installation.accountId!,
                         operation,
                         agentId: options.context.agentId,
                         conversationId: options.context.conversationId,
                         workspaceId: options.context.workspaceId,
-                      }, use),
+                      }, use))),
                   }
                 : {}),
             }
@@ -905,25 +939,32 @@ export function installRegistry(
       if (installation.kind === "tool") {
         const shared = definition as FoundrySharedTool<any>;
         const tool = shared.tool ?? (yield* shared.create(context));
-        options.context.glove.fold(tool);
+        options.context.glove.fold(guardedTool(tool, installation));
       } else if (installation.kind === "application") {
         const { glove: _glove, store: _store, ...headlessContext } = context;
         const application = definition as FoundryAgentApplication;
+        const restrictedContext = application.restrictions && headlessContext.withAccountSession
+          ? { ...headlessContext, withAccountSession: <A>(operation: string, use: (session: unknown) => Effect.Effect<A, unknown, never>) =>
+              application.restrictions!.operations?.includes(operation)
+                ? headlessContext.withAccountSession!(operation, use)
+                : Effect.fail(new Error(`Application "${application.id}" does not permit operation "${operation}".`)) }
+          : headlessContext;
         const contribution = application.install
-          ? yield* application.install(headlessContext)
+          ? yield* application.install(restrictedContext)
           : undefined;
-        for (const tool of contribution?.tools ?? []) options.context.glove.fold(tool);
+        // A restricted view of an app keeps only the tools it lists (restrictApp).
+        const ownTools = (contribution?.tools ?? []).filter((tool) => !application.restrictions || application.restrictions.tools?.includes(tool.name));
+        for (const tool of ownTools) options.context.glove.fold(guardedTool(tool, installation));
         const mounted = application.mcp
-          ? yield* mountAppMcp(application, headlessContext, options)
+          ? yield* mountAppMcp(application, restrictedContext, options, (tool) => guardedTool(tool, installation))
           : undefined;
-        const ownTools = (contribution?.tools ?? []).map((tool) => ({ name: tool.name }));
         options.onApp?.(Object.freeze({
           id: application.id,
           description: application.description,
           ...(installation.accountId ? { accountId: installation.accountId } : {}),
           get tools() {
             return [
-              ...ownTools,
+              ...ownTools.map((tool) => ({ name: tool.name })),
               ...(mounted?.toolSet.toolNames ?? []).map((name) => ({
                 name,
                 readOnly: mounted?.readOnly.get(name) ?? true,

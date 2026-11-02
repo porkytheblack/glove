@@ -29,12 +29,13 @@ export default function VoiceHarnessPage() {
           "Store",
           "Forms",
           "Voice pipeline",
-          "Realtime speech and avatars",
+          "Existing voice and avatar integrations",
+          "Realtime agents",
           "Mesh",
           "Instances",
           "Conversations",
           "Voice calls",
-          "Foundry mesh",
+          "Delegates",
           "Inspector and WebChat",
         ]}
         write={[
@@ -51,8 +52,10 @@ export default function VoiceHarnessPage() {
         speech-to-text, the Glove agent and text-to-speech, with barge-in and push-to-talk; any
         chat model can be the agent. A <strong>realtime</strong> model (
         <code>glove-voice-s2s</code>: OpenAI Realtime, Gemini Live, GPT-Live) owns turn-taking
-        itself, and <code>RealtimeAgent</code> hands it the same Glove tools. Either way the
-        tools are written once.
+        itself, and <code>RealtimeAgent</code> hands it the same Glove tools. To keep the rest
+        of the agent on the call (permission gates, the store, goals, camera or screen input),
+        run it with <Link href="/docs/realtime"><code>glove-realtime</code></Link>&apos;s{" "}
+        <code>RealtimeSession</code> instead. Either way the tools are written once.
       </p>
       <p>
         A caller asks for something that needs real work: &ldquo;what&apos;s the warranty on hull
@@ -66,9 +69,10 @@ export default function VoiceHarnessPage() {
       </p>
       <p>
         App state the caller should not have to repeat (who is calling, what is on screen, the
-        order status) reaches the voice model through runtime context. A realtime session gets
-        changed snapshots silently at start and after each tool; call{" "}
-        <code>refreshContext()</code> when something changes outside a tool. Forms work the same
+        order status) reaches the voice model through runtime context. <code>RealtimeAgent</code>{" "}
+        injects changed snapshots silently at start and after each tool; call{" "}
+        <code>refreshContext()</code> when something changes outside a tool.{" "}
+        <code>RealtimeSession</code> also refreshes when each user turn starts. Forms work the same
         over speech as over text, so collecting a delivery address is a form, not a prompt.
       </p>
       <HarnessDiagram
@@ -139,9 +143,9 @@ export async function onUtterance(text: string) {
       <h2 id="skeleton-realtime">Skeleton: a voice agent in Foundry</h2>
       <p>
         In Foundry the call is a run. <code>voiceCall</code> hosts the realtime session over
-        the assembled agent and saves the transcript. With <code>mesh: true</code> the front
-        messages the caller&apos;s other agents by instance id, and their replies are spoken at
-        the next pause. The front stays a fast talker; the work goes to agents that can take
+        the assembled agent, saves the transcript, and speaks{" "}
+        <Link href="/foundry/docs/layered-agents">delegates</Link>&apos; results at the next
+        pause. The front stays a fast talker; the work goes to sibling agents that can take
         their time, ask a question back, and use tools a call should not.
       </p>
       <CodeBlock
@@ -159,33 +163,24 @@ export default defineAgent({
   model: () => s2sDrivenModel({ label: "concierge", provider: "openai", voice: "marin" }),
   systemPrompt: conciergePrompt,
   store: ({ conversationId }) => FileStore.open(conversationId),
-  mesh: true, // message the other agents in this workspace by id
+  delegates: [
+    { agent: "bookings", description: "Books tables and travel. Takes a few minutes." },
+    { agent: "research", description: "Looks things up on the web and cites sources." },
+  ],
   run: voiceCall({
     room: (context) => webSocketRoom(roomFor(context)),   // { port, token } from the request
     greeting: "Greet the caller in one short sentence.",
   }),
 });`}
       />
-      <CodeBlock
-        filename="when a customer signs up"
-        language="typescript"
-        code={`// The agents are data: one workspace per customer, so they only see each other.
-await foundry.createAgent("concierge", { id: "acme", workspaceId: "acme", name: "Concierge" });
-await foundry.createAgent("bookings", {
-  id: "acme-bookings", workspaceId: "acme", name: "Bookings",
-  description: "Books tables and travel. Takes a few minutes.",
-});`}
-      />
       <p>
-        The concierge finds Bookings with <code>glove_mesh_list_agents</code> and sends it the
-        job with <code>glove_mesh_send_message</code>. Bookings is an ordinary agent with{" "}
-        <code>mesh</code> set. If it needs to know something (indoors or outside?), its
-        message comes back into the call, where the concierge answers from what it knows or
-        asks the caller. Its runs show up in the inspector and can be approved or steered,
-        and a reply that lands after the caller hangs up waits in the conversation. LiveKit
-        rooms and phone bridges plug in as <Link href="/foundry/docs/voice#rooms">rooms</Link>.
-        The pattern is <Link href="/foundry/docs/layered-agents">layered agents</Link>; the
-        full version, with personal memory and a text chat on the same agent, is{" "}
+        The bookings agent is an ordinary definition. If it needs to know something (indoors
+        or outside?), <code>glove_foundry_ask</code> brings the question back into the call,
+        where the concierge answers from what it knows or asks the caller. Its runs show up in
+        the inspector and can be approved or steered, and a result that lands after the caller
+        hangs up waits in the conversation. LiveKit rooms and phone bridges plug in as{" "}
+        <Link href="/foundry/docs/voice#rooms">rooms</Link>. The full version, with personal
+        memory and a text chat on the same agent, is{" "}
         <code>examples/foundry-layered-assistant</code>.
       </p>
 
@@ -194,7 +189,9 @@ await foundry.createAgent("bookings", {
         <li>
           <strong>A second implementation of your tools for the realtime provider.</strong>{" "}
           <Link href="/docs/realtime-voice"><code>RealtimeAgent</code></Link> reads the agent&apos;s
-          registered tools and runs each call through the same <code>Tool.run</code>.
+          registered tools and runs each call through the same <code>Tool.run</code>;{" "}
+          <Link href="/docs/realtime"><code>RealtimeSession</code></Link> runs them through the
+          Executor, with permissions and the store.
         </li>
         <li>
           <strong>Speech-to-text, agent and text-to-speech glue.</strong> The{" "}
@@ -265,6 +262,7 @@ await foundry.createAgent("bookings", {
         <li>
           Reference: <Link href="/docs/voice">Voice pipeline</Link>,{" "}
           <Link href="/docs/realtime-voice">Realtime voice &amp; avatars</Link>,{" "}
+          <Link href="/docs/realtime">Realtime agents</Link>,{" "}
           <Link href="/docs/mesh">Mesh</Link>,{" "}
           <Link href="/foundry/docs/multi-agent#voice">Foundry voice hosts</Link>.
         </li>

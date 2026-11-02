@@ -6,7 +6,7 @@ import { PartnerStory } from "@/components/rebuild-stories";
 export const metadata = {
   title: "Rebuild Claude Duet",
   description:
-    "Build a proactive partner like Anthropic's Claude Duet with Glove Foundry and deploy it on Kuiper: one thread, a morning brief and quiet check-ins built from the person's preferences, approvals before it sends, pays, signs or deletes, things it never does, a two-tier guard on everything outbound, and its own computer over the mesh.",
+    "Build a proactive partner like Anthropic's Claude Duet with Glove Foundry and deploy it on Kuiper: one thread, a morning brief and quiet check-ins built from the person's preferences, approvals before it sends, pays, signs or deletes, things it never does, a two-tier guard on everything outbound, and its own computer as a durable subagent.",
 };
 
 const EXAMPLE = "https://github.com/porkytheblack/glove/tree/main/examples/foundry-proactive-partner";
@@ -56,7 +56,7 @@ export default function ClaudeDuetRebuildPage() {
           <tr><td>Quiet unless it matters</td><td><code>notify_person</code>, the one way to the phone</td><td><code>agents/partner/notify.ts</code></td></tr>
           <tr><td>One thread</td><td>One instance and one conversation per person; schedules attach to it</td><td><code>lib/onboarding.ts</code></td></tr>
           <tr><td>Text or voice</td><td><code>voiceCall</code> over the same assembled agent</td><td><code>agents/partner/call.ts</code></td></tr>
-          <tr><td>Its own computer</td><td>A <code>Computer</code> instance in the person&apos;s workspace, reached over the mesh</td><td><code>agents/computer/</code></td></tr>
+          <tr><td>Its own computer</td><td>A <code>computer</code> worker each partner owns as a <Link href="/foundry/docs/durable-subagents">durable subagent</Link>, created on the first long job</td><td><code>agents/computer/</code></td></tr>
           <tr><td>Asks before acting</td><td>Gmail&apos;s send, and <code>requiresPermission</code> on pay, sign and delete</td><td><code>agents/partner/send.ts</code>, <code>actions.ts</code></td></tr>
           <tr><td>Off limits even with approval</td><td>No tool exists for it</td><td><code>agents/partner/actions.ts</code></td></tr>
           <tr><td>Card and ID numbers never leave; health and money only when asked</td><td>A strict tier in code, a sensitive tier from <code>glove-classifier</code></td><td><code>lib/guard.ts</code></td></tr>
@@ -95,10 +95,6 @@ export function partnerFor(person: Person, preferences: Preferences = DEFAULT_PR
   };
 }
 
-export function computerFor(person: Pick<Person, "id">) {
-  return { id: \`\${person.id}-computer\`, workspaceId: person.id, name: "Computer", description: "The partner's own computer, with files and the web. …" };
-}
-
 export const threadFor = (person: Pick<Person, "id">) => ({
   id: \`\${person.id}-thread\`, workspaceId: person.id, title: "Partner",
   context: { conversationKey: "thread" },   // new mail joins it through this key
@@ -119,7 +115,7 @@ export const threadFor = (person: Pick<Person, "id">) => ({
 
 export const data = new FileFoundryDataAdapter({
   file: dataPath("foundry.json"),
-  agents: [ada, defineAgentInstance(computer, computerFor(DEMO_PERSON))],
+  agents: [ada],   // its computer is created on the first long job
   conversations: [createConversation(ada, threadFor(DEMO_PERSON))],
 });
 
@@ -161,7 +157,9 @@ export default defineApplication({
     guardSends(agent, ctx);                                     // Gmail's send, behind the guard
   },
 
-  mesh: true,   // long jobs go to its computer, another agent in the workspace
+  durableSubagents: {                                         // long jobs go to its own computer
+    computer: { agent: computer, description: "Builds pages and dashboards and researches across sites." },
+  },
   accountSessions,
 
   run: (agent, context) => (isCall(context) ? call(agent, context) : context.defaultRun()),
@@ -306,10 +304,10 @@ export async function blockedBecause(text: string, request?: string): Promise<st
 
       <h2 id="step-6">6. Its own computer, and your voice</h2>
       <p>
-        Long jobs go to the person&apos;s <code>Computer</code>, another agent in their workspace
-        with its own files and the web. The partner finds it with{" "}
-        <code>glove_mesh_list_agents</code> and sends it the job with{" "}
-        <code>glove_mesh_send_message</code>, then keeps talking. The computer&apos;s reply comes
+        Long jobs go to the partner&apos;s <code>computer</code>, a{" "}
+        <Link href="/foundry/docs/durable-subagents">durable subagent</Link> it owns, with its own
+        files and the web. Foundry creates it on the first job. The partner hands it the job with{" "}
+        <code>glove_foundry_delegate</code>, then keeps talking. The computer&apos;s result comes
         back to the thread as a new turn, and the partner tells the person it is done with{" "}
         <code>notify_person</code>. Its working environment is saved per person, so what it built
         last week is still there.

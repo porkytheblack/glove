@@ -317,7 +317,11 @@ Provisioning modes:
 
 The data adapter atomically enforces `provisioningKey`. Inbound delivery claims are also adapter-backed, so retrying the same route/event does not create duplicate runs.
 
+A conversation has one run at a time. An inbound event for a thread whose run is still working joins that run's turn at its next tool step; one that arrives during its final answer starts the thread's next run once it is free. Until a run has finished with an event, the event is kept as pending in the data adapter (`FileFoundryDataAdapter` keeps it on disk; custom adapters implement the optional `putPendingInbound`, `deletePendingInbound` and `listPendingInbound`), and a restart delivers it again.
+
 ## Conversations and shared work
+
+Different conversations run in parallel; one conversation runs one run at a time. A run asked for while another holds the conversation waits (pending, holding no concurrency slot, its wait not counted against its timeout) and starts once the run ahead has finished. Steering's replacement goes ahead of waiting runs. Schedule firings wait in their process, before reading history.
 
 One agent instance can own many conversations. Messages use native Glove content parts,
 and media parts may retain an optional human-facing filename. The server keeps JSON at
@@ -377,16 +381,11 @@ Its `layers` and `subscribers` mount when the subagent is invoked and are
 disposed when its request ends. Parent subscribers still receive the subagent
 lifecycle bracket, so the subagent call remains visible in the same run trace.
 
-## Agents talking to agents: the mesh
+## Layered agents: delegates
 
-Foundry hosts [Glove Mesh](../glove-mesh). `mesh: true` gives an agent
-`glove_mesh_list_agents`, `glove_mesh_send_message`, `glove_mesh_broadcast` and
-`glove_mesh_acknowledge`, and it messages other agents by instance id. Its peers
-are the other instances in its workspace, so who is on a team is data.
-
-A layered assistant splits by how fast each part must answer, what it must
-remember, and how long it runs. The agent that talks to the person stays fast
-and keeps their context; workers do the slow, tool-heavy work in their own
+Split an assistant by how fast each part must answer, what it must remember,
+and how long it runs. The agent that talks to the person stays fast and keeps
+their context; sibling agents do the slow, tool-heavy work in their own
 processes and conversations, and report back.
 
 ```ts
@@ -396,7 +395,10 @@ export default defineAgent({
   model: fastModel,
   systemPrompt: interactorPrompt,
   memory: [personal],
-  mesh: true,
+  delegates: [
+    { agent: "coder", description: "Writes and runs code. Takes minutes." },
+    { agent: "researcher", description: "Reads the web and cites sources." },
+  ],
 })
 
 // agents/coder/agent.ts — a worker
@@ -405,15 +407,54 @@ export default defineAgent({
   model: strongModel,
   systemPrompt: coderPrompt,
   workingEnvironment: coderWorkspace,
-  mesh: { waitMs: 120_000 },
+  answerWaitMs: 120_000,
+})
+```
+
+`delegates` names siblings by route and adds two tools to the interactor:
+`glove_foundry_delegate` hands off a task and returns at once, and
+`glove_foundry_reply` answers a worker's question or sends more instructions.
+Each delegation runs as its own conversation on a worker instance (one per
+interactor instance and worker), which carries the interactor instance's
+context. The worker gets `glove_foundry_ask`; its final reply is the result.
+
+Results and questions come back to the conversation that delegated. A handler
+registered with `ctx.onDelegationUpdate` (`voiceCall` uses one) takes them
+directly. Otherwise, one that arrives while the delegating turn is still
+calling tools joins it at the next tool step as a Glove event, read as the same
+`<delegation>` message. Anything the run did not read goes back to the runtime
+when it ends and, once the conversation is free, starts one run carrying
+everything that arrived. A worker's question waits up to `answerWaitMs`
+(default 90 s) inside the same run, so a worker holding a browser or sandbox
+session keeps it; after that the run suspends and the answer starts a new run
+in the same conversation. Follow-up replies reach a worker that is still
+working at its next tool step. Open
+delegations appear in the interactor's runtime context, and
+`runtime.listDelegations()` lists them all. See
+[`examples/foundry-layered-assistant`](../../examples/foundry-layered-assistant).
+
+## Messaging existing agents: the hosted mesh
+
+Workers an agent owns belong in `delegates` or `durableSubagents`. When the
+agents are peers that already exist, each its own instance in one workspace (a
+person's bots, say), Foundry can host [Glove Mesh](../glove-mesh) between
+them. `mesh: true` gives an agent `glove_mesh_list_agents`,
+`glove_mesh_send_message`, `glove_mesh_broadcast` and `glove_mesh_acknowledge`,
+and it messages its peers by instance id. Its peers are the other instances in
+its workspace, so who is on a team is data.
+
+```ts
+// agents/bot/agent.ts — one definition; every bot is an instance
+export default defineAgent({
+  description: "One of a person's bots",
+  model: botModel,
+  systemPrompt: botPrompt,
+  mesh: { waitMs: 60_000 },
 })
 
-// your application — the agents are instances in the person's workspace
-await foundry.createAgent("assistant", { id: "ada", workspaceId: "ada", name: "Iris" })
-await foundry.createAgent("coder", {
-  id: "ada-coder", workspaceId: "ada", name: "Coder",
-  description: "Writes and runs code. Takes minutes. Give it the whole task.",
-})
+// your application — the bots are instances in the person's workspace
+await foundry.createAgent("bot", { id: "ada-sales", workspaceId: "ada", name: "Sales" })
+await foundry.createAgent("bot", { id: "ada-ops", workspaceId: "ada", name: "Ops" })
 ```
 
 A new message starts a thread: a conversation on the recipient. The recipient's
@@ -426,11 +467,15 @@ start one run (`source.kind` `"mesh"`) carrying everything that arrived, as
 inside the same run, so a worker holding a browser or sandbox session keeps it;
 after that the run suspends and the reply starts a new run. Open threads appear
 in the sender's runtime context, and `runtime.listThreads()` lists them.
+Mesh messages ride the same event journal as delegation updates, so they are
+handed over again after a restart.
 
 `peers(self, peer)` narrows who an agent may message, from data; an agent can
 always answer whoever messaged it. `mount(ctx)` decides per run whether the
 tools are there, so a scheduled research run can be kept from messaging anyone.
-See [`examples/foundry-layered-assistant`](../../examples/foundry-layered-assistant).
+A `mesh` value with an `adapter` is the raw Glove Mesh transport instead
+(`FoundryMeshConfig`). See
+[`examples/foundry-bot-crew`](../../examples/foundry-bot-crew).
 
 ## Voice calls
 
@@ -447,9 +492,9 @@ run: voiceCall({
 ```
 
 The call uses the assembled agent's prompt, tools and runtime context, saves
-what both sides say to the conversation store, and speaks mesh replies and
-questions at the next pause. Foundry's bookkeeping tools and any tool that
-needs an approval stay off the call; send that work to another agent instead. A room is any
+what both sides say to the conversation store, and speaks delegation results
+and questions, and mesh messages, at the next pause. Foundry's bookkeeping tools and any tool that
+needs an approval stay off the call; delegate that work instead. A room is any
 `{ open(call), close() }`: `webSocketRoom` serves PCM16 over one WebSocket, and
 a LiveKit or phone room calls `call.joined()` and `call.left()` the same way.
 

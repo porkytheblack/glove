@@ -273,8 +273,8 @@ export function PartnerStory() {
         { id: "push", d: "M666,48 L772,48", label: "allowed", lx: 719, ly: 42 },
         { id: "act", d: "M436,145 L522,145", label: "pay_invoice", lx: 479, ly: 139 },
         { id: "approved", d: "M666,145 L772,145", label: "approved", lx: 719, ly: 139 },
-        { id: "handoff", d: "M380,194 L380,242 L522,242", label: "mesh", lx: 451, ly: 236 },
-        { id: "done", d: "M522,262 L340,262 L340,194", label: "reply", lx: 431, ly: 278 },
+        { id: "handoff", d: "M380,194 L380,242 L522,242", label: "delegate", lx: 451, ly: 236 },
+        { id: "done", d: "M522,262 L340,262 L340,194", label: "result", lx: 431, ly: 278 },
       ]}
       steps={[
         {
@@ -362,9 +362,9 @@ export function PartnerStory() {
           title: "Long jobs go to its computer",
           text: (
             <>
-              The computer is another agent in the person&apos;s workspace, with its own saved files
-              and the web. The partner messages it on the mesh, and its reply comes back to the
-              thread as a new turn.
+              The computer is a durable subagent the partner owns, with its own saved files and
+              the web. The partner hands it the job, and its result comes back to the thread as a
+              new turn.
             </>
           ),
         },
@@ -401,8 +401,8 @@ export function StandingAgentStory() {
         { id: "act", d: "M436,145 L522,145", label: "act?", lx: 479, ly: 139 },
         { id: "decide", d: "M676,145 L772,145", label: "decide", lx: 724, ly: 139 },
         { id: "update", d: "M680,64 L772,64", label: "update", lx: 726, ly: 80 },
-        { id: "handoff", d: "M380,194 L380,242 L522,242", label: "mesh", lx: 451, ly: 236 },
-        { id: "result", d: "M522,262 L340,262 L340,194", label: "reply", lx: 431, ly: 278 },
+        { id: "handoff", d: "M380,194 L380,242 L522,242", label: "delegate", lx: 451, ly: 236 },
+        { id: "result", d: "M522,262 L340,262 L340,194", label: "result", lx: 431, ly: 278 },
       ]}
       steps={[
         {
@@ -425,7 +425,7 @@ export function StandingAgentStory() {
             <>
               A schedule wakes it for proactive research, and new mail wakes it too. On these runs it
               gets only reads: #feedback, and the mailbox through the Gmail app in code. It keeps
-              notes and may suggest one thing. Acting tools, Gmail&apos;s send, the mesh and its
+              notes and may suggest one thing. Acting tools, Gmail&apos;s send, the builder and its
               computer are not there to misuse.
             </>
           ),
@@ -481,8 +481,8 @@ export function StandingAgentStory() {
           text: (
             <>
               Pip works on its own computer, can split work across runs of its own, and starts
-              bigger coding jobs on Sam&apos;s builder over the mesh, the way a dot starts a task in
-              Codex. It checks the reply and reports. Research runs get no mesh tools at all.
+              bigger coding jobs on its builder, a durable subagent, the way a dot starts a task in
+              Codex. It checks the result and reports. Research runs can&apos;t reach the builder.
             </>
           ),
         },

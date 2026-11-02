@@ -1,13 +1,13 @@
 import { fileURLToPath } from "node:url";
 import { createFoundryClient, discoverAgents } from "glove-foundry";
-import builderDefinition from "../agents/builder/agent.js";
 import dotDefinition from "../agents/dot/agent.js";
 import { giveAccounts, writesVia } from "../lib/connect.js";
-import { CHANNELS, builderFor, primaryDot } from "../lib/dot.js";
+import { CHANNELS, primaryDot } from "../lib/dot.js";
 
-// Give a person their primary dot on a running Foundry: their builder, the dot
-// with the name they chose and any apps they connected, its app conversation,
-// and a first message there so its research schedule and playbooks are set.
+// Give a person their primary dot on a running Foundry: the dot with the name
+// they chose and any apps they connected, its app conversation, and a first
+// message there so its research schedule and playbooks are set. Its builder
+// comes with it: Foundry creates it on the dot's first coding task.
 // Connect their Gmail with `pnpm connect`.
 //   pnpm onboard ada "Ada" Juniper U0123456789
 
@@ -19,10 +19,6 @@ const foundry = createFoundryClient({
   ...(process.env.FOUNDRY_TOKEN ? { authorization: { identifier: "onboard", headers: () => ({ authorization: `Bearer ${process.env.FOUNDRY_TOKEN}` }) } } : {}),
 });
 
-const builder = builderFor(ownerId);
-if (!(await foundry.agentInstances(builderDefinition.id)).some((item) => item.id === builder.id)) {
-  await foundry.createAgent(builderDefinition.id, builder);
-}
 const dot = await foundry.createAgent(dotDefinition.id, primaryDot(ownerId, {
   name,
   owner,

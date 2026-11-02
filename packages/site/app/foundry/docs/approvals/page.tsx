@@ -68,8 +68,8 @@ export default defineAgent({
       <h3 id="gate-outbound">Gate an outbound transmission</h3>
       <p>
         An installed application turns each outbound transmission into a tool. Set{" "}
-        <code>outbound.requiresPermission</code> to a boolean or to a predicate over the
-        schema-decoded payload, and that tool asks first. A payload that fails to decode, or a
+        <code>outbound.requiresPermission</code> to a boolean or to a predicate (sync or
+        async) over the schema-decoded payload, and that tool asks first. A payload that fails to decode, or a
         route the playbook did not select, never creates an approval — the tool rejects it
         instead.
       </p>

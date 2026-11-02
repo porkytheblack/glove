@@ -1,11 +1,10 @@
 import { FileFoundryDataAdapter, createConversation, defineAgentInstance, defineApplication } from "glove-foundry";
-import builder from "./agents/builder/agent.js";
 import dot from "./agents/dot/agent.js";
 import { slackBot, slackMessagesIn } from "./agents/dot/topology.js";
 import { readAccount, saveAccount, servicesWith } from "./lib/accounts.js";
 import { requestAuthorization } from "./lib/authorization.js";
 import { accountFor, gmailRoutes, installationFor, sampleConnection, sendBinding } from "./lib/connect.js";
-import { CHANNELS, SAM, builderFor, primaryDot } from "./lib/dot.js";
+import { CHANNELS, SAM, primaryDot } from "./lib/dot.js";
 import { dataPath } from "./lib/paths.js";
 
 /**
@@ -15,9 +14,12 @@ import { dataPath } from "./lib/paths.js";
 const samsGmail = accountFor({ id: SAM.id }, "gmail", sampleConnection({ id: SAM.id }, "gmail").identity, true);
 if (!(await readAccount(samsGmail.id))) await saveAccount(samsGmail, sampleConnection({ id: SAM.id }, "gmail").tokens);
 
-/** Sam's dot, Pip, and his builder: agents are data, seeded from the definitions they are instances of. */
+/**
+ * Sam's dot, Pip: agents are data, seeded from the definitions they are
+ * instances of. Pip's builder is not seeded. Foundry creates it on Pip's first
+ * coding task, as a durable subagent Pip owns.
+ */
 export const samsDot = defineAgentInstance(dot, primaryDot(SAM.id, SAM.dot, [installationFor(samsGmail)]));
-export const samsBuilder = defineAgentInstance(builder, builderFor(SAM.id));
 
 /** Pip's conversation in the app. Slack gets its own when Sam first messages there. */
 export const samsApp = createConversation(samsDot, {
@@ -27,13 +29,13 @@ export const samsApp = createConversation(samsDot, {
 });
 
 /**
- * Dots, builders, their conversations, schedules, mesh threads and computers
+ * Dots, builders, their conversations, schedules, tasks, events and computers
  * live in `.data/foundry.json`. Seeds are written only when their id is new;
  * everyone else's dot is created at runtime (scripts/onboard.ts).
  */
 export const data = new FileFoundryDataAdapter({
   file: dataPath("foundry.json"),
-  agents: [samsDot, samsBuilder],
+  agents: [samsDot],
   conversations: [samsApp],
 });
 

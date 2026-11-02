@@ -13,7 +13,7 @@ import type {
   PromptCacheConfig,
   ResolvedPromptCache,
 } from "../core";
-import { getToolJsonSchema, resolvePromptCache } from "../core";
+import { getToolJsonSchema, latestTurnIsPersisted, resolvePromptCache } from "../core";
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
@@ -37,11 +37,13 @@ export interface OpenRouterAdapterConfig {
 /**
  * Place OpenRouter `cache_control` breakpoints on the system message and the
  * latest user turn. OpenRouter forwards these to caching upstreams (Anthropic,
- * Gemini); providers that don't support them ignore the field.
+ * Gemini); providers that don't support them ignore the field. The latest-turn
+ * breakpoint is skipped when that turn carries transient runtime context.
  */
 function applyOpenRouterCacheControl(
   messages: Array<OpenAIMessage>,
   cache: ResolvedPromptCache,
+  latestTurn: boolean = true,
 ): Array<OpenAIMessage> {
   if (!cache.enabled) return messages;
 
@@ -67,7 +69,7 @@ function applyOpenRouterCacheControl(
   const sysIdx = out.findIndex((m) => m.role === "system");
   if (sysIdx >= 0) out[sysIdx] = withBreakpoint(out[sysIdx]);
   const lastIdx = out.length - 1;
-  if (lastIdx >= 0 && lastIdx !== sysIdx && out[lastIdx].role === "user") {
+  if (latestTurn && lastIdx >= 0 && lastIdx !== sysIdx && out[lastIdx].role === "user") {
     out[lastIdx] = withBreakpoint(out[lastIdx]);
   }
   return out;
@@ -351,7 +353,7 @@ export class OpenRouterAdapter implements ModelAdapter {
       messages.push({ role: "system", content: this.systemPrompt });
     }
     messages.push(...formatMessages(request.messages));
-    messages = applyOpenRouterCacheControl(messages, this.cache);
+    messages = applyOpenRouterCacheControl(messages, this.cache, latestTurnIsPersisted(request.messages));
 
     const tools =
       request.tools?.length ? formatTools(request.tools) : undefined;

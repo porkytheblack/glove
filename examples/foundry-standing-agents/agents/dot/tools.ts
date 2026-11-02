@@ -51,22 +51,25 @@ export async function dotTools(ctx: Context): Promise<GloveFoldArgs<any>[]> {
   return [...read, ...actionsFor(ctx.agentId).map((action) => reviewed(action, review))];
 }
 
+/** Foundry's tools for the dot's builder: hand it a task, answer it, message it. */
+const BUILDER_TOOLS = ["glove_foundry_delegate", "glove_foundry_reply", "glove_foundry_message"];
+
 /**
  * The rest of the dot's tools, with the dot read fresh (a recurring schedule
  * carries the instance it was armed with). Gmail's send goes under auto-review
  * and runs the dot starts become follow-ups; on a read-only run neither is
- * there. A paused dot also loses what the person starting the run mounted:
- * Slack's post, the mailbox's writes and the mesh.
+ * there, and neither is the builder. A paused dot also loses what the person
+ * starting the run mounted: Slack's post and the mailbox's writes.
  */
 export async function configureDot(agent: IGloveRunnable, ctx: Context): Promise<void> {
   const dot = await currentDot(ctx);
-  if (dot.paused) {
-    agent.replaceTools(agent.tools.map((tool) => tool.name).filter((name) =>
-      name === "post_to_slack" || name.startsWith("glove_mesh_")
-      || (name.startsWith(`${gmailApp.id}__`) && !GMAIL_READS.includes(name.slice(gmailApp.id.length + 2)))), []);
-  }
+  const acts = !readOnly(ctx.request, dot);
+  agent.replaceTools(agent.tools.map((tool) => tool.name).filter((name) =>
+    (!acts && BUILDER_TOOLS.includes(name))
+    || (dot.paused && (name === "post_to_slack"
+      || (name.startsWith(`${gmailApp.id}__`) && !GMAIL_READS.includes(name.slice(gmailApp.id.length + 2)))))), []);
   await reviewSends(agent, ctx, dot);
-  followUps(agent, ctx.agentId, !readOnly(ctx.request, dot));
+  followUps(agent, ctx.agentId, acts);
 }
 
 interface Send { readonly routeId: string; readonly payload: { readonly to: string; readonly subject: string } }

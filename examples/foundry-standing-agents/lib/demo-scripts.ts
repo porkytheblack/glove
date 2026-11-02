@@ -1,8 +1,8 @@
 import { installedApplicationTransmissionToolName } from "glove-foundry";
 import gmailApp from "../agents/dot/apps/gmail.app.js";
 import gmail from "../agents/dot/transmissions/gmail.transmission.js";
-import { gmailRoutes } from "./connect.js";
-import { inboundEvent, meshAttribute, meshBody, resultMessage, type DemoStep, type DemoTurn } from "./demo-model.js";
+import { gmailRoutes } from "./gmail-routes.js";
+import { delegationAttribute, delegationResult, inboundEvent, resultMessage, type DemoStep, type DemoTurn } from "./demo-model.js";
 
 // What the scripted models do when there is no API key. Each script answers
 // one kind of message the way a real model would, so `pnpm verify` can drive
@@ -16,14 +16,14 @@ const SUGGESTION =
 
 const sendTool = () => installedApplicationTransmissionToolName(gmailApp, gmail);
 
-export function dotScript(person: string, { text, called, lastResult, results, context }: DemoTurn): DemoStep {
+export function dotScript(person: string, { text, called, lastResult, context }: DemoTurn): DemoStep {
   if (text.startsWith("Research time")) return research(called);
   // New mail (a Gmail event has an rfcMessageId); otherwise a Slack message.
   if (text.includes('<transmission direction="inbound"') && text.includes("rfcMessageId")) return newMail(text, called);
   if (text.includes('<transmission direction="inbound"')) return inSlack(text, called, context);
-  // Builder's reply to a job this dot sent it.
-  if (text.startsWith("<mesh-message") && meshAttribute(text, "status") === "replied") {
-    return say(`The builder finished. ${meshBody(text)}`);
+  // The builder's result for a job this dot handed it.
+  if (text.startsWith("<delegation ") && delegationAttribute(text, "status") === "completed") {
+    return say(`The builder finished. ${delegationResult(text)}`);
   }
   // A follow-up the person sets, in their time zone.
   if (/^every monday\b/i.test(text)) {
@@ -75,16 +75,15 @@ export function dotScript(person: string, { text, called, lastResult, results, c
       : `I couldn't save it. ${resultMessage(lastResult)}`);
   }
   if (/\b(build|report)\b/i.test(text)) {
-    if (!called.includes("glove_mesh_list_agents")) return call("glove_mesh_list_agents", {});
-    if (!called.includes("glove_mesh_send_message")) {
-      const builder = (JSON.parse(results[0] ?? "{}") as { data?: { agents?: Array<{ id: string; name: string }> } })
-        .data?.agents?.find((agent) => agent.name === "Builder")?.id ?? "";
-      return call("glove_mesh_send_message", {
-        to: builder,
-        content: `${text} Group this week's reports: CSV export timeouts (4), dark mode (2), Safari login loop (1, unconfirmed).`,
+    if (!called.includes("glove_foundry_delegate")) {
+      return call("glove_foundry_delegate", {
+        to: "builder",
+        task: `${text} Group this week's reports: CSV export timeouts (4), dark mode (2), Safari login loop (1, unconfirmed).`,
       });
     }
-    return say("The builder is on it. I'll check what comes back and report here.");
+    return say(/delegation_/.test(lastResult)
+      ? "The builder is on it. I'll check what comes back and report here."
+      : `I couldn't hand it to the builder. ${resultMessage(lastResult)}`);
   }
   return say("Got it. I'll watch my sources, group what comes in, and bring you what matters.");
 }

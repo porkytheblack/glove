@@ -83,8 +83,8 @@ foundry.config.ts                    defineConfig (from glove-foundry/config) â€
   never one per agent; no names or per-user settings in code; branch on
   context, not ids. An agent can change its own data with a tool
   (ctx.data.putAgent({ ...current, name, description })). Split definitions only
-  by what an agent can do or must load. A workspace is a tenant: its agents are
-  mesh peers and share workspace entries.
+  by what an agent can do or must load. A workspace is a tenant: its agents
+  share workspace entries, and with mesh they are peers.
 - Conversation (data): owned by one instance; an instance may own many.
 - Run: one message processed by a freshly assembled agent. Every run reloads the
   instance + conversation and resolves every definition field again, so instance
@@ -124,7 +124,9 @@ compactionInstructions, maxTurns, enableToolResultSummary, tools, hooks, skills,
 subagents, memory, goals, facts, forms, contextProviders, inboxes (always a
 function), subscribers, layers, calls, schedules, playbooks, mesh,
 workingEnvironment, repl, configure(agent, ctx), build(agent, ctx),
-spawn(agent, ctx, message), run(agent, ctx), mcpAdapter, accountSessions.
+spawn(agent, ctx, message), run(agent, ctx), delegates, durableSubagents,
+answerWaitMs, eventDelivery, runTimeoutMs, maxConcurrentRuns, mcpAdapter,
+accountSessions.
 An agent definition never declares request input/output â€” Foundry owns
 FoundryRequest/FoundryResult.
 
@@ -220,6 +222,14 @@ exposeToAgent? }) (exposed as a tool by default; callable via ctx.invoke).
   bindings". Transmission ids are global across agents.
 - Fire inbound events: POST /api/transmissions/:routeId/fire or client.dispatchInbound.
   Delivery is claimed idempotently by routeId:eventId.
+- One run at a time per conversation, for every way a run starts. A later run waits
+  (pending, no concurrency slot, wait not counted against its timeout) in arrival
+  order; steer's replacement goes first; schedule firings wait in their process.
+  An inbound event for a busy thread joins the running turn at its next tool step,
+  else starts the thread's next run once free. Pending inbound events are kept in
+  the data adapter until a run finishes with them and redelivered after a restart
+  (FileFoundryDataAdapter; custom adapters: optional putPendingInbound,
+  deletePendingInbound, listPendingInbound).
 - Credentials: Foundry never does OAuth, stores secrets, refreshes tokens or picks
   accounts. accessRef is opaque; your accountSessions adapter resolves it;
   outbound adapters call context.withAccountSession(operation, use).
@@ -290,18 +300,60 @@ glove-execution inside configure, with ctx.onCleanup.
 
 ## 11. Multi-agent
 
-Glove Mesh, hosted by Foundry. Agents message each other by instance id. Layered
-agents use it: an interactor (fast model, personal memory, talks to the person)
-hands slow work to workers; a team of bots passes work around.
+Layered agents (delegates). Split by how fast a part must reply, what context it
+keeps and how long it runs. The interactor (fast model, personal memory, talks to
+the person) names sibling workers by route:
 
 ```ts
-// agents/assistant/agent.ts
-mesh: true,
-// agents/dot/agent.ts: only the builder, and not on runs that must only read
-mesh: { peers: (_self, peer) => peer.definitionId === "builder", mount: (ctx) => !readOnly(ctx.request) },
-// your app: the agents are instances in the person's workspace
-await foundry.createAgent("coder", { id: "ada-coder", workspaceId: "ada", name: "Coder",
-  description: "Writes and runs code. Takes minutes. Give it the whole task." });
+delegates: [
+  { agent: "coder", description: "Writes and runs code. Takes minutes." },
+  { agent: "researcher", description: "Reads the web and cites sources." },
+],
+```
+
+- glove_foundry_delegate({ to, task }) returns { delegationId } at once. Foundry
+  creates one worker instance per interactor instance and route (id
+  "<agentId>.<route>", context copied from the interactor instance plus
+  delegatedBy) and one conversation per delegation (id = delegationId), then
+  queues the worker run with the task in <delegated-task> tags.
+- The worker's final reply is the result. glove_foundry_ask({ question }) on the
+  worker sends a question back; it waits answerWaitMs (default 90 000) in the same
+  run, then the run ends suspended (suspension.kind "question") and the answer
+  starts a new run in the same conversation. Workers need a durable store.
+- glove_foundry_reply({ delegationId, message }) answers a question or sends a
+  follow-up (reopens a finished delegation).
+- Results, questions and failures return to the delegating conversation as
+  <delegation id agent status="completed|question|failed"> messages: to a
+  ctx.onDelegationUpdate handler (voiceCall has one); else into the delegating
+  turn at its next tool step if it is still calling tools (a Glove event, saved
+  after the tool results; replies reach a working worker the same way); else,
+  after the run ends, as one new run once the conversation is free
+  (source.kind "delegation"). Open delegations are
+  in the interactor's runtime context. Updates and replies not yet handed over
+  are kept on the record (undelivered, pendingReplies) and handed over again
+  when the runtime starts. runtime.listDelegations({ agentId?,
+  conversationId?, status? }). Events: delegation.started, .question, .replied,
+  .completed, .failed, .cancelled, .delivered.
+- Do not import another agent's agent.ts; delegates are routes so the interactor
+  never loads a worker's dependencies.
+
+Durable subagents: durableSubagents: { <slot>: { agent, description?, inherit?,
+eventDelivery?, cleanup? } }. One worker per parent instance and slot, created on
+first use (route "<parent>/workers/<slot>", instance id worker_<hash>), kept with
+its own conversations, memory and files. The delegate tools address it by slot
+name; glove_foundry_message({ to, message, delivery? }) sends without a task; the
+worker answers with to: "parent". Nothing is inherited unless inherit selects it
+(context, tools, memory, apps via restrictApp). runtime.listSubagents(parentId).
+See packages/glove-foundry/docs/durable-subagents.md.
+
+Hosted mesh, for agents that already exist as instances in one workspace (a
+person's bots). Owned workers belong in delegates or durableSubagents.
+
+```ts
+// agents/bot/agent.ts: one definition, every bot an instance
+mesh: { waitMs: 60_000 },
+// your app: the bots are instances in the person's workspace
+await foundry.createAgent("bot", { id: "ada-sales", workspaceId: "ada", name: "Sales" });
 ```
 
 - mesh: true | { peers?(self, peer) => boolean, waitMs? (default 90 000),
@@ -325,23 +377,21 @@ await foundry.createAgent("coder", { id: "ada-coder", workspaceId: "ada", name: 
   live listener. blocking: true waits waitMs in-run; then the run ends
   suspended (suspension.kind "mesh") and the reply starts the next run. Open
   threads are in the starter's runtime context. Messages not yet handed over
-  are kept on the thread (undelivered, pending) and handed over again when the
-  runtime starts. runtime.listThreads({ agentId?, conversationId?, to?,
+  ride the same event journal as delegation updates and are handed over again
+  when the runtime starts. runtime.listThreads({ agentId?, conversationId?, to?,
   status? }); status working | waiting | replied | failed | cancelled. Events:
   mesh.thread.started, mesh.message.sent, mesh.thread.replied,
   mesh.thread.failed, mesh.thread.cancelled, mesh.delivered, mesh.refused.
-- Do not import another agent's agent.ts; agents reach each other by instance
-  id, so one never loads another's dependencies. Recipients need a durable store.
-
+- A mesh value with an adapter is the raw glove-mesh transport (FoundryMeshConfig).
+  Recipients need a durable store.
 Voice calls: import { voiceCall, webSocketRoom } from "glove-foundry/voice";
 run: voiceCall({ room: (ctx) => webSocketRoom({ port, token }), greeting? }) with
-model: s2sDrivenModel(...). Saves both sides to the store, speaks mesh messages
-at the next pause (max 8 s hold; announce defaults to announceMeshMessage),
-keeps glove_foundry_spawn/sleep/background/schedules/conversations/workspace/
-shared_inbox/tasks/environment and every requiresPermission tool off the call,
-ends on room end, idleMs (120 000), maxDurationMs (1 800 000) or cancel. A mesh
-run with no call live is saved to the conversation by default (offCall to
-override). A room is
+model: s2sDrivenModel(...). Saves both sides to the store, speaks delegation
+updates and mesh messages at the next pause (max 8 s hold), keeps glove_foundry_spawn/sleep/
+background/schedules/conversations/workspace/shared_inbox/tasks/environment and
+every requiresPermission tool off the call, ends on room end, idleMs (120 000),
+maxDurationMs (1 800 000) or cancel. A delegation run with no call live is saved
+to the conversation by default (offCall to override). A room is
 { open(call), close() } calling call.joined()/left(); LiveKit via
 glove-voice-livekit's LiveKitTransport + attachRealtime.
 

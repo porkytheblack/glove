@@ -1,3 +1,8 @@
+import { isDeepStrictEqual } from "node:util";
+import type { AgentEvent } from "glove-core";
+import { eventRecordId, eventDue, eventPolicySchema, messageOptionsSchema, foundryEventSchema, type FoundryEventRecord, type FoundryEventTarget, type FoundryEventPolicy, type FoundryMessageOptions } from "./event-delivery.js";
+import { deliveryEvent } from "./delegation.js";
+import { durableRoute, durableKey, durableInstanceId, agentInboxId, inheritedInstallations, type AgentMessageReceipt, type DurableMessageCommand } from "./durable-subagents.js";
 import { mkdir, rm } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
@@ -26,6 +31,7 @@ import {
   FOUNDRY_APPLICATION_ENV,
   FOUNDRY_EXECUTION_MARKER,
   FOUNDRY_RUN_PROCESS_EVENT,
+  hostedMeshOptions,
 } from "./definition.js";
 import type {
   AgentInstallation,
@@ -65,6 +71,7 @@ import {
 } from "./manifest.js";
 import { transmissionPredicate, type AnyFoundryTransmission } from "./integration.js";
 import { serializeInboundTransmissionXml } from "./transmission.js";
+import { ConversationGate } from "./conversation-gate.js";
 import { reconstructPlaybook, type AgentPlaybook } from "./playbook.js";
 import {
   definePlaybookSubscription,
@@ -98,22 +105,36 @@ import {
 import type { FoundryNativeManifest, FoundryNativeRegistry } from "./surfaces.js";
 import { FOUNDRY_CORE_COMMAND_EVENT, type FoundryCoreCommand } from "./core-tools.js";
 import {
+  FOUNDRY_CONVERSATION_LEASE_EVENT,
   FOUNDRY_CONVERSATION_LISTEN_EVENT,
   FOUNDRY_MAILBOX_DIRECTORY_ENV,
+  delegationFromContext,
   drainMailbox,
+  isDelegationId,
+  isOpenDelegation,
+  renderDelegatedTask,
+  renderDeliveries,
+  undeliveredUpdate,
+  workerAgentId,
+  writeConversationLease,
+  writeMailboxDelivery,
+  type FoundryConversationDelivery,
+  type FoundryDelegation,
+  type FoundryDelegationCommand,
+  type FoundryDelegationStatus,
+  type FoundryMeshDelivery,
+} from "./delegation.js";
+import {
   isMeshCommand,
   isOpenThread,
   isThreadId,
   meshIdentity,
   newMessageId,
-  renderMeshMessages,
   startedThreadIds,
   threadFromContext,
   threadSubject,
-  writeMailboxDelivery,
   type FoundryMeshCommand,
   type FoundryMeshMessage,
-  type FoundryMeshOptions,
   type FoundryMeshSent,
   type FoundryMeshThread,
   type FoundryMeshThreadStatus,
@@ -148,6 +169,7 @@ import {
   type FoundryDataAdapter,
   type FoundryActivationRecord,
   type FoundryMessageInput,
+  type FoundryPendingInbound,
   type FoundryRequest,
   type FoundryResult,
   type FoundryTask,
@@ -228,27 +250,42 @@ interface ResolvedExecutionConfig {
   readonly idlePollIntervalMs: number;
 }
 
-type ThreadPatch = Partial<Pick<
-  FoundryMeshThread,
-  "status" | "question" | "reply" | "error" | "messageIds" | "undelivered" | "pending"
+type DelegationPatch = Partial<Pick<
+  FoundryDelegation,
+  "status" | "question" | "result" | "error" | "undelivered" | "pendingReplies" | "pendingReplyIds" | "updateId"
 >>;
 
-/** A definition's mesh field, with `true` meaning the defaults. */
-function meshOptions(value: true | FoundryMeshOptions | undefined): FoundryMeshOptions | undefined {
-  return value === true ? {} : value;
-}
+type ThreadPatch = Partial<Pick<
+  FoundryMeshThread,
+  "status" | "question" | "reply" | "error" | "messageIds"
+>>;
 
 function clipTitle(text: string): string {
   const flat = text.replace(/\s+/g, " ").trim();
   return flat.length > 60 ? `${flat.slice(0, 59)}…` : flat;
 }
 
-/** Where a mesh message goes: one agent instance's conversation. */
+/** Where a delegation delivery or mesh message goes: one agent instance's conversation. */
 interface DeliveryTarget {
   readonly definitionId: string;
   readonly agentId: string;
   readonly conversationId: string;
   readonly workspaceId: string;
+}
+
+/** Where a run started from held deliveries came from. */
+function deliverySource(deliveries: ReadonlyArray<FoundryConversationDelivery>): FoundryRequest["source"] {
+  const first = deliveries[0]!;
+  if (first.kind === "mesh") return { kind: "mesh", id: first.message.threadId };
+  if (first.durable?.event.kind?.startsWith("delegation.")) return { kind: "delegation", id: first.durable.event.id };
+  if (first.kind === "agent-message") return { kind: "agent-message", id: first.pendingId };
+  if (deliveries.every((delivery) => delivery.kind === "transmission")) {
+    return first.kind === "transmission"
+      ? { kind: "transmission", id: first.routeId, eventId: first.eventId }
+      : { kind: "transmission" };
+  }
+  const delegation = deliveries.find((delivery) => delivery.kind !== "transmission");
+  return { kind: "delegation", ...(delegation && "delegationId" in delegation ? { id: delegation.delegationId } : {}) };
 }
 
 function deliveryText(value: unknown): string {
@@ -348,20 +385,42 @@ export class FoundryRuntime {
     "glove-foundry-mailboxes",
     randomUUID(),
   );
-  /** The run listening for mesh messages on each conversation. */
+  /** The run listening for deliveries on each conversation. */
   private readonly conversationListeners = new Map<string, string>();
   /** Runs holding each conversation, from enqueue or acquire until release. */
   private readonly conversationRuns = new Map<string, Set<string>>();
   private readonly runConversations = new Map<string, string>();
-  /** Mesh messages waiting for their conversation to be free. */
-  private readonly heldMessages = new Map<
+  /** Deliveries waiting for their conversation to be free. */
+  private readonly heldDeliveries = new Map<
     string,
-    { target: DeliveryTarget; messages: FoundryMeshMessage[] }
+    { target: DeliveryTarget; deliveries: FoundryConversationDelivery[] }
   >();
   private readonly conversationQueues = new Map<string, Promise<unknown>>();
-  /** Runs cancelled by steering: a replacement follows, so their thread stays open. */
+  /** Runs cancelled by steering: a replacement follows, so their delegation stays open. */
   private readonly steeredRuns = new Set<string>();
+  /** One run at a time per conversation; the next starts once the one ahead has let go. */
+  private readonly gate = new ConversationGate({
+    idle: (conversationId) => {
+      void this.inConversation(conversationId, () => this.flushHeldDeliveries(conversationId))
+        .catch((cause) => this.reportDeliveryFailure(conversationId, cause));
+    },
+    failed: (conversationId, runId, cause) => {
+      this.observability.append({
+        type: "conversation.run.start-failed",
+        category: "system",
+        runId,
+        data: { conversationId, error: cause instanceof Error ? cause.message : String(cause) },
+      });
+    },
+  });
+  /** Pending inbound records each run is handling, so they are cleared when it settles. */
+  private readonly eventTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private readonly completedEventRuns = new Map<string, ReadonlySet<string>>();
+  private readonly pendingInboundByRun = new Map<string, Set<string>>();
+  /** Recently settled runs, for a record assigned to a run that already finished. */
+  private readonly settledRuns = new Set<string>();
   private started = false;
+  private stopping = false;
   private disposed = false;
 
   constructor(options: FoundryRuntimeOptions) {
@@ -449,6 +508,15 @@ export class FoundryRuntime {
           if (state === "on" || state === "off") this.trackConversationListener(event.run, state);
           return;
         }
+        if (event.type === FOUNDRY_CONVERSATION_LEASE_EVENT) {
+          const conversationId = this.toFoundryRun(event.run).conversationId;
+          if (!conversationId) return;
+          const runId = event.run.id;
+          void this.gate.claim(conversationId, runId)
+            .then(() => writeConversationLease(this.mailboxDirectory, runId))
+            .catch((cause) => this.reportDeliveryFailure(conversationId, cause));
+          return;
+        }
         if (event.type === FOUNDRY_CORE_COMMAND_EVENT) {
           void this.executeCoreCommand(event.data as FoundryCoreCommand, event.run.id).catch((cause) => {
             this.observability.append({
@@ -464,7 +532,7 @@ export class FoundryRuntime {
       (settled) => {
         void this.handleRunSettled(settled).catch((cause) => {
           this.observability.append({
-            type: "mesh.failed-to-report",
+            type: "delegation.failed-to-report",
             category: "system",
             agent: settled.route,
             runId: settled.run.id,
@@ -600,6 +668,7 @@ export class FoundryRuntime {
         ]);
         await this.seedTopology();
         for (const instance of await this.listAgentInstances()) {
+          if (instance.durableSubagent) continue;
           if (!this.byRoute.has(instance.definitionId)) {
             throw new Error(
               `Agent instance "${instance.id}" references unknown definition "${instance.definitionId}".`,
@@ -621,7 +690,9 @@ export class FoundryRuntime {
         await this.reconstructActivations();
         this.runInBackground("signal", this.signalRunner.start());
         await this.reconcileApplicationConnections();
-        void this.redeliverThreads().catch((cause) => this.reportDeliveryFailure("startup", cause));
+        // Restore queued deliveries before repairing tasks that have no delivery record.
+        void this.redeliverInbound().then(() => this.redeliverDelegations()).then(() => this.redeliverThreads()).then(() => this.redeliverEvents())
+          .catch((cause) => this.reportDeliveryFailure("startup", cause));
       } catch (cause) {
         try {
           await this.stop();
@@ -650,6 +721,9 @@ export class FoundryRuntime {
         this.disposed = true;
         return;
       }
+      this.stopping = true;
+      for (const timer of this.eventTimers.values()) clearTimeout(timer);
+      this.eventTimers.clear();
       for (const timer of this.activationTimers.values()) clearTimeout(timer);
       this.activationTimers.clear();
       this.activationDispatches.clear();
@@ -678,6 +752,7 @@ export class FoundryRuntime {
   requestEffect(
     route: string,
     request: FoundryRequest,
+    options: { readonly front?: boolean } = {},
   ): Effect.Effect<FoundryRun, FoundryRuntimeError> {
     return promiseEffect("agent.request", async () => {
       if (!this.started) throw new Error("Foundry runtime is not started.");
@@ -685,6 +760,7 @@ export class FoundryRuntime {
       if (!discovered) throw new Error(`Foundry agent "${route}" was not found.`);
       const agent = await Effect.runPromise(this.data.getAgent(request.agentId));
       if (!agent) throw new Error(`Foundry agent instance "${request.agentId}" was not found.`);
+      await this.assertDurableActive(agent);
       if (agent.definitionId !== route) {
         throw new Error(`Agent instance "${request.agentId}" uses definition "${agent.definitionId}", not "${route}".`);
       }
@@ -699,10 +775,7 @@ export class FoundryRuntime {
         ...conversation,
         updatedAt: new Date().toISOString(),
       })));
-      const runId = await this.signalRunner.triggerSignal(
-        discovered.executionName,
-        await this.executionEnvelope(request),
-      );
+      const runId = await this.admitRun(discovered.executionName, request, options);
       const run = await this.signalRunner.getRun(runId);
       if (!run) throw new Error(`Foundry failed to create run "${runId}".`);
       return this.toFoundryRun(run);
@@ -721,6 +794,7 @@ export class FoundryRuntime {
     definitionId: string,
     options: CreateAgentInstanceOptions = {},
   ): Promise<AgentInstance> {
+    if (definitionId.includes("/workers/") || options.durableSubagent) throw new Error("Create durable workers through subagent(parentAgentId, name).");
     if (!this.byRoute.has(definitionId)) {
       throw new Error(`Foundry agent definition "${definitionId}" was not found.`);
     }
@@ -736,6 +810,219 @@ export class FoundryRuntime {
     this.observability.append({ type: "agent.instance.created", category: "agent", agent: definitionId, data: agent });
     if (this.started) await this.reconcileApplicationConnections();
     return agent;
+  }
+
+  /** Provision exactly one owned worker per parent instance and declared slot. */
+  subagent(parentAgentId: string, name: string): Promise<AgentInstance> {
+    return this.inConversation("durable:mutations", () => this.ensureSubagent(parentAgentId, name));
+  }
+
+  private async ensureSubagent(parentAgentId: string, name: string): Promise<AgentInstance> {
+    const parent = await Effect.runPromise(this.data.getAgent(parentAgentId));
+    if (!parent) throw new Error(`Parent agent "${parentAgentId}" does not exist.`);
+    await this.assertDurableActive(parent);
+    const selection = this.byRoute.get(parent.definitionId)?.definition.durableSubagents?.[name];
+    if (!selection || !Object.hasOwn(this.byRoute.get(parent.definitionId)!.definition.durableSubagents ?? {}, name)) throw new Error(`Agent "${parentAgentId}" has no durable worker "${name}".`);
+    const route = durableRoute(parent.definitionId, name);
+    const child = await Effect.runPromise(this.data.provisionAgent({
+      id: durableInstanceId(parent.id, name),
+      definitionId: route,
+      provisioningKey: durableKey(parent.id, name),
+      workspaceId: parent.workspaceId,
+      context: selection.inherit?.context ? parent.context : {},
+      durableSubagent: { parentAgentId: parent.id, name, status: "active" },
+    }));
+    if (child.definitionId !== route || child.workspaceId !== parent.workspaceId || child.durableSubagent?.parentAgentId !== parent.id || child.durableSubagent.name !== name) throw new Error("Durable worker ownership conflict.");
+    await this.assertDurableActive(child);
+    return child;
+  }
+
+  async listSubagents(parentAgentId: string): Promise<ReadonlyArray<AgentInstance>> {
+    return (await this.listAgentInstances()).filter((agent) => agent.durableSubagent?.parentAgentId === parentAgentId);
+  }
+
+  private async assertDurableActive(agent: AgentInstance): Promise<void> {
+    if (agent.definitionId.includes("/workers/") && !agent.durableSubagent) throw new Error("Durable worker ownership is missing.");
+    const seen = new Set<string>();
+    let current = agent;
+    while (current.durableSubagent) {
+      if (seen.has(current.id)) throw new Error("Cyclic durable worker ownership.");
+      seen.add(current.id);
+      const ownership = current.durableSubagent;
+      if (ownership.status !== "active") throw new Error(`Durable worker "${current.id}" is ${ownership.status}.`);
+      const parent = await Effect.runPromise(this.data.getAgent(ownership.parentAgentId));
+      if (!parent || parent.workspaceId !== current.workspaceId || !this.byRoute.get(parent.definitionId)?.definition.durableSubagents?.[ownership.name] || current.definitionId !== durableRoute(parent.definitionId, ownership.name)) throw new Error(`Durable worker "${current.id}" is detached from its definition or parent.`);
+      current = parent;
+    }
+  }
+
+  private async effectiveAgent(agent: AgentInstance): Promise<AgentInstance> {
+    await this.assertDurableActive(agent);
+    if (!agent.durableSubagent) return agent;
+    const parent = await this.effectiveAgent((await Effect.runPromise(this.data.getAgent(agent.durableSubagent.parentAgentId)))!);
+    const definition = this.byRoute.get(agent.definitionId)!.definition;
+    const selection = this.byRoute.get(parent.definitionId)!.definition.durableSubagents![agent.durableSubagent.name]!;
+    const inheritedIds = new Set((selection.inherit?.apps ?? []).map((app) => typeof app === "string" ? app : app.id));
+    return { ...agent, installations: [
+      ...agent.installations.filter((item) => item.kind !== "application" || !inheritedIds.has(item.id)),
+      ...inheritedInstallations(parent, definition, selection),
+    ] };
+  }
+
+  private async ensureAgentEventConversation(agent: AgentInstance): Promise<Conversation> {
+    const id = agentInboxId(agent.id);
+    return this.inConversation(`agent-events:${id}`, async () => {
+      const existing = await Effect.runPromise(this.data.getConversation(id));
+      if (existing) {
+        if (existing.agentId !== agent.id || existing.workspaceId !== agent.workspaceId) throw new Error("Agent event conversation ownership conflict.");
+        return existing;
+      }
+      return this.createConversation(agent.id, { id, title: "Agent events" });
+    });
+  }
+
+  /** A message to an owned worker, independent of any delegated task. */
+  async messageSubagent(parentAgentId: string, name: string, message: string, options: FoundryMessageOptions = {}): Promise<AgentMessageReceipt> {
+    return this.inConversation("durable:mutations", async () => {
+      const child = await this.ensureSubagent(parentAgentId, name);
+      return this.postAgentMessage(child, message, parentAgentId, options.id, options);
+    });
+  }
+
+  private async postAgentMessage(target: AgentInstance, message: string, from: string, messageId = `message_${randomUUID()}`, options: FoundryMessageOptions = {}, replyTo?: FoundryEventTarget): Promise<AgentMessageReceipt> {
+    options = messageOptionsSchema.parse(options);
+    if (typeof message !== "string" || !message.trim()) throw new Error("Agent messages must not be empty.");
+    const conversationId = options.conversationId ?? (await this.ensureAgentEventConversation(target)).id;
+    return this.acceptEvent({ agentId: target.id, conversationId }, {
+      id: options.id ?? messageId, source: `foundry:agent:${from}`, kind: "agent-message", content: message,
+      ...(options.expiresAt ? { expiresAt: options.expiresAt } : {}), metadata: { from, ...(replyTo ? { replyTo } : {}) },
+    }, options);
+  }
+
+  /** Persist a spontaneous event before dispatching it to one exact runtime context. */
+  async emitEvent(target: FoundryEventTarget, event: AgentEvent, policy: FoundryEventPolicy = {}): Promise<AgentMessageReceipt> {
+    return this.inConversation("durable:mutations", () => this.acceptEvent(target, event, policy));
+  }
+
+  private async acceptEvent(target: FoundryEventTarget, event: AgentEvent, policy: FoundryEventPolicy): Promise<AgentMessageReceipt> {
+    foundryEventSchema.parse(event);
+    eventPolicySchema.parse(policy);
+    const agent = await Effect.runPromise(this.data.getAgent(target.agentId));
+    const conversation = await Effect.runPromise(this.data.getConversation(target.conversationId));
+    if (!agent || conversation?.agentId !== agent.id || conversation.workspaceId !== agent.workspaceId) throw new Error("Event target must name a conversation owned by the addressed agent.");
+    await this.assertDurableActive(agent);
+    const defaults = this.byRoute.get(agent.definitionId)?.definition.eventDelivery;
+    const resolved = eventPolicySchema.parse({ ...defaults, ...(event.whenIdle && event.whenIdle !== "auto" ? { whenIdle: event.whenIdle } : {}), ...policy });
+    const id = eventRecordId(target, event.id);
+    await this.deliver({ ...target, definitionId: agent.definitionId, workspaceId: agent.workspaceId }, [{
+      kind: "agent-message", pendingId: id,
+      message: typeof event.content === "string" ? event.content : JSON.stringify(event.content),
+      durable: { id, event, policy: resolved },
+    }]);
+    const record = (await Effect.runPromise(this.data.listEvents!())).find((item) => item.id === id);
+    return { messageId: event.id, ...target, ...(record?.runId ? { runId: record.runId } : {}) };
+  }
+
+  private async executeAgentMessage(command: DurableMessageCommand): Promise<AgentMessageReceipt> {
+    return this.inConversation("durable:mutations", async () => {
+      const sender = await Effect.runPromise(this.data.getAgent(command.agentId));
+      const conversation = await Effect.runPromise(this.data.getConversation(command.conversationId));
+      if (!sender || sender.definitionId !== command.definitionId || sender.workspaceId !== command.workspaceId || conversation?.agentId !== sender.id) throw new Error("Invalid agent message sender.");
+      await this.assertDurableActive(sender);
+      const target = command.to === "parent"
+        ? sender.durableSubagent && await Effect.runPromise(this.data.getAgent(sender.durableSubagent.parentAgentId))
+        : await this.ensureSubagent(sender.id, command.to);
+      if (!target || target.workspaceId !== sender.workspaceId) throw new Error("Agent message recipient is not an owned worker or parent.");
+      return this.postAgentMessage(target, command.message, sender.id, command.id, command.delivery, { agentId: sender.id, conversationId: command.conversationId });
+    });
+  }
+
+  /** Inspect owned records without provisioning or requiring the declaration to still exist. */
+  async subagentData(parentAgentId: string, name: string) {
+    const agent = (await this.listSubagents(parentAgentId)).find((item) => item.durableSubagent?.name === name);
+    if (!agent) throw new Error(`Durable worker "${name}" was not found.`);
+    const conversations = await Effect.runPromise(this.data.listConversations(agent.id));
+    return {
+      agent, conversations,
+      events: this.data.listEvents ? (await Effect.runPromise(this.data.listEvents())).filter((item) => item.target.agentId === agent.id) : [],
+      children: await this.listSubagents(agent.id),
+      activations: (await Effect.runPromise(this.data.listActivations(agent.workspaceId))).filter((item) => item.agentId === agent.id),
+      pendingMessages: this.data.listPendingInbound ? (await Effect.runPromise(this.data.listPendingInbound())).filter((item) => item.request.agentId === agent.id) : [],
+      tasks: (await Effect.runPromise(this.data.listTasks(agent.workspaceId))).filter((item) => item.agentId === agent.id),
+      inbox: (await Effect.runPromise(this.data.listInboxItems(agent.workspaceId))).filter((item) => item.agentId === agent.id),
+    };
+  }
+
+  async archiveSubagent(parentAgentId: string, name: string): Promise<AgentInstance> {
+    return this.inConversation("durable:mutations", async () => {
+      const { agent } = await this.subagentData(parentAgentId, name);
+      const archive = async (current: AgentInstance): Promise<AgentInstance> => {
+        if (current.durableSubagent!.status === "purged") return current;
+        const archived = { ...current, durableSubagent: { ...current.durableSubagent!, status: "archived" as const }, updatedAt: new Date().toISOString() };
+        await Effect.runPromise(this.data.putAgent(archived));
+        for (const child of await this.listSubagents(current.id)) await archive(child);
+        await this.withActivationTransition(async () => {
+          for (const activation of await Effect.runPromise(this.data.listActivations(current.workspaceId))) {
+            if (activation.agentId !== current.id || ["cancelled", "completed"].includes(activation.status)) continue;
+            await this.disarmActivation(activation);
+            await Effect.runPromise(this.data.putActivation({ ...activation, status: "paused", updatedAt: new Date().toISOString() }));
+          }
+        });
+        for (const conversation of await Effect.runPromise(this.data.listConversations(current.id))) {
+          this.heldDeliveries.delete(conversation.id);
+          this.conversationListeners.delete(conversation.id);
+          await drainMailbox(this.mailboxDirectory, conversation.id);
+        }
+        for (const run of await this.listRuns(current.definitionId)) {
+          if (run.agentId === current.id && !["completed", "cancelled", "failed"].includes(run.status)) {
+            await this.cancel(run.id);
+            const settled = await this.waitForRun(run.id, { timeoutMs: 30_000 });
+            if (settled && !["completed", "cancelled", "failed"].includes(settled.status)) throw new Error("Worker is still stopping; retry archival before purging.");
+            if (settled) await this.waitForRunProcessRelease(settled, current.definitionId);
+          }
+        }
+        return archived;
+      };
+      const archived = await archive(agent);
+      if (this.started) await this.reconcileApplicationConnections();
+      this.observability.append({ type: "agent.subagent.archived", category: "agent", agent: agent.definitionId, data: { agentId: agent.id } });
+      return archived;
+    });
+  }
+
+  async resumeSubagent(parentAgentId: string, name: string): Promise<AgentInstance> {
+    return this.inConversation("durable:mutations", async () => {
+      const { agent } = await this.subagentData(parentAgentId, name);
+      if (agent.durableSubagent!.status === "purged") throw new Error("A purged worker cannot be resumed.");
+      if (agent.durableSubagent!.status === "active") return agent;
+      const resumed = { ...agent, durableSubagent: { ...agent.durableSubagent!, status: "active" as const }, updatedAt: new Date().toISOString() };
+      await this.assertDurableActive(resumed);
+      await Effect.runPromise(this.data.putAgent(resumed));
+      for (const pending of this.data.listPendingInbound ? await Effect.runPromise(this.data.listPendingInbound()) : []) {
+        if (pending.request.agentId === agent.id) await this.admitInbound(pending);
+      }
+      await this.redeliverEvents(agent.id);
+      return resumed;
+    });
+  }
+
+  /** Purge requires archival and an explicit application cleanup hook. Shared data is never passed to it. */
+  async purgeSubagent(parentAgentId: string, name: string): Promise<void> {
+    return this.inConversation("durable:mutations", async () => {
+      const { agent, conversations, children } = await this.subagentData(parentAgentId, name);
+      if (agent.durableSubagent!.status === "purged") return;
+      if (agent.durableSubagent!.status !== "archived") throw new Error("Archive the worker before purging it.");
+      const running = (await this.listRuns(agent.definitionId)).some((run) => run.agentId === agent.id && !["completed", "failed", "cancelled"].includes(run.status));
+      if (running) throw new Error("Wait for worker runs to stop before purging.");
+      if (children.some((child) => child.durableSubagent?.status !== "purged")) throw new Error("Purge owned child workers first.");
+      if (!this.data.purgeAgentData) throw new Error("The data adapter does not support purging agent data.");
+      const parent = await Effect.runPromise(this.data.getAgent(parentAgentId));
+      const selection = parent && this.byRoute.get(parent.definitionId)?.definition.durableSubagents?.[name];
+      if (!selection?.cleanup) throw new Error("Define an idempotent durable subagent cleanup hook to purge private external memory, transcripts, and files. Keep the declaration until cleanup completes.");
+      await selection.cleanup({ agent, conversationIds: conversations.map((item) => item.id) });
+      await Effect.runPromise(this.data.purgeAgentData(agent.id));
+      this.observability.append({ type: "agent.subagent.purged", category: "agent", agent: agent.definitionId, data: { agentId: agent.id } });
+    });
   }
 
   async createConversation(
@@ -834,6 +1121,7 @@ export class FoundryRuntime {
   ): Promise<AgentInstance> {
     const current = await Effect.runPromise(this.data.getAgent(agentId));
     if (!current) throw new Error(`Foundry agent instance "${agentId}" was not found.`);
+    await this.assertDurableActive(current);
     const installations = options.installations
       ? normalizeAgentInstallations(options.installations)
       : current.installations;
@@ -1076,6 +1364,11 @@ export class FoundryRuntime {
     runId: string,
     options?: { pollMs?: number; timeoutMs?: number },
   ): Promise<FoundryRun<TOutput> | null> {
+    // Time spent waiting for the conversation does not count against the
+    // wait: the timeout is for the run itself, which has not started yet.
+    while (this.gate.waiting(runId)) {
+      await new Promise((resolveWait) => setTimeout(resolveWait, options?.pollMs ?? 100));
+    }
     const run = await this.signalRunner.waitForRun(runId, options);
     return run ? this.toFoundryRun<TOutput>(run) : null;
   }
@@ -1141,28 +1434,44 @@ export class FoundryRuntime {
       throw new Error(`Foundry run "${runId}" does not expose an agent conversation to steer.`);
     }
     const active = source.status === "pending" || source.status === "running";
-    if (active) this.steeredRuns.add(runId);
-    const interrupted = active ? await this.cancel(runId) : false;
-    if (!interrupted) this.steeredRuns.delete(runId);
-    if (interrupted) {
-      const terminal = await this.waitForRun(runId, {
-        pollMs: 25,
-        timeoutMs: Math.min(Math.max(source.timeoutMs, 1_000), 30_000),
-      });
-      if (!terminal || (terminal.status === "pending" || terminal.status === "running")) {
-        throw new Error(`Foundry could not reach a safe steering boundary for run "${runId}".`);
+    // Nothing else on the conversation starts between the cancel and the
+    // replacement, which goes ahead of anything already waiting.
+    const release = this.gate.hold(source.conversationId);
+    let run: FoundryRun<FoundryResult>;
+    let interrupted = false;
+    try {
+      if (active) this.steeredRuns.add(runId);
+      interrupted = active ? await this.cancel(runId) : false;
+      if (!interrupted) this.steeredRuns.delete(runId);
+      if (interrupted) {
+        const terminal = await this.waitForRun(runId, {
+          pollMs: 25,
+          timeoutMs: Math.min(Math.max(source.timeoutMs, 1_000), 30_000),
+        });
+        if (!terminal || (terminal.status === "pending" || terminal.status === "running")) {
+          throw new Error(`Foundry could not reach a safe steering boundary for run "${runId}".`);
+        }
+        // Station marks the run cancelled before its process exits, so the
+        // replacement must also wait for that process to let go of the conversation.
+        await this.waitForRunProcessRelease(terminal, source.agent);
       }
-      // Station marks the run cancelled before its process exits, so the
-      // replacement must also wait for that process to let go of the conversation.
-      await this.waitForRunProcessRelease(terminal, source.agent);
+      const agent = await Effect.runPromise(this.data.getAgent(source.agentId));
+      if (!agent) throw new Error(`Foundry agent instance "${source.agentId}" was not found.`);
+      run = await Effect.runPromise(this.requestEffect(agent.definitionId, {
+        agentId: source.agentId,
+        conversationId: source.conversationId,
+        workspaceId: agent.workspaceId,
+        message,
+        context: {
+          protocol: "foundry-control",
+          steeredFromRunId: runId,
+          steeringMode: "interrupt-and-restart",
+        },
+        source: { kind: "direct" },
+      }, { front: true })) as FoundryRun<FoundryResult>;
+    } finally {
+      release();
     }
-    const run = await this.send(source.agentId, source.conversationId, message, {
-      context: {
-        protocol: "foundry-control",
-        steeredFromRunId: runId,
-        steeringMode: "interrupt-and-restart",
-      },
-    });
     this.observability.append({
       type: "run.steered",
       category: "system",
@@ -1288,6 +1597,7 @@ export class FoundryRuntime {
     if (!agent) {
       throw new Error(`Foundry agent instance "${agentId}" was not found.`);
     }
+    await this.assertDurableActive(agent);
     this.assertRegisteredInstallation(agent.definitionId, installation);
     const installations = normalizeAgentInstallations([
       ...agent.installations,
@@ -1470,9 +1780,11 @@ export class FoundryRuntime {
     const eventName = classifiedEvent?.id ?? inferredEventName ?? "event";
     const instances = await this.listAgentInstances();
     const runs: FoundryRun[] = [];
-    const deliveries: Array<{ agentId: string; playbookIds: string[]; runId: string }> = [];
+    const deliveries: Array<{ agentId: string; playbookIds: string[]; runId?: string }> = [];
     const matchedByAgent = new Map<string, { agent: AgentInstance; playbooks: AgentPlaybook[] }>();
-    for (const agent of instances) {
+    for (const stored of instances) {
+      let agent: AgentInstance;
+      try { agent = await this.effectiveAgent(stored); } catch { if (stored.durableSubagent) continue; throw new Error(`Cannot resolve agent "${stored.id}".`); }
       const installedApplications = new Set(
         agent.installations
           .filter((installation) => installation.kind === "application")
@@ -1482,6 +1794,7 @@ export class FoundryRuntime {
         this.compositionByDefinition.get(agent.definitionId)?.capabilities.applications ?? []
       ).some((application) =>
         installedApplications.has(application.id) &&
+        (!application.restrictions || application.restrictions.transmissions?.includes(integration.id)) &&
         application.transmissions?.some(
           (candidate) => candidate.id === integration.id && candidate.inbound,
         ),
@@ -1588,29 +1901,34 @@ export class FoundryRuntime {
             event,
             playbooks: matched,
           });
-      const run = await this.request(agent.definitionId, {
-        agentId: agent.id,
-        conversationId: conversation.id,
-        workspaceId: agent.workspaceId,
-        message: eventMessage,
-        payload: event,
-        context: {
-          playbookIds: matched.map((playbook) => playbook.id),
-          outbound: matched.flatMap((playbook) => playbook.outbound ?? []),
-        },
-        source: {
-          kind: "transmission",
-          id: route.id,
-          provider: route.transmissionId,
-          eventId: input.eventId,
-          threadKey: input.threadKey,
+      const run = await this.admitInbound({
+        id: `${claim}:${agent.id}`,
+        definitionId: agent.definitionId,
+        createdAt: new Date().toISOString(),
+        request: {
+          agentId: agent.id,
+          conversationId: conversation.id,
+          workspaceId: agent.workspaceId,
+          message: eventMessage,
+          payload: event,
+          context: {
+            playbookIds: matched.map((playbook) => playbook.id),
+            outbound: matched.flatMap((playbook) => playbook.outbound ?? []),
+          },
+          source: {
+            kind: "transmission",
+            id: route.id,
+            provider: route.transmissionId,
+            eventId: input.eventId,
+            threadKey: input.threadKey,
+          },
         },
       });
-      runs.push(run);
+      if (run && !runs.some((item) => item.id === run.id)) runs.push(run);
       deliveries.push({
         agentId: agent.id,
         playbookIds: matched.map((playbook) => playbook.id),
-        runId: run.id,
+        ...(run ? { runId: run.id } : {}),
       });
     }
     await Effect.runPromise(
@@ -1647,7 +1965,8 @@ export class FoundryRuntime {
         `Outbound route "${route.id}" does not belong to transmission "${input.transmissionId}".`,
       );
     }
-    const agent = await Effect.runPromise(this.data.getAgent(input.agentId));
+    const storedAgent = await Effect.runPromise(this.data.getAgent(input.agentId));
+    const agent = storedAgent ? await this.effectiveAgent(storedAgent) : null;
     if (!agent) {
       throw new Error(`Agent instance "${input.agentId}" does not exist.`);
     }
@@ -1675,6 +1994,11 @@ export class FoundryRuntime {
         );
       }
     }
+    const owners = this.compositionByDefinition.get(agent.definitionId)?.capabilities.applications.filter((app) =>
+      (!input.applicationId || app.id === input.applicationId) && agent.installations.some((item) => item.kind === "application" && item.id === app.id)
+      && app.transmissions?.some((transmission) => transmission.id === route.transmissionId)) ?? [];
+    if (owners.length && !owners.some((app) => !app.restrictions || app.restrictions.transmissions?.includes(route.transmissionId))) throw new Error("Application restrictions deny this outbound transmission.");
+    if (agent.durableSubagent && !owners.length) throw new Error("Durable workers require an installed application for outbound transmissions.");
     const grant = await this.resolveGrant({
       runId: input.runId as RunId,
       agentId: input.agentId as AgentId,
@@ -1704,7 +2028,9 @@ export class FoundryRuntime {
             withAccountSession: <A>(
               operation: string,
               use: (session: unknown) => Effect.Effect<A, unknown, never>,
-            ) => accountSessions.withSession({
+            ) => owners.length && !owners.some((app) => !app.restrictions || (app.restrictions.transmissions?.includes(route.transmissionId) && app.restrictions.operations?.includes(operation)))
+              ? Effect.fail(new Error(`Application restrictions deny account operation "${operation}".`))
+              : accountSessions.withSession({
               accountId: account.id,
               operation,
               agentId: agent.id,
@@ -1965,7 +2291,9 @@ export class FoundryRuntime {
         });
       }
     }
-    for (const agent of await this.listAgentInstances()) {
+    for (const stored of await this.listAgentInstances()) {
+      let agent: AgentInstance;
+      try { agent = await this.effectiveAgent(stored); } catch { if (stored.durableSubagent) continue; throw new Error(`Cannot resolve agent "${stored.id}".`); }
       const installedApplications = new Set(
         agent.installations
           .filter((installation) => installation.kind === "application")
@@ -1990,6 +2318,7 @@ export class FoundryRuntime {
       const composition = this.compositionByDefinition.get(requirement.definitionId);
       if (!composition) continue;
       for (const application of composition.capabilities.applications) {
+        if (application.restrictions && !application.restrictions.transmissions?.includes(requirement.playbook.transmissionId)) continue;
         if (
           requirement.installedApplications &&
           !requirement.installedApplications.has(application.id)
@@ -2099,7 +2428,7 @@ export class FoundryRuntime {
           (candidate) => candidate.id === playbook.transmissionId && candidate.inbound,
         ),
       );
-      if (!inboundOwners.some((application) => installedApplications.has(application.id))) {
+      if (!inboundOwners.some((application) => installedApplications.has(application.id) && (!application.restrictions || application.restrictions.transmissions?.includes(playbook.transmissionId)))) {
         throw new Error(
           `Playbook "${playbook.id}" requires an installed application that owns inbound transmission "${playbook.transmissionId}".`,
         );
@@ -2304,47 +2633,40 @@ export class FoundryRuntime {
     }
   }
 
-  // ── Mesh ────────────────────────────────────────────────────────────────
+  // ── Delegation ──────────────────────────────────────────────────────────
   //
-  // Agents message each other by instance id. A new message starts a thread:
-  // a conversation on the recipient whose context carries the record. Messages
-  // in a thread go to the other side's conversation. Each one reaches a run
-  // that is listening on that conversation, or waits until the conversation is
-  // free and starts one run carrying everything that arrived meanwhile.
+  // A delegation is a worker conversation whose context carries the record.
+  // Results and questions go back to the delegating conversation, replies go
+  // to the worker. Each delivery reaches a run that is listening on the
+  // conversation, or waits until the conversation is free and starts one run
+  // carrying everything that arrived meanwhile.
 
-  /** Every thread, newest first, optionally narrowed to who started it or who it went to. */
-  async listThreads(filter: {
-    /** The agent that started the thread. */
+  /** Every delegation, newest first, optionally narrowed to one delegating conversation. */
+  async listDelegations(filter: {
     readonly agentId?: string;
-    /** The conversation that started the thread. */
     readonly conversationId?: string;
-    /** The agent the thread was sent to. */
-    readonly to?: string;
-    readonly status?: FoundryMeshThreadStatus;
-  } = {}): Promise<ReadonlyArray<FoundryMeshThread>> {
-    const found: FoundryMeshThread[] = [];
+    readonly status?: FoundryDelegationStatus;
+  } = {}): Promise<ReadonlyArray<FoundryDelegation>> {
+    const found: FoundryDelegation[] = [];
     for (const agent of await Effect.runPromise(this.data.listAgents())) {
-      if (filter.to && agent.id !== filter.to) continue;
       for (const conversation of await Effect.runPromise(this.data.listConversations(agent.id))) {
-        const thread = threadFromContext(conversation.context);
-        if (!thread || thread.to.agentId !== agent.id || thread.id !== conversation.id) continue;
-        if (filter.agentId && thread.from.agentId !== filter.agentId) continue;
-        if (filter.conversationId && thread.from.conversationId !== filter.conversationId) continue;
-        if (filter.status && thread.status !== filter.status) continue;
-        found.push(thread);
+        const delegation = delegationFromContext(conversation.context);
+        if (!delegation || delegation.workerAgentId !== agent.id) continue;
+        if (filter.agentId && delegation.from.agentId !== filter.agentId) continue;
+        if (filter.conversationId && delegation.from.conversationId !== filter.conversationId) continue;
+        if (filter.status && delegation.status !== filter.status) continue;
+        found.push(delegation);
       }
     }
     return found.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
 
-  /** The open threads a conversation started, oldest first. */
-  private async openThreadsFrom(conversation: Conversation): Promise<ReadonlyArray<FoundryMeshThread>> {
-    const open: FoundryMeshThread[] = [];
-    for (const id of startedThreadIds(conversation.context)) {
-      const thread = await this.loadThread(id);
-      if (thread && thread.from.conversationId === conversation.id && isOpenThread(thread)) open.push(thread);
-    }
-    return open.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  private async openDelegationsFrom(
+    agentId: string,
+    conversationId: string,
+  ): Promise<ReadonlyArray<FoundryDelegation>> {
+    return (await this.listDelegations({ agentId, conversationId })).filter(isOpenDelegation)
+      .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
   }
 
   /** Run work for one conversation after the work already queued for it. */
@@ -2387,7 +2709,7 @@ export class FoundryRuntime {
         this.conversationListeners.delete(conversationId);
         await this.reclaimMailbox(conversationId);
       }
-      await this.flushHeldMessages(conversationId);
+      await this.flushHeldDeliveries(conversationId);
     }).catch((cause) => this.reportDeliveryFailure(conversationId, cause));
   }
 
@@ -2398,30 +2720,37 @@ export class FoundryRuntime {
       if (state === "on") {
         this.conversationListeners.set(conversationId, run.id);
         // Anything held while the conversation was busy goes to the listener.
-        const held = this.heldMessages.get(conversationId);
+        const held = this.heldDeliveries.get(conversationId);
         if (held) {
-          this.heldMessages.delete(conversationId);
-          for (const message of held.messages) {
-            await writeMailboxDelivery(this.mailboxDirectory, conversationId, message);
+          this.heldDeliveries.delete(conversationId);
+          for (const delivery of held.deliveries) {
+            await writeMailboxDelivery(this.mailboxDirectory, conversationId, delivery);
           }
+          await this.markHandedOver(held.deliveries, run.id);
         }
         return;
       }
       if (this.conversationListeners.get(conversationId) !== run.id) return;
       this.conversationListeners.delete(conversationId);
       await this.reclaimMailbox(conversationId);
-      await this.flushHeldMessages(conversationId);
+      await this.flushHeldDeliveries(conversationId);
     }).catch((cause) => this.reportDeliveryFailure(conversationId, cause));
   }
 
-  /** Take back messages a listener did not read, to deliver as a run. */
+  /** Take back deliveries a listener did not read, to deliver as a run. */
   private async reclaimMailbox(conversationId: string): Promise<void> {
-    const messages = (await drainMailbox(this.mailboxDirectory, conversationId))
-      .filter((message) => message.kind !== "ack");
-    if (messages.length === 0) return;
+    // A mesh read receipt only matters to a run that was waiting for it.
+    const deliveries = (await drainMailbox(this.mailboxDirectory, conversationId))
+      .filter((delivery) => !(delivery.kind === "mesh" && delivery.message.kind === "ack"));
+    if (deliveries.length === 0) return;
     const target = await this.deliveryTargetFor(conversationId);
     if (!target) return;
-    this.holdMessages(target, messages);
+    // An event the run never read waits for the conversation's next run.
+    for (const delivery of deliveries) {
+      if (delivery.kind === "transmission" || delivery.kind === "agent-message") await this.assignPendingInbound(delivery.pendingId, undefined);
+    }
+    await this.markHandedOver(deliveries, undefined);
+    this.holdDeliveries(target, deliveries);
   }
 
   private async deliveryTargetFor(conversationId: string): Promise<DeliveryTarget | null> {
@@ -2433,97 +2762,587 @@ export class FoundryRuntime {
       definitionId: agent.definitionId,
       agentId: agent.id,
       conversationId,
-      workspaceId: agent.workspaceId,
+      workspaceId: conversation.workspaceId,
     };
   }
 
-  private holdMessages(target: DeliveryTarget, messages: ReadonlyArray<FoundryMeshMessage>): void {
-    const held = this.heldMessages.get(target.conversationId);
-    if (held) held.messages.push(...messages);
-    else this.heldMessages.set(target.conversationId, { target, messages: [...messages] });
+  private holdDeliveries(target: DeliveryTarget, deliveries: ReadonlyArray<FoundryConversationDelivery>): void {
+    const held = this.heldDeliveries.get(target.conversationId);
+    if (held) held.deliveries.push(...deliveries.filter((delivery) => !delivery.durable || !held.deliveries.some((item) => item.durable?.id === delivery.durable!.id)));
+    else this.heldDeliveries.set(target.conversationId, { target, deliveries: [...deliveries] });
   }
 
-  /**
-   * Hand messages to a conversation: into the run listening on it, or as one
-   * run once nothing else holds it. A read receipt only ever goes to a
-   * listening run.
-   */
-  private deliver(target: DeliveryTarget, messages: ReadonlyArray<FoundryMeshMessage>): Promise<void> {
+  private deliver(target: DeliveryTarget, deliveries: ReadonlyArray<FoundryConversationDelivery>, replay = false): Promise<void> {
     return this.inConversation(target.conversationId, async () => {
-      if (this.conversationListeners.has(target.conversationId)) {
-        for (const message of messages) {
-          await writeMailboxDelivery(this.mailboxDirectory, target.conversationId, message);
+      if (!this.data.claimEvent || !this.data.putEvent || !this.data.listEvents) throw new Error("Durable event delivery requires claimEvent, putEvent, and listEvents on the data adapter.");
+      const accepted: FoundryConversationDelivery[] = [];
+      for (const delivery of deliveries) {
+        // Compare and retain the same JSON representation on every adapter,
+        // including optional undefined fields that a file-backed journal drops.
+        const event: AgentEvent = JSON.parse(JSON.stringify(delivery.durable?.event ?? deliveryEvent(delivery)));
+        const id = eventRecordId(target, event.id);
+        const policy: FoundryEventPolicy = JSON.parse(JSON.stringify(delivery.durable?.policy ?? this.byRoute.get(target.definitionId)?.definition.eventDelivery ?? {}));
+        const { durable: _transport, ...body } = delivery;
+        const record: FoundryEventRecord = { id, target: { agentId: target.agentId, conversationId: target.conversationId },
+          definitionId: target.definitionId, workspaceId: target.workspaceId, event, policy, delivery: body,
+          status: "pending", createdAt: new Date().toISOString() };
+        const fresh = await Effect.runPromise(this.data.claimEvent(record));
+        const existing = fresh ? record : (await Effect.runPromise(this.data.listEvents())).find((item) => item.id === id)!;
+        if (!fresh && !replay && delivery.durable && (!isDeepStrictEqual(existing.event, event) || !isDeepStrictEqual(existing.policy, policy))) {
+          throw new Error(`Event id "${event.id}" already belongs to a different event or delivery policy at this target.`);
         }
-        await this.markHandedOver(messages);
+        // Copy legacy delegation outbox state only after the journal owns the event.
+        await this.markLegacyHandedOver([body], undefined);
+        if (existing.status !== "pending") {
+          if ((body.kind === "agent-message" || body.kind === "transmission") && this.data.deletePendingInbound) await Effect.runPromise(this.data.deletePendingInbound(body.pendingId));
+          continue;
+        }
+        if (!fresh && !replay) continue;
+        if (existing.event.expiresAt && Date.parse(existing.event.expiresAt) <= Date.now()) {
+          await Effect.runPromise(this.data.putEvent({ ...existing, status: "expired", runId: undefined }));
+          continue;
+        }
+        accepted.push({ ...existing.delivery, durable: { id, event: existing.event, policy: existing.policy } });
+      }
+      deliveries = accepted;
+      if (!deliveries.length) return;
+      const recipient = await Effect.runPromise(this.data.getAgent(target.agentId));
+      if (recipient?.durableSubagent) { try { await this.assertDurableActive(recipient); } catch { return; } }
+      if (this.conversationListeners.has(target.conversationId)) {
+        for (const delivery of deliveries) {
+          await writeMailboxDelivery(this.mailboxDirectory, target.conversationId, delivery);
+        }
+        await this.markHandedOver(deliveries, this.conversationListeners.get(target.conversationId));
         this.observability.append({
-          type: "mesh.delivered",
+          type: "delegation.delivered",
           category: "system",
           agent: target.definitionId,
-          runId: this.conversationListeners.get(target.conversationId)!,
-          data: { conversationId: target.conversationId, mode: "live", count: messages.length },
+          runId: this.conversationListeners.get(target.conversationId),
+          data: { conversationId: target.conversationId, mode: "live", count: deliveries.length },
         });
         return;
       }
-      const runnable = messages.filter((message) => message.kind !== "ack");
-      if (runnable.length === 0) return;
-      this.holdMessages(target, runnable);
-      await this.flushHeldMessages(target.conversationId);
+      this.holdDeliveries(target, deliveries);
+      await this.flushHeldDeliveries(target.conversationId);
     });
   }
 
   /** Start one run with everything held for a conversation, once nothing else holds it. */
-  private async flushHeldMessages(conversationId: string): Promise<void> {
-    if (!this.started) return;
-    if ((this.conversationRuns.get(conversationId)?.size ?? 0) > 0) return;
+  private async flushHeldDeliveries(conversationId: string): Promise<void> {
+    if (!this.started || this.stopping) return;
+    if (this.gate.busy(conversationId)) return;
     if (this.conversationListeners.has(conversationId)) return;
-    const held = this.heldMessages.get(conversationId);
-    if (!held || held.messages.length === 0) return;
-    this.heldMessages.delete(conversationId);
-    const { target, messages } = held;
+    const held = this.heldDeliveries.get(conversationId);
+    if (!held || held.deliveries.length === 0) return;
+    const records = this.data.listEvents ? await Effect.runPromise(this.data.listEvents()) : [];
+    const pending = records.filter((record) => held.deliveries.some((delivery) => delivery.durable?.id === record.id) && record.status === "pending");
+    const now = Date.now();
+    for (const record of pending) {
+      if (record.event.expiresAt && Date.parse(record.event.expiresAt) <= now) await Effect.runPromise(this.data.putEvent!({ ...record, status: "expired", runId: undefined }));
+    }
+    const live = pending.filter((record) => !record.event.expiresAt || Date.parse(record.event.expiresAt) > now);
+    held.deliveries = held.deliveries.filter((delivery) => live.some((record) => record.id === delivery.durable?.id));
+    if (!held.deliveries.length) { this.heldDeliveries.delete(conversationId); return; }
+    if (!live.some((record) => eventDue(record, now))) {
+      const deadlines = live.flatMap((record) => [
+        ...(record.policy.deferTimeoutMs !== undefined ? [Date.parse(record.createdAt) + record.policy.deferTimeoutMs] : []),
+        ...(record.event.expiresAt ? [Date.parse(record.event.expiresAt)] : []),
+      ]);
+      const previous = this.eventTimers.get(conversationId);
+      if (previous) clearTimeout(previous);
+      if (deadlines.length) {
+        const timer = setTimeout(() => {
+          this.eventTimers.delete(conversationId);
+          void this.inConversation(conversationId, () => this.flushHeldDeliveries(conversationId)).catch((cause) => this.reportDeliveryFailure(conversationId, cause));
+        }, Math.max(1, Math.min(2_147_483_647, Math.min(...deadlines) - now)));
+        timer.unref(); this.eventTimers.set(conversationId, timer);
+      }
+      return;
+    }
+    this.heldDeliveries.delete(conversationId);
+    const { target, deliveries } = held;
+    const owner = await Effect.runPromise(this.data.getAgent(target.agentId));
+    if (owner?.durableSubagent) { try { await this.assertDurableActive(owner); } catch { return; } }
     const runId = await this.enqueueCoreRequest(target.definitionId, {
       agentId: target.agentId,
       conversationId,
       workspaceId: target.workspaceId,
-      message: renderMeshMessages(messages, (message) => (message.threadId === conversationId ? "recipient" : "starter")),
-      payload: { meshMessages: messages },
-      source: { kind: "mesh", id: messages[0]!.threadId },
-    });
+      ...(deliveries.length === 1 ? deliveries[0]!.request : {}),
+      message: renderDeliveries(deliveries),
+      source: deliveries.length === 1 && deliveries[0]!.request?.source ? deliveries[0]!.request.source : deliverySource(deliveries),
+    }, { eventTurn: true });
     this.occupyConversation(conversationId, runId);
-    await this.markHandedOver(messages);
+    await this.markHandedOver(deliveries, runId);
     this.observability.append({
-      type: "mesh.delivered",
+      type: "delegation.delivered",
       category: "system",
       agent: target.definitionId,
       runId,
-      data: { conversationId, mode: "run", count: messages.length },
+      data: { conversationId, mode: "run", count: deliveries.length },
     });
   }
 
-  /** Clear the bookkeeping that lets a restart hand these messages over again. */
-  private async markHandedOver(messages: ReadonlyArray<FoundryMeshMessage>): Promise<void> {
-    for (const message of messages) {
-      if (message.kind === "ack") continue;
-      await this.updateThread(message.threadId, (current) => ({
-        undelivered: current.undelivered?.filter((item) => item.id !== message.id),
-        pending: current.pending?.filter((item) => item.id !== message.id),
-      }));
+  private async markHandedOver(deliveries: ReadonlyArray<FoundryConversationDelivery>, runId: string | undefined): Promise<void> {
+    if (!this.data.listEvents || !this.data.putEvent) return;
+    const ids = new Set(deliveries.flatMap((delivery) => delivery.durable ? [delivery.durable.id] : []));
+    for (const record of await Effect.runPromise(this.data.listEvents())) {
+      if (!ids.has(record.id) || record.status !== "pending") continue;
+      const acknowledged = runId && this.completedEventRuns.get(runId)?.has(record.id);
+      await Effect.runPromise(this.data.putEvent({ ...record, runId, ...(acknowledged ? { status: "acknowledged" as const } : {}) }));
     }
   }
 
-  /** After a restart, hand over every message a thread still owes either side. */
-  private async redeliverThreads(): Promise<void> {
-    for (const thread of await this.listThreads()) {
-      if (thread.undelivered?.length) await this.deliver(this.starterTarget(thread), thread.undelivered);
-      if (thread.pending?.length) await this.deliver(this.recipientTarget(thread), thread.pending);
+  private async finishEvents(runId: string, consumed: ReadonlyArray<string>): Promise<void> {
+    if (!this.data.listEvents || !this.data.putEvent || this.stopping) return;
+    const run = await this.getRun(runId);
+    const ids = new Set(consumed);
+    this.completedEventRuns.set(runId, ids);
+    if (this.completedEventRuns.size > 1000) this.completedEventRuns.delete(this.completedEventRuns.keys().next().value!);
+    for (const record of await Effect.runPromise(this.data.listEvents())) {
+      if (record.status !== "pending" || !ids.has(record.id) || record.target.agentId !== run?.agentId || record.target.conversationId !== run?.conversationId) continue;
+      const owner = await Effect.runPromise(this.data.getAgent(record.target.agentId));
+      if (!owner) continue;
+      try { await this.assertDurableActive(owner); } catch { continue; }
+      await Effect.runPromise(this.data.putEvent({ ...record, status: record.event.expiresAt && Date.parse(record.event.expiresAt) <= Date.now() ? "expired" : "acknowledged", runId }));
+      if ((record.delivery.kind === "transmission" || record.delivery.kind === "agent-message") && this.data.deletePendingInbound) {
+        await Effect.runPromise(this.data.deletePendingInbound(record.delivery.pendingId));
+      }
+    }
+  }
+
+  private async redeliverEvents(agentId?: string): Promise<void> {
+    if (!this.data.listEvents) return;
+    for (const record of await Effect.runPromise(this.data.listEvents())) {
+      if (record.status !== "pending" || (agentId && record.target.agentId !== agentId)) continue;
+      if (record.runId) {
+        const run = await this.getRun(record.runId);
+        if (run && !["completed", "failed", "cancelled"].includes(run.status)) continue;
+        if (run?.status === "completed" && (run.output as FoundryResult | undefined)?.consumedEventIds?.includes(record.id)) {
+          await this.finishEvents(run.id, [record.id]); continue;
+        }
+      }
+      const owner = await Effect.runPromise(this.data.getAgent(record.target.agentId));
+      if (!owner) continue;
+      try { await this.assertDurableActive(owner); } catch { continue; }
+      await this.deliver({ ...record.target, definitionId: record.definitionId, workspaceId: record.workspaceId }, [{ ...record.delivery, durable: { id: record.id, event: record.event, policy: record.policy } }], true);
+    }
+  }
+
+  /** Clear the bookkeeping that lets a restart hand these deliveries over again. */
+  private async markLegacyHandedOver(
+    deliveries: ReadonlyArray<FoundryConversationDelivery>,
+    runId: string | undefined,
+  ): Promise<void> {
+    for (const delivery of deliveries) {
+      // Mesh messages keep no record of their own; the event journal holds them.
+      if (delivery.kind === "mesh") continue;
+      if (delivery.kind === "transmission" || delivery.kind === "agent-message") {
+        // Kept until the run that took it settles, not merely until handover.
+        await this.assignPendingInbound(delivery.pendingId, runId);
+      } else if (delivery.kind === "reply") {
+        await this.updateDelegation(delivery.delegationId, (current) => {
+          const pending = [...(current.pendingReplies ?? [])];
+          const pendingIds = [...(current.pendingReplyIds ?? [])];
+          const index = delivery.deliveryId ? pendingIds.indexOf(delivery.deliveryId) : pending.indexOf(delivery.message);
+          if (index >= 0) { pending.splice(index, 1); pendingIds.splice(index, 1); }
+          return { pendingReplies: pending.length > 0 ? pending : undefined, pendingReplyIds: pendingIds.length ? pendingIds : undefined };
+        });
+      } else {
+        await this.updateDelegation(delivery.delegationId, (current) =>
+          current.undelivered === delivery.kind && (!delivery.deliveryId || current.updateId === delivery.deliveryId) ? { undelivered: undefined } : {});
+      }
+    }
+  }
+
+  /** Record which run is handling a pending inbound event (none while it waits). */
+  private async assignPendingInbound(pendingId: string, runId: string | undefined): Promise<void> {
+    for (const ids of this.pendingInboundByRun.values()) ids.delete(pendingId);
+    if (runId) {
+      const ids = this.pendingInboundByRun.get(runId) ?? new Set<string>();
+      ids.add(pendingId);
+      this.pendingInboundByRun.set(runId, ids);
+    }
+    if (this.data.putPendingInbound && this.data.listPendingInbound) {
+      const record = (await Effect.runPromise(this.data.listPendingInbound()))
+        .find((item) => item.id === pendingId);
+      if (record) {
+        const { runId: _previous, ...rest } = record;
+        await Effect.runPromise(this.data.putPendingInbound(runId ? { ...rest, runId } : rest));
+      }
+    }
+    // The run finished before it was recorded as handling this event.
+    if (runId && this.settledRuns.has(runId)) await this.finishPendingInbound(runId);
+  }
+
+  /** The run settled: the inbound events it was handling are done with. */
+  private async finishPendingInbound(runId: string): Promise<void> {
+    const ids = this.pendingInboundByRun.get(runId);
+    if (!ids) return;
+    this.pendingInboundByRun.delete(runId);
+    // A run stopped by shutdown did not finish its events: the next start delivers them.
+    if (this.stopping || !this.data.deletePendingInbound) return;
+    const pending = this.data.listPendingInbound ? await Effect.runPromise(this.data.listPendingInbound()) : [];
+    for (const record of pending.filter((item) => ids.has(item.id))) {
+      const agent = await Effect.runPromise(this.data.getAgent(record.request.agentId));
+      if (agent?.durableSubagent) { try { await this.assertDurableActive(agent); } catch { return; } }
+    }
+    for (const id of ids) await Effect.runPromise(this.data.deletePendingInbound(id));
+  }
+
+  /**
+   * Hand an inbound event to one agent's conversation. A free conversation
+   * starts a run for it. A busy one gets it as a delivery: it joins the
+   * running turn at its next tool step, or waits and starts the
+   * conversation's next run with anything else that arrived meanwhile.
+   * Returns the run handling it now, when there is one.
+   */
+  private async admitInbound(record: FoundryPendingInbound): Promise<FoundryRun | null> {
+    if (this.data.putPendingInbound) await Effect.runPromise(this.data.putPendingInbound(record));
+    const { request } = record;
+    const source = request.source;
+    let delivery: FoundryConversationDelivery = {
+      kind: source?.kind === "agent-message" ? "agent-message" : "transmission",
+      request, pendingId: record.id, routeId: source?.id ?? "", eventId: source?.eventId ?? "",
+      message: typeof request.message === "string" ? request.message : JSON.stringify(request.message),
+    };
+    if (source?.kind === "delegation") {
+      const event: AgentEvent = { id: record.id, source: "foundry:delegation", kind: "delegation.task", content: typeof request.message === "string" ? request.message : JSON.stringify(request.message) };
+      delivery = { ...delivery, durable: { id: eventRecordId(request, event.id), event, policy: this.byRoute.get(record.definitionId)?.definition.eventDelivery ?? {} } };
+    }
+    await this.deliver({ definitionId: record.definitionId, agentId: request.agentId, conversationId: request.conversationId, workspaceId: request.workspaceId }, [delivery]);
+    const event = deliveryEvent(delivery);
+    const journal = this.data.listEvents && (await Effect.runPromise(this.data.listEvents())).find((item) => item.id === eventRecordId(request, event.id));
+    const handlingRunId = journal?.runId ?? this.gate.activeRun(request.conversationId);
+    return handlingRunId ? this.getRun(handlingRunId) : null;
+  }
+
+  /** After a restart, deliver the inbound events no run had finished with. */
+  private async redeliverInbound(): Promise<void> {
+    if (!this.data.listPendingInbound) return;
+    const pending = [...await Effect.runPromise(this.data.listPendingInbound())]
+      .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+    for (const record of pending) {
+      const owner = await Effect.runPromise(this.data.getAgent(record.request.agentId));
+      if (owner?.durableSubagent) {
+        try { await this.assertDurableActive(owner); } catch { continue; }
+      }
+      const { runId: _lost, ...waiting } = record;
+      await this.admitInbound(waiting);
+    }
+  }
+
+  /** After a restart, hand over whatever was waiting when the runtime stopped. */
+  private async redeliverDelegations(): Promise<void> {
+    for (const delegation of await this.listDelegations()) {
+      // Repair a crash between persisting the task conversation and enqueueing it.
+      const worker = await Effect.runPromise(this.data.getAgent(delegation.workerAgentId));
+      if (worker && delegation.status === "working" && !delegation.pendingReplies?.length && this.data.listPendingInbound) {
+        let active = true;
+        try { await this.assertDurableActive(worker); } catch { active = false; }
+        const pending = await Effect.runPromise(this.data.listPendingInbound());
+        if (active && !(this.data.listEvents && (await Effect.runPromise(this.data.listEvents())).some((item) => item.target.conversationId === delegation.id)) && !pending.some((item) => item.request.conversationId === delegation.id) && (await this.loadDelegation(delegation.id))?.status === "working") {
+          await this.admitInbound({
+            id: `task:${delegation.id}`, definitionId: worker.definitionId, createdAt: delegation.createdAt,
+            request: { agentId: worker.id, conversationId: delegation.id, workspaceId: worker.workspaceId,
+              message: renderDelegatedTask({ delegationId: delegation.id, from: delegation.from.definitionId, task: delegation.task }),
+              payload: { delegation }, source: { kind: "delegation", id: delegation.id } },
+          });
+        }
+      }
+      const update = undeliveredUpdate(delegation);
+      if (update) await this.deliver(this.delegatorTarget(delegation), [update]);
+      if (delegation.pendingReplies?.length) {
+        await this.deliver(
+          {
+            definitionId: delegation.to,
+            agentId: delegation.workerAgentId,
+            conversationId: delegation.id,
+            workspaceId: delegation.workspaceId,
+          },
+          delegation.pendingReplies.map((message, index) => ({
+            deliveryId: delegation.pendingReplyIds?.[index],
+            kind: "reply" as const,
+            delegationId: delegation.id,
+            from: delegation.from.definitionId,
+            message,
+          })),
+        );
+      }
     }
   }
 
   private reportDeliveryFailure(conversationId: string, cause: unknown): void {
     this.observability.append({
-      type: "mesh.delivery.failed",
+      type: "delegation.delivery.failed",
       category: "system",
       data: { conversationId, error: cause instanceof Error ? cause.message : String(cause) },
     });
+  }
+
+  private async loadDelegation(id: string): Promise<FoundryDelegation | null> {
+    const conversation = await Effect.runPromise(this.data.getConversation(id));
+    return delegationFromContext(conversation?.context) ?? null;
+  }
+
+  private updateDelegation(
+    id: string,
+    change: DelegationPatch | ((current: FoundryDelegation) => DelegationPatch),
+  ): Promise<FoundryDelegation | null> {
+    return this.inConversation(`record:${id}`, async () => {
+      const conversation = await Effect.runPromise(this.data.getConversation(id));
+      const current = delegationFromContext(conversation?.context);
+      if (!conversation || !current) return null;
+      const patch = typeof change === "function" ? change(current) : change;
+      if (Object.keys(patch).length === 0) return current;
+      const now = new Date().toISOString();
+      const merged: Record<string, unknown> = { ...current, ...patch, updatedAt: now };
+      for (const key of Object.keys(merged)) if (merged[key] === undefined) delete merged[key];
+      const next = Object.freeze(merged) as unknown as FoundryDelegation;
+      await Effect.runPromise(this.data.putConversation(Object.freeze({
+        ...conversation,
+        context: Object.freeze({ ...conversation.context, delegation: next }),
+        updatedAt: now,
+      })));
+      return next;
+    });
+  }
+
+  private delegatorTarget(delegation: FoundryDelegation): DeliveryTarget {
+    return {
+      definitionId: delegation.from.definitionId,
+      agentId: delegation.from.agentId,
+      conversationId: delegation.from.conversationId,
+      workspaceId: delegation.workspaceId,
+    };
+  }
+
+  private async executeDelegationCommand(
+    command: FoundryDelegationCommand,
+    parentRunId: string,
+  ): Promise<void> {
+    if (!isDelegationId(command.delegationId)) {
+      throw new Error(`"${command.delegationId}" is not a delegation id.`);
+    }
+    if (command.type === "delegate") {
+      await this.startDelegation(command, parentRunId);
+      return;
+    }
+    const delegation = await this.loadDelegation(command.delegationId);
+    if (command.type === "delegate.reply") {
+      if (
+        !delegation
+        || delegation.from.agentId !== command.agentId
+        || delegation.from.conversationId !== command.conversationId
+      ) {
+        throw new Error(`Delegation "${command.delegationId}" was not started by this conversation.`);
+      }
+      // A reply answers the open question, or reopens finished work as a follow-up.
+      await this.updateDelegation(delegation.id, (current) => ({
+        status: "working",
+        question: undefined,
+        ...(current.undelivered === "question" ? { undelivered: undefined } : {}),
+        pendingReplies: [...(current.pendingReplies ?? []), command.message],
+        pendingReplyIds: [...(current.pendingReplyIds ?? []), command.id],
+      }));
+      await this.deliver(
+        {
+          definitionId: delegation.to,
+          agentId: delegation.workerAgentId,
+          conversationId: delegation.id,
+          workspaceId: delegation.workspaceId,
+        },
+        [{ kind: "reply", deliveryId: command.id, delegationId: delegation.id, from: command.definitionId, message: command.message }],
+      );
+      this.observability.append({
+        type: "delegation.replied",
+        category: "system",
+        agent: command.definitionId,
+        runId: parentRunId,
+        data: { delegationId: delegation.id, to: delegation.to },
+      });
+      return;
+    }
+    if (
+      !delegation
+      || delegation.workerAgentId !== command.agentId
+      || delegation.id !== command.conversationId
+    ) {
+      throw new Error(`Only the worker on delegation "${command.delegationId}" can ask about it.`);
+    }
+    await this.updateDelegation(delegation.id, {
+      status: "waiting",
+      question: command.question,
+      undelivered: "question",
+      updateId: command.id,
+    });
+    await this.deliver(this.delegatorTarget(delegation), [{
+      kind: "question",
+      deliveryId: command.id,
+      delegationId: delegation.id,
+      agent: delegation.to,
+      task: delegation.task,
+      question: command.question,
+    }]);
+    this.observability.append({
+      type: "delegation.question",
+      category: "system",
+      agent: delegation.to,
+      runId: parentRunId,
+      data: { delegationId: delegation.id, question: command.question },
+    });
+  }
+
+  private async startDelegation(
+    command: Extract<FoundryDelegationCommand, { readonly type: "delegate" }>,
+    parentRunId: string,
+  ): Promise<void> {
+    const from: DeliveryTarget = {
+      definitionId: command.definitionId,
+      agentId: command.agentId,
+      conversationId: command.conversationId,
+      workspaceId: command.workspaceId,
+    };
+    const parentDefinition = this.byRoute.get(command.definitionId)?.definition;
+    const durable = Object.hasOwn(parentDefinition?.durableSubagents ?? {}, command.to) ? parentDefinition!.durableSubagents![command.to] : undefined;
+    const targetRoute = durable ? durableRoute(command.definitionId, command.to) : command.to;
+    if (!this.byRoute.has(targetRoute)) {
+      await this.deliver(from, [{
+        kind: "failed",
+        delegationId: command.delegationId,
+        agent: command.to,
+        task: command.task,
+        error: `There is no "${command.to}" agent in this project.`,
+      }]);
+      return;
+    }
+    const delegator = await Effect.runPromise(this.data.getAgent(command.agentId));
+    if (!delegator || delegator.workspaceId !== command.workspaceId) {
+      throw new Error("A delegation must come from an agent instance in its workspace.");
+    }
+    let ownedWorker: AgentInstance | undefined;
+    if (durable) {
+      try {
+        if (!this.data.putPendingInbound || !this.data.listPendingInbound || !this.data.deletePendingInbound) throw new Error("Durable delegation requires pending inbound persistence.");
+        ownedWorker = await this.ensureSubagent(command.agentId, command.to);
+      }
+      catch (cause) {
+        await this.deliver(from, [{ kind: "failed", delegationId: command.delegationId, agent: command.to, task: command.task, error: cause instanceof Error ? cause.message : String(cause) }]);
+        return;
+      }
+    }
+    const workerId = ownedWorker?.id ?? workerAgentId(command.agentId, command.to);
+    const worker = ownedWorker ?? await Effect.runPromise(this.data.getAgent(workerId))
+      ?? await this.createAgent(command.to, {
+        id: workerId,
+        workspaceId: command.workspaceId,
+        context: {
+          ...delegator.context,
+          delegatedBy: { agentId: command.agentId, definitionId: command.definitionId },
+        },
+      });
+    if (worker.definitionId !== targetRoute || worker.workspaceId !== command.workspaceId) {
+      throw new Error(`Agent instance "${workerId}" is not a ${command.to} worker in this workspace.`);
+    }
+    const now = new Date().toISOString();
+    const delegation: FoundryDelegation = Object.freeze({
+      id: command.delegationId,
+      to: targetRoute,
+      workerAgentId: workerId,
+      workspaceId: command.workspaceId,
+      from: Object.freeze({
+        definitionId: command.definitionId,
+        agentId: command.agentId,
+        conversationId: command.conversationId,
+        runId: parentRunId,
+      }),
+      task: command.task,
+      status: "working",
+      createdAt: now,
+      updatedAt: now,
+    });
+    const title = command.task.replace(/\s+/g, " ").trim();
+    await this.createConversation(workerId, {
+      id: delegation.id,
+      workspaceId: command.workspaceId,
+      title: title.length > 80 ? `${title.slice(0, 79)}…` : title,
+      context: { delegation },
+    });
+    const workerRequest: FoundryRequest = {
+      agentId: workerId,
+      conversationId: delegation.id,
+      workspaceId: command.workspaceId,
+      message: renderDelegatedTask({ delegationId: delegation.id, from: command.definitionId, task: command.task }),
+      payload: { delegation },
+      source: { kind: "delegation", id: delegation.id },
+    };
+    const runId = (await this.admitInbound({ id: `task:${delegation.id}`, definitionId: targetRoute, request: workerRequest, createdAt: now }))?.id;
+    if (runId) this.occupyConversation(delegation.id, runId);
+    this.observability.append({
+      type: "delegation.started",
+      category: "system",
+      agent: command.definitionId,
+      runId: parentRunId,
+      data: { delegationId: delegation.id, to: command.to, workerAgentId: workerId, workerRunId: runId },
+    });
+  }
+
+  /** Report a worker's finished run back to whoever delegated to it. */
+  // ── Mesh ────────────────────────────────────────────────────────────────
+  //
+  // Foundry hosts Glove Mesh for agents that are peers: existing instances in
+  // one workspace, addressed by instance id. A new message starts a thread: a
+  // conversation on the recipient whose context carries the record. Messages
+  // travel as "mesh" deliveries on the same durable path as delegation
+  // updates: into the run working on that conversation, or as one run once it
+  // is free. The recipient's final reply goes back on its own.
+
+  /** Every thread, newest first, optionally narrowed to who started it or who it went to. */
+  async listThreads(filter: {
+    /** The agent that started the thread. */
+    readonly agentId?: string;
+    /** The conversation that started the thread. */
+    readonly conversationId?: string;
+    /** The agent the thread was sent to. */
+    readonly to?: string;
+    readonly status?: FoundryMeshThreadStatus;
+  } = {}): Promise<ReadonlyArray<FoundryMeshThread>> {
+    const found: FoundryMeshThread[] = [];
+    for (const agent of await Effect.runPromise(this.data.listAgents())) {
+      if (filter.to && agent.id !== filter.to) continue;
+      for (const conversation of await Effect.runPromise(this.data.listConversations(agent.id))) {
+        const thread = threadFromContext(conversation.context);
+        if (!thread || thread.to.agentId !== agent.id || thread.id !== conversation.id) continue;
+        if (filter.agentId && thread.from.agentId !== filter.agentId) continue;
+        if (filter.conversationId && thread.from.conversationId !== filter.conversationId) continue;
+        if (filter.status && thread.status !== filter.status) continue;
+        found.push(thread);
+      }
+    }
+    return found.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  /**
+   * Older thread records kept their own lists of messages not handed over yet.
+   * Move them to the event journal once; message ids keep a retry from
+   * delivering twice.
+   */
+  private async redeliverThreads(): Promise<void> {
+    for (const thread of await this.listThreads()) {
+      if (!thread.undelivered?.length && !thread.pending?.length) continue;
+      if (thread.undelivered?.length) await this.deliverMesh(this.starterTarget(thread), "starter", thread.undelivered);
+      if (thread.pending?.length) await this.deliverMesh(this.recipientTarget(thread), "recipient", thread.pending);
+      await this.updateThread(thread.id, { status: thread.status });
+    }
+  }
+
+  /** The open threads a conversation started, oldest first. */
+  private async openThreadsFrom(conversation: Conversation): Promise<ReadonlyArray<FoundryMeshThread>> {
+    const open: FoundryMeshThread[] = [];
+    for (const id of startedThreadIds(conversation.context)) {
+      const thread = await this.loadThread(id);
+      if (thread && thread.from.conversationId === conversation.id && isOpenThread(thread)) open.push(thread);
+    }
+    return open.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   }
 
   private async loadThread(id: string): Promise<FoundryMeshThread | null> {
@@ -2543,12 +3362,10 @@ export class FoundryRuntime {
       if (Object.keys(patch).length === 0) return current;
       const now = new Date().toISOString();
       const merged: Record<string, unknown> = { ...current, ...patch, updatedAt: now };
-      for (const key of Object.keys(merged)) {
-        const value = merged[key];
-        if (value === undefined || ((key === "undelivered" || key === "pending") && Array.isArray(value) && value.length === 0)) {
-          delete merged[key];
-        }
-      }
+      // Older records kept their own redelivery lists; the event journal does that now.
+      delete merged.undelivered;
+      delete merged.pending;
+      for (const key of Object.keys(merged)) if (merged[key] === undefined) delete merged[key];
       const next = Object.freeze(merged) as unknown as FoundryMeshThread;
       await Effect.runPromise(this.data.putConversation(Object.freeze({
         ...conversation,
@@ -2575,6 +3392,28 @@ export class FoundryRuntime {
       conversationId: thread.id,
       workspaceId: thread.workspaceId,
     };
+  }
+
+  /**
+   * Hand mesh messages to one side of a thread. Messages, replies and
+   * failures go through durable delivery. A read receipt only ever reaches a
+   * run that is listening, and is dropped otherwise.
+   */
+  private async deliverMesh(
+    target: DeliveryTarget,
+    side: FoundryMeshDelivery["side"],
+    messages: ReadonlyArray<FoundryMeshMessage>,
+  ): Promise<void> {
+    const delivery = (message: FoundryMeshMessage): FoundryConversationDelivery => ({ kind: "mesh", side, message, deliveryId: message.id });
+    const receipts = messages.filter((message) => message.kind === "ack");
+    if (receipts.length) {
+      await this.inConversation(target.conversationId, async () => {
+        if (!this.conversationListeners.has(target.conversationId)) return;
+        for (const message of receipts) await writeMailboxDelivery(this.mailboxDirectory, target.conversationId, delivery(message));
+      });
+    }
+    const durable = messages.filter((message) => message.kind !== "ack");
+    if (durable.length) await this.deliver(target, durable.map(delivery));
   }
 
   /** A run's mesh call: answered through its request, so the tool hears the outcome. */
@@ -2604,7 +3443,7 @@ export class FoundryRuntime {
 
   /** The agents an agent may see and message: its workspace, narrowed by its definition's rule. */
   private async meshPeers(sender: AgentInstance): Promise<ReadonlyArray<AgentInstance>> {
-    const peers = meshOptions(this.byRoute.get(sender.definitionId)?.definition.mesh)?.peers;
+    const peers = hostedMeshOptions(this.byRoute.get(sender.definitionId)?.definition.mesh)?.peers;
     return (await Effect.runPromise(this.data.listAgents())).filter((agent) =>
       agent.workspaceId === sender.workspaceId
       && agent.id !== sender.id
@@ -2644,7 +3483,7 @@ export class FoundryRuntime {
         : (await startedThreads()).find((item) => item.messageIds.includes(command.messageId));
       if (!thread) throw new Error(`There is no message "${command.messageId}" in your threads.`);
       const toStarter = thread.id === ownThread?.id;
-      await this.deliver(toStarter ? this.starterTarget(thread) : this.recipientTarget(thread), [{
+      await this.deliverMesh(toStarter ? this.starterTarget(thread) : this.recipientTarget(thread), toStarter ? "starter" : "recipient", [{
         kind: "ack",
         id: newMessageId(),
         threadId: thread.id,
@@ -2686,9 +3525,8 @@ export class FoundryRuntime {
         status: "waiting",
         question: outgoing.content,
         messageIds: [...current.messageIds, outgoing.id],
-        undelivered: [...(current.undelivered ?? []), outgoing],
       }));
-      await this.deliver(this.starterTarget(ownThread), [outgoing]);
+      await this.deliverMesh(this.starterTarget(ownThread), "starter", [outgoing]);
       return sent(ownThread, "to-starter");
     }
 
@@ -2705,10 +3543,8 @@ export class FoundryRuntime {
         status: "working",
         question: undefined,
         messageIds: [...current.messageIds, outgoing.id],
-        pending: [...(current.pending ?? []), outgoing],
-        undelivered: current.undelivered?.filter((item) => item.kind !== "message"),
       }));
-      await this.deliver(this.recipientTarget(thread), [outgoing]);
+      await this.deliverMesh(this.recipientTarget(thread), "recipient", [outgoing]);
       return sent(thread, "to-recipient");
     }
 
@@ -2739,7 +3575,6 @@ export class FoundryRuntime {
       subject: threadSubject(outgoing.content),
       status: "working",
       messageIds: Object.freeze([outgoing.id]),
-      pending: Object.freeze([outgoing]),
       createdAt: now,
       updatedAt: now,
     });
@@ -2762,27 +3597,24 @@ export class FoundryRuntime {
         updatedAt: now,
       }));
     });
-    await this.deliver(this.recipientTarget(thread), [outgoing]);
+    await this.deliverMesh(this.recipientTarget(thread), "recipient", [outgoing]);
     return sent(thread, "new");
   }
 
   /** When the recipient's run on a thread ends, its reply (or its failure) goes back. */
-  private async handleRunSettled(event: {
-    readonly route: string;
-    readonly run: Run;
-    readonly status: "completed" | "failed" | "cancelled";
-    readonly output?: string;
-    readonly error?: string;
-  }): Promise<void> {
-    this.releaseConversationRun(event.run.id);
-    const steered = this.steeredRuns.delete(event.run.id);
-    const run = this.toFoundryRun(event.run);
-    if (!run.conversationId || !isThreadId(run.conversationId)) return;
-    const thread = await this.loadThread(run.conversationId);
+  private async settleThread(
+    event: { readonly run: Run; readonly status: "completed" | "failed" | "cancelled"; readonly output?: string; readonly error?: string },
+    run: FoundryRun,
+    steered: boolean,
+  ): Promise<void> {
+    const thread = await this.loadThread(run.conversationId!);
     if (!thread || run.agentId !== thread.to.agentId) return;
+    // Stopped by shutdown: the message that started it is still pending and is delivered again.
+    if (this.stopping && event.status !== "completed") return;
+    // One reply per run, however often this is reported.
     const reply = (kind: "reply" | "failed", content: string): FoundryMeshMessage => ({
       kind,
-      id: newMessageId(),
+      id: `msg_${kind}_${event.run.id}`,
       threadId: thread.id,
       from: { agentId: thread.to.agentId, name: thread.to.name },
       to: thread.from.agentId,
@@ -2803,10 +3635,9 @@ export class FoundryRuntime {
         status: "replied",
         reply: text,
         question: undefined,
-        messageIds: [...current.messageIds, message.id],
-        undelivered: [...(current.undelivered ?? []), message],
+        messageIds: current.messageIds.includes(message.id) ? current.messageIds : [...current.messageIds, message.id],
       }));
-      await this.deliver(this.starterTarget(thread), [message]);
+      await this.deliverMesh(this.starterTarget(thread), "starter", [message]);
       this.observability.append({
         type: "mesh.thread.replied",
         category: "system",
@@ -2822,10 +3653,9 @@ export class FoundryRuntime {
     await this.updateThread(thread.id, (current) => ({
       status: event.status === "cancelled" ? "cancelled" : "failed",
       error,
-      messageIds: [...current.messageIds, message.id],
-      undelivered: [...(current.undelivered ?? []), message],
+      messageIds: current.messageIds.includes(message.id) ? current.messageIds : [...current.messageIds, message.id],
     }));
-    await this.deliver(this.starterTarget(thread), [message]);
+    await this.deliverMesh(this.starterTarget(thread), "starter", [message]);
     this.observability.append({
       type: event.status === "cancelled" ? "mesh.thread.cancelled" : "mesh.thread.failed",
       category: "system",
@@ -2835,18 +3665,134 @@ export class FoundryRuntime {
     });
   }
 
+  private async handleRunSettled(event: {
+    readonly route: string;
+    readonly run: Run;
+    readonly status: "completed" | "failed" | "cancelled";
+    readonly output?: string;
+    readonly error?: string;
+  }): Promise<void> {
+    this.releaseConversationRun(event.run.id);
+    // The conversation's next run starts once this one's process has let go.
+    void this.waitForRunProcessRelease(this.toFoundryRun(event.run), event.route)
+      .finally(() => this.gate.settled(event.run.id));
+    const finishDelivery = async (): Promise<void> => {
+      this.settledRuns.add(event.run.id);
+      if (this.settledRuns.size > 1_000) this.settledRuns.delete(this.settledRuns.values().next().value!);
+      if (event.status === "completed") {
+        const result = parseJson(event.output) as FoundryResult | undefined;
+        await this.finishEvents(event.run.id, result?.consumedEventIds ?? []);
+      }
+      await this.finishPendingInbound(event.run.id).catch((cause) =>
+        this.reportDeliveryFailure(this.toFoundryRun(event.run).conversationId ?? "settle", cause));
+    };
+    const steered = this.steeredRuns.delete(event.run.id);
+    const run = this.toFoundryRun(event.run);
+    if (run.conversationId && isThreadId(run.conversationId)) {
+      await finishDelivery();
+      await this.settleThread(event, run, steered);
+      return;
+    }
+    if (!run.conversationId || !isDelegationId(run.conversationId)) { await finishDelivery(); return; }
+    const delegation = await this.loadDelegation(run.conversationId);
+    if (!delegation || run.agentId !== delegation.workerAgentId) { await finishDelivery(); return; }
+    if (this.stopping && event.status !== "completed") {
+      const worker = await Effect.runPromise(this.data.getAgent(delegation.workerAgentId));
+      if (worker?.durableSubagent) return;
+    }
+    if (event.status === "completed") {
+      const output = parseJson(event.output) as Partial<FoundryResult> | undefined;
+      // Asleep, or waiting for an answer: it reports when it finishes.
+      if (output?.status === "suspended") { await finishDelivery(); return; }
+      const result = deliveryText(output?.value);
+      await this.updateDelegation(delegation.id, {
+        status: "completed",
+        result,
+        question: undefined,
+        undelivered: "result",
+        updateId: `result:${event.run.id}`,
+      });
+      await finishDelivery();
+      await this.deliver(this.delegatorTarget(delegation), [{
+        kind: "result",
+        deliveryId: `result:${event.run.id}`,
+        delegationId: delegation.id,
+        agent: delegation.to,
+        task: delegation.task,
+        result,
+      }]);
+      this.observability.append({
+        type: "delegation.completed",
+        category: "system",
+        agent: delegation.to,
+        runId: event.run.id,
+        data: { delegationId: delegation.id },
+      });
+      return;
+    }
+    if (event.status === "cancelled" && steered) { await finishDelivery(); return; }
+    const error = event.status === "cancelled" ? "The work was cancelled." : event.error ?? "The run failed.";
+    await this.updateDelegation(delegation.id, {
+      status: event.status === "cancelled" ? "cancelled" : "failed",
+      error,
+      undelivered: "failed",
+      updateId: `failed:${event.run.id}`,
+    });
+    await finishDelivery();
+    await this.deliver(this.delegatorTarget(delegation), [{
+      kind: "failed",
+      deliveryId: `failed:${event.run.id}`,
+      delegationId: delegation.id,
+      agent: delegation.to,
+      task: delegation.task,
+      error,
+    }]);
+    this.observability.append({
+      type: event.status === "cancelled" ? "delegation.cancelled" : "delegation.failed",
+      category: "system",
+      agent: delegation.to,
+      runId: event.run.id,
+      data: { delegationId: delegation.id, error },
+    });
+  }
+
   private async enqueueCoreRequest(
     definitionId: string,
     request: FoundryRequest,
+    options: { readonly eventTurn?: boolean } = {},
   ): Promise<string> {
     const discovered = this.byRoute.get(definitionId);
     if (!discovered) throw new Error(`Foundry agent definition "${definitionId}" was not found.`);
     const agent = await Effect.runPromise(this.data.getAgent(request.agentId));
     const conversation = await Effect.runPromise(this.data.getConversation(request.conversationId));
     if (!agent || !conversation) throw new Error("Core command references an unknown agent instance or conversation.");
-    return this.signalRunner.triggerSignal(
-      discovered.executionName,
-      await this.executionEnvelope(request),
+    return this.admitRun(discovered.executionName, request, options);
+  }
+
+  /**
+   * Create the run for a request through its conversation's gate: it starts
+   * at once when the conversation is free and waits parked, holding no
+   * concurrency slot, behind the run that holds it otherwise. A parked run
+   * starts from an envelope built when its turn comes, not when it was asked
+   * for, so it sees the conversation as the runs ahead of it left it.
+   */
+  private admitRun(
+    executionName: string,
+    request: FoundryRequest,
+    options: { readonly front?: boolean; readonly eventTurn?: boolean } = {},
+  ): Promise<string> {
+    return this.gate.admit(
+      request.conversationId,
+      async (parked) => this.signalRunner.triggerSignal(
+        executionName,
+        await this.executionEnvelope(request, { leased: true, eventTurn: options.eventTurn }),
+        { parked },
+      ),
+      async (runId) => this.signalRunner.releaseRun(
+        runId,
+        await this.executionEnvelope(request, { leased: true, eventTurn: options.eventTurn }),
+      ),
+      options,
     );
   }
 
@@ -2867,6 +3813,24 @@ export class FoundryRuntime {
   private async executeCoreCommandUnlocked(command: FoundryCoreCommand, parentRunId: string): Promise<void> {
     if (isMeshCommand(command)) {
       await this.runMeshCommand(command, parentRunId);
+      return;
+    }
+    if (command.type === "agent.message") {
+      try {
+        const output = await this.executeAgentMessage(command);
+        await settleFoundryCoreCommandRequest(this.coreCommandDirectory, command.id, { status: "success", output });
+      } catch (cause) {
+        await settleFoundryCoreCommandRequest(this.coreCommandDirectory, command.id, { status: "error", error: cause instanceof Error ? cause.message : String(cause) });
+      }
+      return;
+    }
+    if (command.agentId) {
+      const sender = await Effect.runPromise(this.data.getAgent(command.agentId));
+      if (sender) await this.assertDurableActive(sender);
+    }
+    if (command.type === "delegate" || command.type === "delegate.reply" || command.type === "delegate.ask") {
+      if (command.type === "delegate") await this.inConversation("durable:mutations", () => this.executeDelegationCommand(command, parentRunId));
+      else await this.executeDelegationCommand(command, parentRunId);
       return;
     }
     if (command.type === "transmit") {
@@ -3081,7 +4045,7 @@ export class FoundryRuntime {
       playbooks: Object.freeze([...instancePlaybooks, ...reconciled]),
       updatedAt: new Date().toISOString(),
     };
-    this.validatePlaybooks(command.definitionId, updated.playbooks, updated.installations);
+    this.validatePlaybooks(command.definitionId, updated.playbooks, (await this.effectiveAgent(updated)).installations);
     await Effect.runPromise(this.data.putAgent(updated));
     await this.reconcileApplicationConnections();
     this.observability.append({
@@ -3312,6 +4276,7 @@ export class FoundryRuntime {
         );
       }
       const storedAgent = await Effect.runPromise(this.data.getAgent(activation.agentId));
+      if (storedAgent) await this.assertDurableActive(storedAgent);
       const storedConversation = await Effect.runPromise(
         this.data.getConversation(activation.conversationId),
       );
@@ -3352,7 +4317,8 @@ export class FoundryRuntime {
             : { cron: activation.timing.expression, timezone: activation.timing.timezone }),
           // Station checks overlap per signal, and a signal is a whole
           // definition: "skip" would drop one agent's run because another
-          // agent of the same definition is busy. Runs overlap like messages do.
+          // agent of the same definition is busy. Runs overlap like messages
+          // do, and the conversation gate still runs one at a time per conversation.
           overlapPolicy: "allow",
           misfirePolicy: "fire-once",
           misfireGraceMs: 60_000,
@@ -3501,14 +4467,38 @@ export class FoundryRuntime {
     });
   }
 
-  private async executionEnvelope(request: FoundryRequest): Promise<unknown> {
+  private async executionEnvelope(
+    request: FoundryRequest,
+    options: { readonly leased?: boolean; readonly eventTurn?: boolean } = {},
+  ): Promise<unknown> {
     const agent = await Effect.runPromise(this.data.getAgent(request.agentId));
     const conversation = await Effect.runPromise(this.data.getConversation(request.conversationId));
     if (!agent || !conversation) throw new Error("Cannot schedule an unknown agent instance or conversation.");
+    const effective = await this.effectiveAgent(agent);
+    const owners: Record<string, Pick<AgentInstance, "id" | "definitionId" | "workspaceId">> = {};
+    let ancestor = agent;
+    while (ancestor.durableSubagent) {
+      ancestor = (await Effect.runPromise(this.data.getAgent(ancestor.durableSubagent.parentAgentId)))!;
+      owners[ancestor.definitionId] = { id: ancestor.id, definitionId: ancestor.definitionId, workspaceId: ancestor.workspaceId };
+    }
     const activations = (await Effect.runPromise(this.data.listActivations(request.workspaceId)))
       .filter((activation) => activation.agentId === request.agentId);
+    const delegations = await this.openDelegationsFrom(request.agentId, request.conversationId);
     const threads = await this.openThreadsFrom(conversation);
-    return { [FOUNDRY_EXECUTION_MARKER]: true, request, agent, conversation, activations, threads };
+    return {
+      [FOUNDRY_EXECUTION_MARKER]: true,
+      request: { ...request, context: { ...request.context, durableMemoryOwners: owners } },
+      eventTurn: options.eventTurn ?? false,
+      agent: effective,
+      conversation,
+      activations,
+      delegations,
+      threads,
+      events: options.leased && this.data.listEvents ? (await Effect.runPromise(this.data.listEvents()))
+        .filter((record) => record.status === "pending" && record.target.agentId === agent.id && record.target.conversationId === conversation.id)
+        .map((record) => ({ ...record.delivery, durable: { id: record.id, event: record.event, policy: record.policy } })) : [],
+      ...(options.leased ? { conversationLease: true } : {}),
+    };
   }
 
   private toFoundryRun<TOutput = unknown>(run: Run): FoundryRun<TOutput> {

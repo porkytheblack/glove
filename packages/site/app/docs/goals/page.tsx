@@ -209,10 +209,38 @@ await runner.update({
         later effects and a mounted request waits to be retried before running
         the model. All workers sharing a scope use the same hooks.
       </p>
+      <h2 id="delivery">How goals reach the model</h2>
+      <p>
+        The runner renders goals as XML, so the model can tell goal state apart
+        from the conversation around it. Every value is escaped:
+      </p>
+      <CodeBlock language="xml" code={`<goals program="client-intake" version="2" status="active" active_goal="updates">
+<guidance>Record what is known without repeating settled questions. …</guidance>
+<goal ordinal="1" key="identity" status="completed"><title>Confirm identity</title></goal>
+<goal ordinal="2" key="updates" status="active">
+<title>Matter updates</title>
+<objective>Collect changes since the previous conversation</objective>
+<item key="changes" status="pending">New developments</item>
+</goal>
+</goals>`} />
+      <p>
+        <code>delivery</code> decides when it arrives. The default,{" "}
+        <code>&quot;iteration&quot;</code>, re-reads it before every model call.{" "}
+        <code>&quot;request&quot;</code> reads it once per request.{" "}
+        <code>&quot;history&quot;</code> saves it to the conversation, before the
+        next request&apos;s message, once per goal version. It then ages into the
+        background like any other message, never rides on a tool-step prompt, and
+        the model can reason over it without calling{" "}
+        <code>glove_goal_status</code>. When the agent updates a goal mid-request,
+        the tool result already says so; the new version is saved before the next
+        request. If compaction hides the saved goals, they are saved again.
+      </p>
+      <CodeBlock language="typescript" code={`useGoalRunner(glove, adapter, { scope, delivery: "history" });`} />
+
       <h2 id="forms">Compose with forms and context</h2>
       <p>
-        Goals, forms, and context append independent transient user-role snapshots
-        at the model-input tail before each iteration, including after tools.
+        By default goals, forms, and context append independent transient user-role
+        snapshots at the model-input tail before each iteration, including after tools.
         The system prompt and saved conversation stay unchanged. External changes
         appear on the next iteration. <code>refresh()</code> explicitly runs
         preparation, transition recovery, and host configuration.

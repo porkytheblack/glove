@@ -435,15 +435,18 @@ export async function createTripAgent(options: {
       </p>
       <CodeBlock
         language="text"
-        code={`GOALS — trip (version 2; active)
-Record what is known without repeating settled questions. Deferred means follow-up, not done. Revise remaining goals when context changes; preserve stable keys and give a reason.
-1. Plan the trip [plan; active]
-   Objective: Know the route, date, party size and lead traveller
-   - route: Origin and destination [done] — Trip step of the booking form is complete
-   - date: Departure date and party size [done] — Trip step of the booking form is complete
-   - traveller: Lead traveller's name and email [pending]
-2. Book it [book; pending]
-   …
+        code={`<goals program="trip" version="2" status="active" active_goal="plan">
+<guidance>Record what is known without repeating settled questions. Deferred means follow-up, not done. Revise remaining goals when context changes; preserve stable keys and give a reason.</guidance>
+<goal ordinal="1" key="plan" status="active">
+<title>Plan the trip</title>
+<objective>Know the route, date, party size and lead traveller</objective>
+<item key="route" status="done">Origin and destination<note>Trip step of the booking form is complete</note></item>
+<item key="date" status="done">Departure date and party size<note>Trip step of the booking form is complete</note></item>
+<item key="traveller" status="pending">Lead traveller's name and email</item>
+</goal>
+<goal ordinal="2" key="book" status="pending">
+…
+</goals>
 [form: trip-booking] step 2/2 "Lead traveller" · pending: Email for the itinerary, Loyalty number
 Ask for one or two things at a time. Capture anything the traveller volunteers, whichever step it belongs to.`}
       />
@@ -713,11 +716,17 @@ email: confirmation — Confirm the unverified evidence before completion.; valu
       <p>
         Ask for one field at a time. The status line names what is pending, so the
         agent needs no extra tool call to decide what to ask next.{" "}
-        <Link href="/docs/realtime-voice">RealtimeAgent</Link> reads the same runtime
-        context and refreshes it after every tool call it runs. When something
-        outside the call changes state, such as host code resolving a checkpoint,
-        call <code>await realtime.refreshContext()</code>. It injects the new
-        snapshot without prompting a spoken reply.
+        <Link href="/docs/realtime">RealtimeSession</Link> (<code>glove-realtime</code>)
+        runs goals on a call with nothing extra to wire. Goals register their
+        per-turn preparation with <code>addTurnPreparer</code>, and the session
+        runs it before opening and at each user turn. It refreshes the status
+        snapshot after each tool and at each turn, and sends prompt changes made
+        by <code>configure</code> to the provider.{" "}
+        <Link href="/docs/realtime-voice">RealtimeAgent</Link> (<code>glove-voice-s2s</code>)
+        reads the same runtime context and refreshes it after every tool call it
+        runs. When something outside the call changes state, such as host code
+        resolving a checkpoint, call <code>await realtime.refreshContext()</code>.
+        It injects the new snapshot without prompting a spoken reply.
       </p>
 
       <h3 id="interface-background">Background jobs and APIs</h3>

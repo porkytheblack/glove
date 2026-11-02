@@ -36,17 +36,6 @@ export function partnerFor(person: Person, preferences: Preferences = DEFAULT_PR
   };
 }
 
-/** The computer the partner hands long jobs to. Also data: one per person. */
-export function computerFor(person: Pick<Person, "id">) {
-  return {
-    id: `${person.id}-computer`,
-    workspaceId: person.id,
-    name: "Computer",
-    description: "The partner's own computer, with files and the web. Builds pages and dashboards and researches across sites. Takes minutes.",
-    context: {},
-  };
-}
-
 /** The person the example starts with. */
 export const DEMO_PERSON: Person = { id: "ada", name: "Ada", timezone: "America/New_York" };
 

@@ -29,7 +29,7 @@ const tasks: { want: string; href: string; page: string; pkg: string }[] = [
   { want: "Browse websites, write code and run servers in a sandbox", href: "/docs/execution", page: "Browsers & sandboxes", pkg: "glove-execution" },
   { want: "Use tools from MCP servers (Notion, Gmail, Linear…)", href: "/docs/mcp", page: "MCP", pkg: "glove-mcp" },
   { want: "Make cheap, fast typed decisions (triage, routing, filtering)", href: "/docs/classifier", page: "Classifier models", pkg: "glove-classifier" },
-  { want: "Build a voice agent", href: "/docs/harnesses/voice", page: "Voice agent blueprint", pkg: "glove-voice · glove-voice-s2s" },
+  { want: "Build a voice agent", href: "/docs/harnesses/voice", page: "Voice agent blueprint", pkg: "glove-voice · glove-voice-s2s · glove-realtime" },
   { want: "Generate and review images or video as a directed workflow", href: "/docs/image", page: "Image workflows", pkg: "glove-image · glove-video" },
   { want: "Have agents message and delegate to each other", href: "/docs/build/team", page: "Split the work", pkg: "glove-core · glove-mesh" },
 ];

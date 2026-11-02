@@ -97,13 +97,29 @@ test("a transcript becomes display messages without tool input, results or frame
       { sender: "agent", text: "Two things." },
       { sender: "user", text: '<transmission direction="inbound" definition="gmail" route="r" event="mail-received" event-id="m"><payload>{}</payload></transmission>' },
       { sender: "agent", text: "", tool_calls: [{ tool_name: "glove_app_gmail__gmail_send", input_args: { payload: { body: "PRIVATE" } }, id: "c2" }] },
+      // Deliveries to an idle conversation arrive as one Glove event message.
+      {
+        sender: "user",
+        framework_context: "event",
+        text: [
+          '<events note="Delivered by external systems.">',
+          '<event id="e1" source="foundry:route:r" kind="transmission">',
+          '&lt;transmission direction=&quot;inbound&quot; definition=&quot;slack&quot; route=&quot;r&quot; event=&quot;message&quot; event-id=&quot;s&quot;&gt;&lt;payload&gt;{}&lt;/payload&gt;&lt;/transmission&gt;',
+          "</event>",
+          '<event id="e2" source="foundry:agent:x" kind="agent-message">',
+          "Plain words are not framework turns.",
+          "</event>",
+          "</events>",
+        ].join("\n"),
+      },
     ],
   }, { describeTool: (name) => name === "execute_js" ? "Read Gmail in one program" : undefined });
   assert.deepEqual(messages, [
     { id: "10", sender: "person", text: "Anything urgent?" },
     { id: "14", sender: "agent", text: "Two things.", tools: [{ name: "execute_js", status: "done", label: "Read Gmail in one program" }] },
     { id: "15", sender: "event", text: "gmail · mail-received" },
-    { id: "17", sender: "agent", text: "", tools: [{ name: "glove_app_gmail__gmail_send", status: "running" }] },
+    { id: "17", sender: "event", text: "slack · message" },
+    { id: "18", sender: "agent", text: "", tools: [{ name: "glove_app_gmail__gmail_send", status: "running" }] },
   ]);
   assert.doesNotMatch(JSON.stringify(messages), /PRIVATE|search_threads/);
 });

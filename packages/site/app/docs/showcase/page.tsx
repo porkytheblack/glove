@@ -32,9 +32,9 @@ const foundryExamples = [
   },
   {
     href: `${repo}/foundry-layered-assistant`,
-    kicker: "Foundry · mesh · voice",
+    kicker: "Foundry · delegates · voice",
     title: "Layered Assistant",
-    desc: "A fast interactor with personal memory takes chat or calls and messages a coder and a researcher over the mesh. Workers ask back when they need something; replies return to the chat or are spoken mid-call.",
+    desc: "A fast interactor with personal memory takes chat or calls and delegates to a coder and a researcher. Workers ask back when they need something; results return to the chat or are spoken mid-call.",
   },
   {
     href: "/foundry/docs/browser-and-sandbox",

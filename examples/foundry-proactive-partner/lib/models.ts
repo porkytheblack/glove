@@ -4,7 +4,7 @@ import { s2sDrivenModel } from "glove-voice-s2s";
 import { installedApplicationTransmissionToolName } from "glove-foundry";
 import gmailApp from "../agents/partner/apps/gmail.app.js";
 import gmail from "../agents/partner/transmissions/gmail.transmission.js";
-import { gmailRoutes } from "./connect.js";
+import { gmailRoutes } from "./gmail-routes.js";
 import { DemoModel, type DemoStep, type DemoTurn } from "./demo-model.js";
 
 // The partner judges what matters, so it gets the strongest model. The computer
@@ -45,7 +45,7 @@ const call = (tool: string, input: Record<string, unknown>): DemoStep => ({ call
 const mailField = (text: string, name: string) => (new RegExp(`${name}&quot;:&quot;(.*?)&quot;`).exec(text)?.[1] ?? "")
   .replaceAll("&lt;", "<").replaceAll("&gt;", ">").replaceAll("&amp;", "&");
 
-function partnerScript(person: string, { text, called, lastResult, results }: DemoTurn): DemoStep {
+function partnerScript(person: string, { text, called, lastResult }: DemoTurn): DemoStep {
   const sendTool = installedApplicationTransmissionToolName(gmailApp, gmail);
   const email = (payload: Record<string, string>) => call(sendTool, { routeId: gmailRoutes(`${person}-gmail`).out.id, payload });
   if (text.startsWith("Morning brief.")) {
@@ -84,9 +84,9 @@ function partnerScript(person: string, { text, called, lastResult, results }: De
     }
     return say(`I let you know about ${invoice}. Say "pay it" and I'll queue the payment for your approval.`);
   }
-  // The computer's reply: tell the person it is done, then say so here.
-  if (text.startsWith("<mesh-message")) {
-    const done = /<mesh-message[^>]*>\n([\s\S]*?)\n<\/mesh-message>/.exec(text)?.[1] ?? "";
+  // The computer's result: tell the person it is done, then say so here.
+  if (text.startsWith("<delegation ") && /status="completed"/.test(text)) {
+    const done = /<delegation [^>]*>\n[\s\S]*?\nResult:\n([\s\S]*?)\n<\/delegation>/.exec(text)?.[1] ?? "";
     if (!called.includes("notify_person")) return call("notify_person", { title: "Your dashboard is ready", body: done });
     return say(`Done: ${done}`);
   }
@@ -110,13 +110,8 @@ function partnerScript(person: string, { text, called, lastResult, results }: De
     return say(/"messageId"/.test(lastResult) ? "Told Leo 1:30 works." : "You didn't approve it, so Leo hasn't heard back.");
   }
   if (/\b(build|dashboard)\b/i.test(text)) {
-    if (!called.includes("glove_mesh_list_agents")) return call("glove_mesh_list_agents", {});
-    if (!called.includes("glove_mesh_send_message")) {
-      const computer = (JSON.parse(results[0] ?? "{}") as { data?: { agents?: Array<{ id: string; name: string }> } })
-        .data?.agents?.find((agent) => agent.name === "Computer")?.id ?? "";
-      return call("glove_mesh_send_message", { to: computer, content: text });
-    }
-    return say("My computer is on it. I'll let you know when it's ready.");
+    if (!called.includes("glove_foundry_delegate")) return call("glove_foundry_delegate", { to: "computer", task: text });
+    return say(/delegation_/.test(lastResult) ? "My computer is on it. I'll let you know when it's ready." : "I couldn't hand that to my computer.");
   }
   return say("Noted.");
 }

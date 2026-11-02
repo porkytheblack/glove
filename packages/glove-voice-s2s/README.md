@@ -3,6 +3,13 @@
 Speech-to-speech (realtime voice model) adapters for the Glove agent
 framework — the architecture step past the cascaded pipeline.
 
+For **new realtime agents**, start with [`glove-realtime`](../glove-realtime),
+including voice-only agents that need Glove goals, runtime context, events and
+permission-gated tools. This package remains the compatibility path for the
+existing avatar, LiveKit and Foundry voice integrations. It is an independent
+runtime, not a required layer beneath `glove-realtime`; similarly named provider
+adapters from the two packages are not interchangeable.
+
 ## Why
 
 `glove-voice`'s cascade (VAD → STT → LLM → TTS) bottoms out around
@@ -11,6 +18,17 @@ end-of-turn must be reconstructed from transcripts with heuristics or an
 EOU model. A speech-to-speech model collapses the cascade — audio in, one
 model, audio out — with turn-taking decided by the model *listening*.
 Production S2S APIs run **500–800ms** voice-to-voice.
+
+### Running the whole agent on the call: `glove-realtime`
+
+This package is the voice path that avatars, LiveKit rooms and Foundry's
+`voiceCall` build on. `RealtimeAgent` runs tools directly, with no permission
+prompts, store writes or subscriber events. When a call should behave like
+the rest of the agent, use [`glove-realtime`](../glove-realtime). There the
+adapter owns tool registration, context injection and compaction, and
+`RealtimeSession` enforces `requiresPermission` and writes the call to the
+store. It also injects runtime context and goals, and handles reconnects,
+resumption and compaction. It adds camera/screen input and text output too.
 
 ## What survives from the layered-agents architecture
 
@@ -261,6 +279,8 @@ loop, so the Glove Executor never runs):
 - Tool calls and transcripts are not persisted to the agent's store and do
   not fire subscriber events. Use `RealtimeAgent`'s own events
   (`user_said`, `agent_said`, `tool_started`, `tool_finished`) to log.
+
+[`glove-realtime`](../glove-realtime)'s `RealtimeSession` does all three.
 
 What IS shared with the text path: tool definitions and JSON schemas (via
 `getToolJsonSchema`), Zod input validation before `run`, the system prompt,

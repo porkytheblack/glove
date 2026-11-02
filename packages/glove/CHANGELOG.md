@@ -1,5 +1,52 @@
 # glove-core
 
+## 4.6.0
+
+### Minor Changes
+
+- [#218](https://github.com/porkytheblack/glove/pull/218) [`ca88985`](https://github.com/porkytheblack/glove/commit/ca8898526d5baeabe0469921658977451dab921c) Thanks [@porkytheblack](https://github.com/porkytheblack)! - Add owned durable subagents to defineAgent, with reusable definitions, explicit memory/tool/app inheritance, restricted app views, persistent two-way messaging, and delegation to durable workers. Add worker inspection, archive/resume/purge APIs, ownership-aware cleanup, and per-definition run time and concurrency limits.
+
+  Route messages, task starts, and task updates through a shared durable event journal with explicit agent/conversation targeting, wake/defer/expiry policies, restart recovery and retained deduplication receipts. Deliver through native runtime events without mesh inboxes; add an awaited Glove processEvents turn for durable hosts.
+
+  Preserve events cancelled before history persistence, and route deliveries and acknowledgment tracking through the final runnable returned by a custom build.
+
+### Patch Changes
+
+- [#218](https://github.com/porkytheblack/glove/pull/218) [`ca88985`](https://github.com/porkytheblack/glove/commit/ca8898526d5baeabe0469921658977451dab921c) Thanks [@porkytheblack](https://github.com/porkytheblack)! - Normalize object-union tool schemas at OpenAI-compatible and OpenAI realtime provider boundaries. Preserve common root fields and constraints when merging branch properties into an object-shaped wire schema, including keys allowed by branch patternProperties, while retaining the original Zod discriminated-union validation in the executor. Custom realtime adapters keep the original schema; raw JSON Schema tools retain their existing pass-through validation behavior. This fixes OpenAI rejecting built-in Foundry tools such as schedule management.
+
+## 4.5.0
+
+### Minor Changes
+
+- [#210](https://github.com/porkytheblack/glove/pull/210) [`6f04d7e`](https://github.com/porkytheblack/glove/commit/6f04d7e1db19b30676254753c6a2a68c04d427cb) Thanks [@porkytheblack](https://github.com/porkytheblack)! - Runnable members for runtimes that drive an agent without `processRequest`, such as realtime sessions:
+
+  - `prepareTurn(signal?)` is now public on `IGloveRunnable`. It runs the turn preparers (`addTurnPreparer`) on demand, so another runtime can run the same preparation (goal recovery, form preparation) at its own turn boundaries.
+  - `notifySubscribers(type, data)` delivers an event to the subscribers added with `addSubscriber`. Activity from another runtime, such as tool calls, transcripts and usage, then reaches the same subscribers a text turn does.
+  - `holdTurns({ signal?, onEvent? })` waits for the turns ahead and then holds the turn queue until `release()`. While it is held, requests and event wakes wait, and `emitEvent` queues events for the holder (`onEvent` hears each one) instead of waking the model. The returned `TurnHold` has `takeEvents(phase?)`, which returns the queued events as one formatted message, and `historyContext(signal?)`, which returns the `delivery: "history"` context a request would save, so the holding runtime can save it where it keeps the conversation. `release()` resolves once the queue is free.
+
+## 4.4.0
+
+### Minor Changes
+
+- [#211](https://github.com/porkytheblack/glove/pull/211) [`d1d9508`](https://github.com/porkytheblack/glove/commit/d1d95086ce5738619e3eddaa66dfbd1abfe4d2e1) Thanks [@porkytheblack](https://github.com/porkytheblack)! - Context delivery modes, spontaneous events, and prompt-cache breakpoints that skip transient context.
+
+  - `addContextProvider(provider, { delivery, key })`. `"iteration"` (the default, unchanged) re-reads a provider before every model call and appends it at the input tail. `"request"` reads it once per request and freezes it just before the request's message, so the input is identical on every tool step. `"history"` saves it to history before the request's message, only when its value differs from the one it saved last. Saved values are wrapped in `<context key="…">`, which is how the last one is found again with any store. A provider that goes empty saves a `status="cleared"` marker once, and a value hidden by compaction is saved again. Text only. `getRuntimeContext(signal?, delivery?)` can read one kind.
+  - `emitEvent({ id, source, kind?, content, whenIdle?, expiresAt?, metadata? })` delivers what third parties report (another agent, a webhook, an app). While a turn runs, the event joins at the next tool-step boundary and is saved once after the tool results. While idle, the event policy wakes the agent (the event becomes the message of a turn of its own), defers it to just before the user's next message, or drops it. `notifyUserActivity()` tells the default policy the user is present, which makes it defer; deferred events wake the agent after `deferTimeoutMs` (60 s). Ids de-duplicate and `expiresAt` drops stale events. Events are rendered as escaped `<events><event …>` XML that labels them as external information. `new Glove({ events: { queue, policy, formatter, userActivityWindowMs, deferTimeoutMs } })` replaces any part; `MemoryEventQueue`, `defaultEventPolicy` and `defaultEventFormatter` are exported. Subscribers get `event_received`, `event_injected`, `event_dropped` and `event_wake_failed`.
+  - Turns run one at a time. Concurrent `processRequest` calls and event wakes queue in order, and a queued request can be aborted while it waits. Calling `processRequest` on the same Glove from inside one of its own tools now waits on itself.
+  - Inbox items resolved while the loop runs join at the next tool-step boundary instead of waiting for the next request.
+  - `Message.transient` marks model-only input (runtime snapshots, the blocking-inbox reminder). `promptCacheAnchors(messages)` picks the blocks that should carry conversation cache breakpoints. The Anthropic, Anthropic-compatible and Bedrock adapters now place them on the last saved block, plus one before request-frozen context, never on a transient one; before, the breakpoint sat on the runtime snapshot, so no later request could reuse the conversation cache. OpenAI-compatible and OpenRouter adapters skip the latest-turn breakpoint when that turn is transient (`applyOpenAICacheControl` takes a `latestTurn` argument).
+  - `addTurnPreparer(prepare)` runs work inside the turn queue before every request and every event wake (a throw fails that turn). Pre-turn work belongs here rather than in a `processRequest` wrapper, which wakes bypass.
+  - `requiresPermission` predicates may be async: `(input) => boolean | Promise<boolean>` is awaited. Synchronous predicates work as before.
+  - `AgentFrameworkHooks` is the new optional seventh argument of `Agent`.
+
+### Patch Changes
+
+- [#195](https://github.com/porkytheblack/glove/pull/195) [`c6f6cb4`](https://github.com/porkytheblack/glove/commit/c6f6cb4bb1c81357ca16f9fa043890cc0a9ff325) Thanks [@porkytheblack](https://github.com/porkytheblack)! - Register `glove_post_to_inbox` when the store implements the inbox.
+
+  The docs, the agent skills and the coffee example have long said that a store with `getInboxItems`, `addInboxItem`, `updateInboxItem` and `getResolvedInboxItems` gives the agent the `glove_post_to_inbox` tool, the way task methods give it `glove_update_tasks`. Glove never registered it: `createInboxTool` was exported but nothing called it, so the model could not post inbox items. A Glove whose store implements all four methods (`MemoryStore` does) now registers the tool on construction and rebinds it to the store passed to `build`, exactly as the task tool does. Agents whose stores lack any of the four are unchanged.
+
+  Also corrects the Anthropic Haiku 3.5 id in the provider registry's model list (`claude-3-5-haiku-20241022`).
+
 ## 4.3.0
 
 ### Minor Changes

@@ -148,7 +148,13 @@ export function geminiSchema(schema: unknown): Record<string, unknown> {
     } else if (key === "items") {
       out.items = geminiSchema(value);
     } else if (key === "anyOf" && Array.isArray(value)) {
-      out.anyOf = value.map((s) => geminiSchema(s));
+      // Zod writes `.nullable()` as anyOf [T, {type: "null"}]. Gemini has no
+      // null type; its way to say it is `nullable` on T.
+      const isNull = (s: unknown) => (s as { type?: unknown } | null)?.type === "null";
+      const rest = value.filter((s) => !isNull(s));
+      if (rest.length !== value.length) out.nullable = true;
+      if (rest.length === 1) Object.assign(out, geminiSchema(rest[0]), out.nullable ? { nullable: true } : {});
+      else out.anyOf = rest.map((s) => geminiSchema(s));
     } else if (key === "type" && Array.isArray(value)) {
       // JSON Schema's `["string", "null"]` union is Gemini's `nullable`.
       const types = value.filter((t) => t !== "null");

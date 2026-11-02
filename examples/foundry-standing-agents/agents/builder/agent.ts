@@ -6,9 +6,10 @@ import { builderComputer } from "./workspace.js";
 
 /**
  * Where a person's dot starts coding and heavy build jobs, the way a dot starts
- * a task in a coding agent. It has a computer and no access to the person,
- * their channels or the dot's actions. Its final reply goes back to the dot
- * that asked.
+ * a task in a coding agent. Each dot owns one, as a durable subagent
+ * (agents/dot/agent.ts). It has a computer and no access to the person, their
+ * channels or the dot's actions. Its final reply goes back to the dot that
+ * asked.
  */
 export default defineAgent({
   description: "Does heavy jobs for a dot on its own computer and reports back",
@@ -16,6 +17,5 @@ export default defineAgent({
   systemPrompt: builderPrompt,
   store: ({ conversationId }) => FileStore.open(conversationId),
   workingEnvironment: builderComputer,
-  // It starts nothing. It can still ask the dot that messaged it.
-  mesh: { peers: () => false },
+  // It starts nothing. On a task it can ask the dot with glove_foundry_ask.
 });

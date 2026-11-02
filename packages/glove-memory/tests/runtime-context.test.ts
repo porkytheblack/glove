@@ -24,10 +24,10 @@ test("goals, forms and standing context refresh after a tool while preserving th
       const snapshots = request.messages.slice(-3).map(m => m.text).join("\n");
       assert.match(snapshots, new RegExp(`Standing context: ${phase}`));
       if (calls++ === 0) {
-        assert.match(snapshots, /Email address/); assert.match(snapshots, /Goal item \[pending\]/);
+        assert.match(snapshots, /Email address/); assert.match(snapshots, /status="pending">Goal item<\/item>/);
         return { messages: [{ sender: "agent", text: "", tool_calls: [{ id: "advance", tool_name: "advance", input_args: {} }] }], tokens_in: 1, tokens_out: 1 };
       }
-      assert.doesNotMatch(snapshots, /Email address/); assert.match(snapshots, /work; completed/);
+      assert.doesNotMatch(snapshots, /Email address/); assert.match(snapshots, /key="work" status="completed"/);
       return { messages: [{ sender: "agent", text: "Done" }], tokens_in: 1, tokens_out: 1 };
     } },
   }).build();
@@ -52,11 +52,11 @@ test("goals, forms and standing context refresh after a tool while preserving th
   assert.equal(calls, 2); assert.equal(systemWrites.length, writesBefore);
   assert.equal(glove.getSystemPrompt(), "Stable host instructions");
   const history = await store.getMessages();
-  assert.ok(!history.some(m => m.text?.startsWith("GOALS") || m.text?.startsWith("Standing context:")));
+  assert.ok(!history.some(m => m.text?.startsWith("<goals") || m.text?.startsWith("Standing context:")));
   // A newly built conversational agent obtains the persisted goal state.
   const fresh = new Glove({ model: glove.model, displayManager: new Displaymanager(), systemPrompt: "Fresh", compaction_config: { compaction_instructions: "Summarize" } }).build();
   useGoalRunner(fresh, goalAdapter, { scope: { subject: "client", key: "work" } });
-  assert.match((await fresh.getRuntimeContext()).map(m => m.text).join("\n"), /work; completed/);
+  assert.match((await fresh.getRuntimeContext()).map(m => m.text).join("\n"), /key="work" status="completed"/);
 });
 
 test("unsupported proxies fail before tool mounting instead of silently mutating the system prompt", () => {

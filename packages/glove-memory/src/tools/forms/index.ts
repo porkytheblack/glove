@@ -1,5 +1,5 @@
 import type { ContentPart, GloveFoldArgs, Message, ModelPromptResult } from "glove-core";
-import { assertRuntimeContext, attachRuntimeContext, type RuntimeContextTarget } from "../runtime-context";
+import { assertRuntimeContext, attachRuntimeContext, type MemoryContextDelivery, type RuntimeContextTarget } from "../runtime-context";
 import type { DisplayManagerAdapter } from "glove-core";
 import type { FormAdapter } from "../../forms/adapter";
 import type { FormMemoryAdapters } from "../../forms/bridge";
@@ -51,12 +51,28 @@ export function buildFormReaderTools(
 /** Tool mounting and runtime context injection. Proxies forward addContextProvider to Glove. */
 export interface FormEnableTarget extends RuntimeContextTarget {
   fold: <I>(args: GloveFoldArgs<I>) => unknown;
+  /** When present (glove-core >=4.4), pre-turn work runs here so event wakes get it too. */
+  addTurnPreparer?: (prepare: (signal?: AbortSignal) => void | Promise<void>) => () => void;
   getSystemPrompt(): string;
   setSystemPrompt(prompt: string): void;
   processRequest(
     request: string | ContentPart[],
     signal?: AbortSignal,
   ): Promise<ModelPromptResult | Message>;
+}
+
+/**
+ * Run `prepare` before every turn. A Glove with turn preparers runs it for
+ * requests and event wakes alike; older runnables and proxies fall back to
+ * wrapping `processRequest`, which covers requests only.
+ */
+export function beforeEveryTurn(glove: FormEnableTarget, prepare: () => Promise<void>): void {
+  if (typeof glove.addTurnPreparer === "function") {
+    glove.addTurnPreparer(prepare);
+    return;
+  }
+  const original = glove.processRequest.bind(glove);
+  glove.processRequest = async (request, signal) => { await prepare(); return original(request, signal); };
 }
 
 export interface UseFormRunnerConfig {
@@ -69,8 +85,10 @@ export interface UseFormRunnerConfig {
   display?: DisplayManagerAdapter;
   actor?: string;
   source?: string;
-  /** Skip transient tier-0 runtime context and drive it yourself. */
+  /** Skip tier-0 runtime context and drive it yourself. */
   injectStatus?: boolean;
+  /** How tier-0 reaches the model: `"iteration"` (default), `"request"` or `"history"` (key `glove.forms`). */
+  delivery?: MemoryContextDelivery;
   /**
    * Narrow the folded surface. `{ deny: ["abandon"] }` leaves the agent
    * unable to close an instance out; `{ allow: ["list", "status", "fill"] }`
@@ -120,11 +138,8 @@ export function useFormRunner<G extends FormEnableTarget>(
   if (config.injectStatus !== false) attachRuntimeContext(glove, async () => {
     if (config.preparation) return runner.tier0();
     try { return await runner.tier0(); } catch { return ""; }
-  });
-  if (config.preparation) {
-    const original = glove.processRequest.bind(glove);
-    glove.processRequest = async (request, signal) => { await synchronize(); return original(request, signal); };
-  }
+  }, { delivery: config.delivery ?? "iteration", key: "glove.forms" });
+  if (config.preparation) beforeEveryTurn(glove, async () => { await synchronize(); });
 
   return { glove, runner };
 }

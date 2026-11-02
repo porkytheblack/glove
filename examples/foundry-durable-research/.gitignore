@@ -1,0 +1,4 @@
+.data/
+.foundry/
+node_modules/
+.env

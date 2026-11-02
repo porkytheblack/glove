@@ -139,7 +139,7 @@ export default defineApplication({
 })
 ```
 
-`FileFoundryDataAdapter` coordinates sibling execution processes with an advisory lock and commits by atomic rename. It persists instances, subscriptions, delivery claims, activations, conversations, workspace data, VFS snapshots, inbox items, tasks, and non-secret environment data. Use a transactional database adapter when several hosts need to share the same state.
+`FileFoundryDataAdapter` coordinates sibling execution processes with an advisory lock and commits by atomic rename. It persists instances, subscriptions, delivery claims, addressed events and receipts, activations, conversations, workspace data, VFS snapshots, inbox items, tasks, and non-secret environment data. Use a transactional database adapter when several hosts need to share the same state.
 
 ## The filesystem is the static registry
 
@@ -201,7 +201,7 @@ bot, renaming it or giving it an app is a write (`createAgent`,
 settings from the instance in resolvers, branch on its data (`context.routines`)
 rather than its id, and let agents change their own data with tools, such as a
 `take_job` tool that writes `name` and `description` with `ctx.data.putAgent`.
-A workspace is a tenant: its agents are mesh peers and share workspace entries.
+A workspace is a tenant: its agents share workspace entries, and with `mesh` they are peers.
 Add a definition only when a kind of agent runs differently, loads different
 dependencies, or must never have another kind's tools.
 
@@ -852,16 +852,16 @@ conversation store and ends when the room closes, nobody is connected for
 other transports (LiveKit, a phone bridge) report `call.joined()` and
 `call.left()` the same way.
 
-Keep the call thin. Durable, slow or approval-gated work belongs to other
-agents: put the call's agent on the mesh (`mesh: true`), send work to workers
-in the same workspace with `glove_mesh_send_message`, and the call speaks their
-replies and questions at the next pause in speech (`announceMeshMessage`, or
-your own `announce`). `voiceCall` keeps Foundry's bookkeeping tools and any tool
-with `requiresPermission` off the call, because a realtime session runs tools
-directly and would skip the approval. A reply that arrives after the caller
-hangs up runs as an ordinary turn (`source.kind` is `"mesh"`); by default
-`voiceCall` saves it to the conversation, or pass `offCall` to handle it, for
-instance with a text model.
+Keep the call thin. Durable, slow or approval-gated work belongs to a delegate:
+list workers in `delegates`, and the call speaks their results and questions at
+the next pause in speech. `voiceCall` keeps Foundry's bookkeeping tools and any
+tool with `requiresPermission` off the call, because a realtime session runs
+tools directly and would skip the approval. A delegation result that arrives
+after the caller hangs up runs as an ordinary turn (`source.kind` is
+`"delegation"`); by default `voiceCall` saves it to the conversation, or pass
+`offCall` to handle it, for instance with a text model. A call's agent on the
+hosted mesh hears messages from its peers the same way (`announceMeshMessage`,
+or your own `announce`); one that arrives after the call is a `"mesh"` turn.
 
 Use `glove-voice-s2s` for Gemini Live, OpenAI Realtime, or GPT-Live and `glove-voice` for a
 speech-to-text / Glove / text-to-speech pipeline.
@@ -875,8 +875,7 @@ before adapting an existing room example; Realtime VAD and final-turn assumption
 do not apply.
 
 `examples/foundry-layered-assistant` is a fast interactor with personal memory
-that takes text or calls and sends work to a coder and a researcher over the
-mesh.
+that takes text or calls and delegates to a coder and a researcher.
 `examples/foundry-braind-storm` runs its briefing line on `voiceCall`. Phone bridges, LiveKit rooms and native audio hosts can use the
 same instance/conversation boundary. Messenger-specific voice gateways and codecs
 are consumer adapters, not built-in Foundry telephony services.
@@ -919,4 +918,13 @@ run cleanup. See the [document adapter](../../glove-env-documents/README.md).
 - Provider adapters own credential acquisition and refresh.
 - Voice rooms own audio transport; `voiceCall` owns the session and the transcript; Foundry owns the durable run.
 - A definition is what a kind of agent can be; each agent, its name and its job are instance data.
-- Interactors keep the person's context; workers keep one task's. Mesh replies and questions come back to the conversation that sent the message.
+- Interactors keep the person's context; workers keep one task's. Delegation results and questions come back to the conversation that delegated.
+- Agents that already exist as peers in one workspace can message each other on the hosted mesh. Replies come back to the conversation that sent the message.
+
+## Durable subagents
+
+Use `defineAgent({ durableSubagents: { research: { agent: researcher, inherit: { memory: "shared" } } } })`
+for persistent owned workers. Existing task delegation can target the `research` name;
+`glove_foundry_message` sends spontaneous messages to that worker or back to its parent.
+See [Durable subagents](durable-subagents.md) for app permission modifiers, independent
+run limits, direct client messaging, persistence boundaries, and archive/purge semantics.

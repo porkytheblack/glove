@@ -22,9 +22,18 @@ export default function ConceptsPage() {
       </p>
 
       <ol>
-        <li>The user&apos;s message is added to the conversation history</li>
         <li>
-          The AI reads the full conversation and the list of available tools
+          The turn waits its place in line: requests and{" "}
+          <a href="#events">event wakes</a> run one at a time, after any{" "}
+          <a href="/docs/runtime-context#turns">turn preparers</a>
+        </li>
+        <li>
+          <a href="#runtime-context">Runtime context</a> that belongs in history
+          is saved, then the user&apos;s message is added to the conversation
+        </li>
+        <li>
+          The AI reads the conversation, the current runtime context and the
+          list of available tools
         </li>
         <li>
           The AI either responds with text (ending the loop) or requests one or
@@ -32,9 +41,10 @@ export default function ConceptsPage() {
         </li>
         <li>
           Glove executes the requested tools and adds the results to the
-          conversation
+          conversation, followed by any events and inbox results that arrived
+          meanwhile
         </li>
-        <li>Go back to step 2</li>
+        <li>Go back to step 3</li>
       </ol>
 
       <p>
@@ -273,6 +283,65 @@ export default function ConceptsPage() {
         implementations can opt in by supplying their own factory.
       </p>
 
+      <h2 id="runtime-context">Runtime Context</h2>
+
+      <p>
+        The system prompt says who the agent is; the conversation says what
+        happened. Neither is the right place for what is true <em>right now</em>:
+        the goals still open, the form half filled, the screenshot just taken.
+        Pasting that into the system prompt on every turn breaks the prompt cache
+        and leaves stale copies behind. Glove gives it its own channel instead.
+      </p>
+
+      <p>
+        A <strong>context provider</strong> is a function you register with{" "}
+        <code>agent.addContextProvider(provider, options)</code>. It returns text,
+        content parts or <code>null</code>, and its <code>delivery</code> decides
+        when Glove reads it:
+      </p>
+
+      <ul>
+        <li>
+          <strong><code>&quot;iteration&quot;</code></strong> (default): before every
+          model call, including between tool steps, appended at the end of the
+          input and never saved. Right for state a tool can change mid-request.
+        </li>
+        <li>
+          <strong><code>&quot;request&quot;</code></strong>: once per request, frozen
+          just before the request&apos;s message, never saved. Every tool step sees
+          the same input, so it caches.
+        </li>
+        <li>
+          <strong><code>&quot;history&quot;</code></strong>: once per request, saved
+          to the conversation only when it changed, wrapped in{" "}
+          <code>&lt;context key&gt;</code>. It ages into the background and the
+          model reasons over it without a tool call.
+        </li>
+      </ul>
+
+      <p>
+        Memory&apos;s pinned context, goals (rendered as <code>&lt;goals&gt;</code>{" "}
+        XML), forms, browser screenshots and Foundry&apos;s open delegations are all
+        context providers. Saved history and request-frozen context stay part of a
+        prefix that only grows, and the adapters keep their cache breakpoints off
+        anything transient. See <a href="/docs/runtime-context">Runtime Context</a>{" "}
+        for every option.
+      </p>
+
+      <h3 id="events">Events</h3>
+
+      <p>
+        Some context isn&apos;t state but something that <em>happened</em>: a reply
+        from another agent, a webhook, a calendar change.{" "}
+        <code>agent.emitEvent(&#123; id, source, content &#125;)</code> queues it.
+        While a turn runs, it joins at the next tool-step boundary; while the
+        agent is idle, a policy either wakes the agent with the event as the
+        turn&apos;s message or holds it for the user&apos;s next message. Either way
+        it is saved once, as escaped XML marked as coming from outside — never
+        mistaken for something the user typed. See{" "}
+        <a href="/docs/runtime-context#events">Events</a>.
+      </p>
+
       <h2 id="context-compaction">Context Compaction</h2>
 
       <p>
@@ -325,9 +394,10 @@ export default function ConceptsPage() {
 
       <p>
         The inbox is a persistent async mailbox. An agent posts a request it
-        can&apos;t fulfill now, and an external service resolves it later. The
-        next time the agent runs, resolved items are automatically injected
-        into the conversation. This works across sessions, server restarts, and
+        can&apos;t fulfill now, and an external service resolves it later.
+        Resolved items are injected into the conversation automatically: at the
+        next tool step if the agent is still working, otherwise when it next
+        runs. This works across sessions, server restarts, and
         different instances of the same agent.
       </p>
 

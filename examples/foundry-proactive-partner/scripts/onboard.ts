@@ -1,12 +1,11 @@
 import { fileURLToPath } from "node:url";
 import { createFoundryClient, discoverAgents } from "glove-foundry";
-import computer from "../agents/computer/agent.js";
 import partner from "../agents/partner/agent.js";
 import { giveAccounts, writesVia } from "../lib/connect.js";
-import { computerFor, partnerFor, threadFor } from "../lib/onboarding.js";
+import { partnerFor, threadFor } from "../lib/onboarding.js";
 
-// Sign a person up: their partner, the computer it hands long jobs to, their
-// one thread, and a first message so the brief and check-ins are on their
+// Sign a person up: their partner (its computer comes with it, created on the
+// first long job), their one thread, and a first message so the brief and check-ins are on their
 // clock. Connect their Gmail and Calendar with `pnpm connect`.
 //   pnpm onboard ada "Ada" America/New_York
 
@@ -21,7 +20,6 @@ const foundry = createFoundryClient({
 const person = { id, name, timezone };
 const created = await foundry.createAgent(partner.id, partnerFor(person));
 await giveAccounts(writesVia.client(foundry), created.id, person);
-await foundry.createAgent(computer.id, computerFor(person));
 const thread = await foundry.createConversation(created.id, threadFor(person));
 const hello = await foundry.send(created.id, thread.id, `Hi, I'm ${name}. Keep an eye on things for me.`);
 await hello.wait({ timeoutMs: 120_000 });

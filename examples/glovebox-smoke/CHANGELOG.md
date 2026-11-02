@@ -1,5 +1,26 @@
 # glovebox-smoke
 
+## 0.0.10
+
+### Patch Changes
+
+- Updated dependencies []:
+  - glovebox-core@0.6.9
+
+## 0.0.9
+
+### Patch Changes
+
+- Updated dependencies []:
+  - glovebox-core@0.6.8
+
+## 0.0.8
+
+### Patch Changes
+
+- Updated dependencies []:
+  - glovebox-core@0.6.7
+
 ## 0.0.7
 
 ### Patch Changes

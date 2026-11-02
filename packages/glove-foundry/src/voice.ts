@@ -3,12 +3,12 @@ import type { IGloveRunnable, Message, Tool } from "glove-core";
 import { RealtimeAgent, type RealtimeAgentConfig } from "glove-voice-s2s";
 import { WebSocketServer, type RawData, type WebSocket } from "ws";
 import type { AgentHandlerContext } from "./definition.js";
+import { renderDeliveries, type FoundryDelegationUpdate } from "./delegation.js";
 import { renderMeshMessages, type FoundryMeshMessage } from "./mesh.js";
 
 /**
  * Foundry tools that have no place in a spoken conversation. Durable,
- * long-running or bookkeeping work belongs to another agent, reached over the
- * mesh, not the call.
+ * long-running or bookkeeping work belongs to a delegate, not the call.
  */
 export const VOICE_EXCLUDED_FOUNDRY_TOOLS: ReadonlyArray<string> = Object.freeze([
   "glove_foundry_spawn",
@@ -22,7 +22,7 @@ export const VOICE_EXCLUDED_FOUNDRY_TOOLS: ReadonlyArray<string> = Object.freeze
   "glove_foundry_environment",
 ]);
 
-/** How long a mesh message may wait for a pause in speech before it is spoken anyway. */
+/** How long a delegation update may wait for a pause in speech before it is spoken anyway. */
 const MAX_UPDATE_HOLD_MS = 8_000;
 
 /**
@@ -82,12 +82,14 @@ export interface VoiceCallOptions {
    * `excludeTools` (added to the defaults) and `onToolCall`.
    */
   readonly realtime?: Omit<RealtimeAgentConfig, "agent">;
-  /** How a mesh message is put to the model mid-call. Return null to keep it silent. */
-  readonly announce?: (message: FoundryMeshMessage) => string | null;
+  /** How a delegation update is put to the model. Return null to keep it silent. */
+  readonly announce?: (update: FoundryDelegationUpdate) => string | null;
+  /** How a message from a peer on the mesh Foundry hosts is put to the model. Return null to keep it silent. */
+  readonly announceMesh?: (message: FoundryMeshMessage) => string | null;
   /**
-   * A run that is not a call: a reply from another agent that arrived after
-   * the caller hung up. By default it is saved to the conversation, so the
-   * next call starts knowing it.
+   * A run that is not a call: a delegation result, or a peer's reply on the
+   * mesh, that arrived after the caller hung up. By default it is saved to the conversation, so the next
+   * call starts knowing it.
    */
   readonly offCall?: (agent: IGloveRunnable, context: AgentHandlerContext) => unknown;
 }
@@ -97,11 +99,33 @@ export interface VoiceCallResult {
   readonly durationMs: number;
   /** How many times the agent spoke. */
   readonly turns: number;
-  /** Mesh messages put to the caller during the call. */
+  /** Delegation updates and mesh messages put to the caller during the call. */
   readonly updatesSpoken: number;
 }
 
-/** The default way a message from another agent is put to the model mid-call. */
+/** The default way a delegation update is put to the model mid-call. */
+export function announceDelegationUpdate(update: FoundryDelegationUpdate): string {
+  if (update.kind === "result") {
+    return [
+      `The ${update.agent} agent finished "${update.task}" (delegation ${update.delegationId}).`,
+      `Its result: ${update.result}`,
+      "Tell the caller what matters, briefly and in plain speech.",
+    ].join("\n");
+  }
+  if (update.kind === "question") {
+    return [
+      `The ${update.agent} agent, working on "${update.task}", asks: ${update.question}`,
+      `If you already know the answer, reply with glove_foundry_reply (delegation ${update.delegationId}).`,
+      "Otherwise ask the caller, then reply with their answer.",
+    ].join("\n");
+  }
+  return [
+    `The ${update.agent} agent could not finish "${update.task}" (delegation ${update.delegationId}): ${update.error}`,
+    "Let the caller know, briefly.",
+  ].join("\n");
+}
+
+/** The default way a message from a peer on the mesh is put to the model mid-call. */
 export function announceMeshMessage(message: FoundryMeshMessage): string {
   const who = `${message.from.name} (${message.from.agentId})`;
   if (message.kind === "reply") {
@@ -136,14 +160,13 @@ function gatedTools(agent: IGloveRunnable): string[] {
  * The agent's prompt, tools and context configure a realtime speech session
  * (its model must be `s2sDrivenModel(...)`, or pass `realtime.adapter`). The
  * room connects callers. What both sides say is saved to the conversation.
- * Replies and questions from other agents on the mesh are spoken at the next
- * pause instead of waiting for the call to end. Foundry's bookkeeping tools
- * and any tool that needs an approval are kept off the call; hand that work
- * to another agent instead.
+ * Delegation results and questions, and messages from peers on the mesh, are
+ * spoken at the next pause instead of waiting for the call to end. Foundry's bookkeeping tools and any tool that
+ * needs an approval are kept off the call; delegate that work instead.
  */
 export function voiceCall(options: VoiceCallOptions) {
   return async (agent: IGloveRunnable, context: AgentHandlerContext): Promise<VoiceCallResult | unknown> => {
-    if (context.request.source?.kind === "mesh") {
+    if (context.request.source?.kind === "delegation" || context.request.source?.kind === "mesh") {
       if (options.offCall) return options.offCall(agent, context);
       await agent.store.appendMessages([{ sender: "user", text: context.messageText }]);
       return { endedBecause: "not a call", durationMs: 0, turns: 0, updatesSpoken: 0 } satisfies VoiceCallResult;
@@ -185,9 +208,22 @@ export function voiceCall(options: VoiceCallOptions) {
     realtime.on("tool_started", (name) => context.emit({ type: "foundry.voice.tool", data: { name, phase: "start" } }));
     realtime.on("tool_finished", (name) => context.emit({ type: "foundry.voice.tool", data: { name, phase: "done" } }));
 
-    // Mesh messages wait for a pause: never over the caller or the agent.
-    const announce = options.announce ?? announceMeshMessage;
-    const queue: FoundryMeshMessage[] = [];
+    // Delegation updates and mesh messages wait for a pause: never over the
+    // caller or the agent.
+    const announce = options.announce ?? announceDelegationUpdate;
+    const announceMesh = options.announceMesh ?? announceMeshMessage;
+    type Heard = { readonly update: FoundryDelegationUpdate } | { readonly mesh: FoundryMeshMessage };
+    const queue: Heard[] = [];
+    const meshSide = (message: FoundryMeshMessage) => (message.threadId === context.conversationId ? "recipient" as const : "starter" as const);
+    /** What a batch adds to the transcript, so later turns can use the details. */
+    const rendered = (batch: ReadonlyArray<Heard>): string => {
+      const updates = batch.flatMap((item) => ("update" in item ? [item.update] : []));
+      const messages = batch.flatMap((item) => ("mesh" in item ? [item.mesh] : []));
+      return [
+        updates.length ? renderDeliveries(updates) : "",
+        messages.length ? renderMeshMessages(messages, meshSide) : "",
+      ].filter(Boolean).join("\n\n");
+    };
     let heldSince = 0;
     let retry: ReturnType<typeof setTimeout> | undefined;
     const pump = (): void => {
@@ -203,14 +239,20 @@ export function voiceCall(options: VoiceCallOptions) {
         return;
       }
       const batch = queue.splice(0);
-      // The full message joins the transcript, so later turns can use the details.
-      save([{ sender: "user", text: renderMeshMessages(batch, (message) => (message.threadId === context.conversationId ? "recipient" : "starter")) }]);
-      const text = batch.map(announce).filter((line): line is string => Boolean(line)).join("\n\n");
+      // The full update joins the transcript, so later turns can use the details.
+      save([{ sender: "user", text: rendered(batch) }]);
+      const text = batch
+        .map((item) => ("update" in item ? announce(item.update) : announceMesh(item.mesh)))
+        .filter((line): line is string => Boolean(line))
+        .join("\n\n");
       if (text) realtime.inject(text, { respond: true });
       updatesSpoken += batch.length;
       context.emit({
         type: "foundry.voice.updates.spoken",
-        data: { messageIds: batch.map((message) => message.id) },
+        data: {
+          delegationIds: batch.flatMap((item) => ("update" in item ? [item.update.delegationId] : [])),
+          threadIds: batch.flatMap((item) => ("mesh" in item ? [item.mesh.threadId] : [])),
+        },
       });
     };
     realtime.adapter.on("agent_speech_started", () => { agentSpeaking = true; });
@@ -218,14 +260,16 @@ export function voiceCall(options: VoiceCallOptions) {
     realtime.adapter.on("user_speech_started", () => { userSpeaking = true; });
     realtime.adapter.on("user_speech_stopped", () => { userSpeaking = false; pump(); });
     realtime.adapter.on("interrupted", () => { agentSpeaking = false; });
-    const stopListening = context.onMeshMessage((messages) => {
-      // A read receipt is for a tool that is waiting, not for the caller.
-      const spoken = messages.filter((message) => message.kind !== "ack");
-      if (spoken.length === 0) return;
+    const hear = (items: ReadonlyArray<Heard>): void => {
       if (queue.length === 0) heldSince = Date.now();
-      queue.push(...spoken);
+      queue.push(...items);
       pump();
-    });
+    };
+    const stopUpdates = context.onDelegationUpdate((updates) => hear(updates.map((update) => ({ update }))));
+    const stopMesh = context.onMeshMessage((messages) => hear(messages.map((mesh) => ({ mesh }))));
+    const stopListening = async (): Promise<void> => {
+      await Promise.all([stopUpdates(), stopMesh()]);
+    };
 
     const room = typeof options.room === "function" ? await options.room(context) : options.room;
     const idleMs = options.idleMs ?? 120_000;
@@ -295,10 +339,8 @@ export function voiceCall(options: VoiceCallOptions) {
       if (retry) clearTimeout(retry);
       context.signal.removeEventListener("abort", onAbort);
       await stopListening();
-      // Messages nobody heard stay in the conversation for the next turn.
-      if (queue.length > 0) {
-        save([{ sender: "user", text: renderMeshMessages(queue.splice(0), (message) => (message.threadId === context.conversationId ? "recipient" : "starter")) }]);
-      }
+      // Updates nobody heard stay in the conversation for the next turn.
+      if (queue.length > 0) save([{ sender: "user", text: rendered(queue.splice(0)) }]);
       try { await room.close(); } catch { /* the call is over either way */ }
       if (started) await realtime.stop().catch(() => undefined);
       await saving;

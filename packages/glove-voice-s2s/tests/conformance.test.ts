@@ -8,7 +8,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import EventEmitter from "eventemitter3";
 import { runConformance, type ConformanceContext } from "../src/conformance";
-import { GeminiLiveAdapter, type WebSocketLike } from "../src/gemini-live";
+import { GeminiLiveAdapter, geminiSchema, type WebSocketLike } from "../src/gemini-live";
 import { OpenAIRealtimeSocketAdapter } from "../src/openai-realtime-socket";
 
 /** A socket that records what was sent and lets a test push frames back. */
@@ -132,6 +132,24 @@ test("Gemini tool schemas are projected onto Gemini's Schema subset", async () =
   assert.equal(params.properties.note.type, "string");
   assert.equal(params.properties.note.nullable, true, "[\"string\",\"null\"] is Gemini's nullable");
   assert.equal(params.properties.tags.items.type, "string");
+});
+
+test("Zod's nullable (anyOf with a null branch) becomes Gemini's nullable", () => {
+  // Exactly what z.toJSONSchema() emits for z.string().nullable() and a
+  // nullable union: a {type: "null"} branch Gemini's Schema has no type for.
+  const schema = geminiSchema({
+    type: "object",
+    properties: {
+      note: { anyOf: [{ type: "string", description: "free text" }, { type: "null" }] },
+      either: { anyOf: [{ type: "string" }, { type: "number" }, { type: "null" }] },
+      plain: { anyOf: [{ type: "string" }, { type: "number" }] },
+    },
+  }) as any;
+  assert.deepEqual(schema.properties.note, { type: "string", description: "free text", nullable: true });
+  assert.equal(schema.properties.either.nullable, true);
+  assert.deepEqual(schema.properties.either.anyOf, [{ type: "string" }, { type: "number" }]);
+  assert.equal("nullable" in schema.properties.plain, false);
+  assert.ok(!JSON.stringify(schema).includes('"null"'), "no null type may reach Gemini");
 });
 
 test("an abnormal close surfaces the provider's reason instead of silence", async () => {

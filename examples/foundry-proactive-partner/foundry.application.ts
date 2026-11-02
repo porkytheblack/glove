@@ -1,14 +1,14 @@
 import { FileFoundryDataAdapter, createConversation, defineAgentInstance, defineApplication } from "glove-foundry";
-import computer from "./agents/computer/agent.js";
 import partner from "./agents/partner/agent.js";
 import { readAccount, saveAccount, services } from "./lib/accounts.js";
 import { requestAuthorization } from "./lib/authorization.js";
 import { accountFor, gmailRoutes, installationFor, sampleConnection, sendBinding, type AppName } from "./lib/connect.js";
-import { DEMO_PERSON, computerFor, partnerFor, threadFor } from "./lib/onboarding.js";
+import { DEMO_PERSON, partnerFor, threadFor } from "./lib/onboarding.js";
 import { dataPath } from "./lib/paths.js";
 
 // Ada's account, seeded: sample Gmail and Calendar accounts, her partner with
-// both apps and her preferences, its computer and her one thread. Seeds are
+// both apps and her preferences, and her one thread. Its computer is a durable
+// subagent Foundry creates on the first long job. Seeds are
 // written only when nothing has those ids yet, so connecting her real
 // accounts later (same ids) is kept. scripts/onboard.ts and scripts/connect.ts
 // create the same records for anyone else.
@@ -27,7 +27,7 @@ const ada = defineAgentInstance(partner, {
 /** Partners, threads, approvals and schedules live in `.data/foundry.json`. */
 export const data = new FileFoundryDataAdapter({
   file: dataPath("foundry.json"),
-  agents: [ada, defineAgentInstance(computer, computerFor(DEMO_PERSON))],
+  agents: [ada],
   conversations: [createConversation(ada, threadFor(DEMO_PERSON))],
 });
 
