@@ -161,7 +161,7 @@ demo/                 local MCP servers with Google's and Linear's tool names, f
 scripts/
   verify.ts           a whole day, offline
   web-smoke.ts        the web app in a real browser, offline
-  start.mjs           Foundry on loopback and the web app on $PORT, as one unit
+  start.mjs           Foundry and the web app on $PORT, as one unit
   dev.mjs             both, for development
   invite.ts           a sign-in link for one person
   onboard.ts          sign a person up on a running Foundry
@@ -331,9 +331,10 @@ New mail needs nothing public: the Gmail watch pulls its subscription from
 inside the unit.
 
 `pnpm start` runs both processes in the unit: the web app on the public port,
-and Foundry on loopback, so the browser never reaches Foundry. Set
-`FOUNDRY_TOKEN` anyway: `lib/authorization.ts` makes Foundry check it, and
-the web app sends it. Make invite links anywhere the secret is known:
+and Foundry with no public address, so the browser never reaches it. Set
+`FOUNDRY_TOKEN`: `lib/authorization.ts` makes Foundry check it, and the web
+app sends it. With it, Foundry also listens on the unit's private port
+`foundry` (4141 in `kuiper.json`), where Kuiper's Inspect card reads it. Make invite links anywhere the secret is known:
 `WEB_SESSION_SECRET=… WEB_URL=https://… pnpm invite maya`. To run Foundry
 alone on a public address instead (its API and inspector, no web app), start
 it with `glove foundry start`; it then needs that token or the inspector

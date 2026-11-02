@@ -437,7 +437,7 @@ kuiper deploy --source . -u muse --wait
       <ul>
         <li><strong>One key, two services.</strong> The two references give the unit one gateway key for models and browsers. <code>@kuiper-sh/sdk</code> reads it for Muse&apos;s and the Sentinel&apos;s models and for each person&apos;s browser.</li>
         <li><strong>State</strong> (Muses, conversations, memory and plans, accounts and tokens, the Sentinel&apos;s lists, the log and each person&apos;s browser IDs) sits on the <code>/data</code> disk and survives redeploys. The browsers and profiles are Kuiper&apos;s: a redeploy reconnects to them.</li>
-        <li><strong>One unit, one public port.</strong> The web app takes port 3000 and Foundry runs beside it on loopback. Meta&apos;s webhook is a route of the web app, and the Gmail watch pulls from inside the unit, so nothing else is public.</li>
+        <li><strong>One unit, one public port.</strong> The web app takes port 3000 and Foundry runs beside it on a private port named <code>foundry</code>, which Kuiper&apos;s Inspect card reads. Meta&apos;s webhook is a route of the web app, and the Gmail watch pulls from inside the unit, so nothing else is public.</li>
       </ul>
 
       <h2 id="differences">Where it differs</h2>

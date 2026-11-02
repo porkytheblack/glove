@@ -2,12 +2,16 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { demoEnv } from "./demo-connectors.mjs";
 
-// One Kuiper unit runs both processes and they share /data: Foundry on
-// loopback, with no public address, and the web app on the public port. The
-// browser only ever talks to the web app, and Slack reaches Foundry through
-// the web app's /webhooks/slack. If either exits, both stop.
+// One Kuiper unit runs both processes and they share /data: Foundry with no
+// public address, and the web app on the public port. The browser only ever
+// talks to the web app, and Slack reaches Foundry through the web app's
+// /webhooks/slack. If either exits, both stop.
 
 const foundryPort = process.env.FOUNDRY_PORT ?? "4141";
+// With a token, Foundry also listens on the unit's private address, where
+// Kuiper's Inspect card reads it (the port named "foundry" in kuiper.json).
+// Without one it stays on loopback, as Foundry requires.
+const foundryHost = process.env.FOUNDRY_HOST ?? (process.env.FOUNDRY_TOKEN ? "0.0.0.0" : "127.0.0.1");
 const env = demoEnv({ ...process.env, FOUNDRY_URL: process.env.FOUNDRY_URL ?? `http://127.0.0.1:${foundryPort}` });
 
 // The installed binaries, not `pnpm exec`: the runtime image has Node but no pnpm.
@@ -15,7 +19,7 @@ const env = demoEnv({ ...process.env, FOUNDRY_URL: process.env.FOUNDRY_URL ?? `h
 const bin = (name) => fileURLToPath(new URL(`../node_modules/.bin/${name}`, import.meta.url));
 const run = (name, args) => spawn(bin(name), args, { stdio: "inherit", env, detached: true });
 const children = [
-  run("glove", ["foundry", "start", "--host", "127.0.0.1", "--port", foundryPort]),
+  run("glove", ["foundry", "start", "--host", foundryHost, "--port", foundryPort]),
   run("next", ["start", "-H", "0.0.0.0", "-p", process.env.PORT ?? "3000"]),
 ];
 

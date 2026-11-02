@@ -355,8 +355,10 @@ kuiper logs -u dots -f
 ```
 
 `kuiper.json` starts `scripts/start.mjs` under `tini` and makes two ports
-public: the web app on 3000 and calls on 4160. `pnpm start` runs Foundry on
-loopback, so the browser never reaches it, and the web app on the public port.
+public: the web app on 3000 and calls on 4160. `pnpm start` runs Foundry with
+no public address, so the browser never reaches it, and the web app on the
+public port. With `FOUNDRY_TOKEN` set, Foundry also listens on the private
+port `foundry` (4141), where Kuiper's Inspect card reads it.
 Slack's events come in through the web app too: `<WEB_URL>/webhooks/slack` is
 the Slack request URL, and it forwards to Foundry on loopback.
 Set `FOUNDRY_TOKEN` anyway: `lib/authorization.ts` makes Foundry check it, and

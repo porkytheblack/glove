@@ -534,7 +534,7 @@ kuiper deploy --source . -u dots --wait
 # Set <WEB_URL>/webhooks/slack as the Slack app's request URL.`}
       />
       <ul>
-        <li><strong>One unit.</strong> The web app takes the public port and Foundry runs beside it on loopback. Slack&apos;s events come in through the web app at <code>/webhooks/slack</code>, so nothing else needs an address.</li>
+        <li><strong>One unit.</strong> The web app takes the public port and Foundry runs beside it on a private port named <code>foundry</code>, which Kuiper&apos;s Inspect card reads. Slack&apos;s events come in through the web app at <code>/webhooks/slack</code>, so nothing else needs an address.</li>
         <li><strong>State</strong> (dots, transcripts, memory, notes, accounts and tokens, the computers, schedules) is on the <code>/data</code> disk. New mail needs nothing public: the Gmail watch pulls its subscription from inside the unit.</li>
         <li><strong>The API and inspector</strong> are locked by <code>FOUNDRY_TOKEN</code>, which the web app sends. Set it before the first deploy.</li>
         <li><strong>Calls</strong> need a public port for the call room, declared in a committed <code>kuiper.json</code>, and <code>OPENAI_API_KEY</code> as a secret, since the model gateway has no realtime route. The README has the steps.</li>

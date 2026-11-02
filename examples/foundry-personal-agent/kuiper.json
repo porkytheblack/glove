@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "project": "glove-foundry-personal-agent",
   "runtime": { "entrypoint": ["/usr/bin/tini", "--", "node", "scripts/start.mjs"] },
-  "ports": [{ "name": "http", "port": 3000, "public": true }],
+  "ports": [{ "name": "http", "port": 3000, "public": true }, { "name": "foundry", "port": 4141 }],
   "env": {
     "required": ["WEB_SESSION_SECRET", "FOUNDRY_TOKEN"],
     "optional": [

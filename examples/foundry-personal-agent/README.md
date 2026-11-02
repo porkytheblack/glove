@@ -422,8 +422,9 @@ kuiper logs -u muse -f
 ```
 
 `kuiper.json` starts `scripts/start.mjs` under `tini` and makes port 3000
-public: the web app. Foundry runs beside it on 127.0.0.1:4141 with no public
-address, and the web app sends it `FOUNDRY_TOKEN`. Make invite links anywhere
+public: the web app. Foundry runs beside it on 4141 with no public address,
+and the web app sends it `FOUNDRY_TOKEN`. With the token set, Foundry listens
+on the private port `foundry` too, where Kuiper's Inspect card reads it. Make invite links anywhere
 the secret is known: `WEB_SESSION_SECRET=… WEB_URL=https://… pnpm invite rosa`.
 To run Foundry alone instead (its API and inspector, no web app), start it
 with `glove foundry start` and `kuiper dashboard -u muse --enable`.
