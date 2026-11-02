@@ -24,7 +24,11 @@ const schedules = new ScheduleMemoryAdapter();
 const definitions = new Map<string, AnySignal>();
 let stopping: Promise<void> | undefined;
 let resources: FoundryStationResources | undefined;
-function send(message: DaemonResponse) { if (process.connected) process.send?.(message); }
+/** `then` runs once the message is written, so closing the channel after it can't drop it (#208). */
+function send(message: DaemonResponse, then?: () => void) {
+  if (!process.connected || !process.send) { then?.(); return; }
+  process.send(message, undefined, {}, () => then?.());
+}
 async function stop() {
   return stopping ??= (async () => { if (station) await station.stop();
     else await Promise.allSettled([resources?.browser?.close(), resources?.sandbox?.close()]); })();
@@ -135,8 +139,7 @@ process.on("message", (message: DaemonRequest) => {
       case "ping": value = Boolean(client && (await client.health()).ok); break;
       case "stop": await stop(); value = null; break;
     }
-    send({ id: message.id, value });
-    if (command.method === "stop") process.disconnect?.();
+    send({ id: message.id, value }, command.method === "stop" ? () => { if (process.connected) process.disconnect?.(); } : undefined);
   })().catch(() => {
     // Do not serialize arbitrary SDK/config errors (they may include credentials).
     send({ id: message.id, error: `Execution daemon ${message.command.method} failed. Inspect daemon health before repeating mutations.` });
