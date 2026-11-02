@@ -99,7 +99,7 @@ Knowing these lets you predict the API instead of inventing one.
 3. **Mount, don't wrap.** Capability packages attach to an existing agent with `mountX(glove, …)` / `useX(glove, …)` and never replace its model or loop. Mount after choosing the model.
 4. **Live state goes at the tail, not in the prompt.** The system prompt and saved history are a stable, cacheable prefix. Current state (goals, forms, pinned memory, screenshots, your own data) arrives through `addContextProvider` before every model call, including between tool steps, and is never saved to history. A provider can instead be read once per request (`delivery: "request"`, frozen before the request's message) or saved to history once per change (`delivery: "history"`, wrapped in `<context key>`, text only). Third-party happenings go through `emitEvent`: they join a running loop at the next tool-step boundary, or wake/wait for an idle agent, and are saved once.
 5. **Work in files and code, not in context.** Big data lives in the VFS, the working environment and REPL bindings; only what the model needs comes back.
-6. **The person stays in the loop through primitives.** `pushAndWait` and `requiresPermission` in an app; expiring approval records in Foundry.
+6. **The person stays in the loop through primitives.** `pushAndWait` and `requiresPermission` in an app; stored, resumable approvals in Foundry.
 7. **Credentials never enter the model.** Tokens come from adapters (`getAccessToken`, account sessions, host secret stores), never from prompts, tool inputs or VFS files.
 
 ## Decision guide

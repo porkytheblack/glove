@@ -11,7 +11,7 @@ import type {
   SubscriberEvent,
   SubscriberEventDataMap,
 } from "glove-core";
-import { Glove } from "glove-core";
+import { Glove, isTurnSuspended } from "glove-core";
 import { mountFoundryGuidance } from "./guidance.js";
 import { mountMesh } from "glove-mesh";
 import { Effect } from "effect";
@@ -112,8 +112,11 @@ import {
 } from "./workbench.js";
 import {
   FOUNDRY_APPROVAL_DIRECTORY_ENV,
+  FOUNDRY_APPROVAL_POLICY_ENV,
   FoundryApprovalDisplayManager,
+  readApprovalPolicy,
   withFoundryPermissions,
+  type FoundryApproval,
 } from "./approval.js";
 import {
   FOUNDRY_CONVERSATION_LEASE_EVENT,
@@ -191,6 +194,22 @@ async function hydrateInbox(
     type: "foundry.definition.inboxes.loaded",
     data: { count: loaded.length, added, updated },
   });
+}
+
+/** A decision on a durable approval, delivered to the conversation that asked (see runtime.resolveApproval). */
+export function approvalDecisionOf(delivery: FoundryConversationDelivery): Pick<FoundryApproval, "id" | "toolName" | "toolInput" | "toolCallId" | "status"> | undefined {
+  const event = delivery.durable?.event;
+  if (event?.source !== "foundry:approval" || event.kind !== "approval.decided") return undefined;
+  const approval = (event.metadata as { approval?: Partial<FoundryApproval> } | undefined)?.approval;
+  if (typeof approval?.id !== "string" || typeof approval.toolName !== "string") return undefined;
+  if (approval.status !== "approved" && approval.status !== "denied") return undefined;
+  return {
+    id: approval.id,
+    toolName: approval.toolName,
+    toolInput: approval.toolInput,
+    status: approval.status,
+    ...(typeof approval.toolCallId === "string" ? { toolCallId: approval.toolCallId } : {}),
+  };
 }
 
 function extractOutput(result: unknown): unknown {
@@ -515,6 +534,7 @@ async function executeDefinition(
             workspaceId: request.workspaceId,
             signal: abortController.signal,
             emit: controls.emit,
+            policy: readApprovalPolicy(process.env[FOUNDRY_APPROVAL_POLICY_ENV]),
           }),
         ),
         resolveOptional<number | undefined>("compactionLimit", definition.compactionLimit, undefined),
@@ -686,6 +706,10 @@ async function executeDefinition(
     const forwardDeliveries = async (deliveries: ReadonlyArray<FoundryConversationDelivery>): Promise<void> => {
       if (!eventRecipient) { bufferedDeliveries.push(...deliveries); return; }
       for (const delivery of deliveries) {
+        // A decision reaching a turn that moved on: the tool may be called again,
+        // with that exact input, and the person's answer stands.
+        const decision = approvalDecisionOf(delivery);
+        if (decision) await runtimeStore?.setPermission?.(decision.toolName, decision.status === "approved" ? "granted" : "denied", decision.toolInput);
         // The controller owns idle policy; seeding must not start a second,
         // unawaited wake on an independently built runnable's default policy.
         const event = { ...deliveryEvent(delivery), whenIdle: "defer" as const };
@@ -1085,6 +1109,32 @@ async function executeDefinition(
     ) => {
       if (initialEventsPending && messageInput === assemblyContext.messageInput) {
         initialEventsPending = false;
+        // A decided approval carries on the turn that stopped at its tool call.
+        const decisions = initialDeliveries.filter((delivery) => approvalDecisionOf(delivery));
+        if (decisions.length && glove.resumeToolCalls) {
+          for (const delivery of decisions) {
+            const decision = approvalDecisionOf(delivery)!;
+            await runtimeStore?.setPermission?.(decision.toolName, decision.status === "approved" ? "granted" : "denied", decision.toolInput);
+          }
+          const resumed = await glove.resumeToolCalls(abortController.signal);
+          // Delivery is at least once: a decision whose call already has its
+          // result was carried out before, so it starts no turn of its own.
+          const answered = resumed === undefined && runtimeStore
+            ? new Set((await runtimeStore.getMessages()).flatMap((message) => (message.tool_results ?? []).map((result) => result.call_id)))
+            : undefined;
+          const done = decisions.filter((delivery) => {
+            const callId = approvalDecisionOf(delivery)!.toolCallId;
+            return resumed !== undefined || (callId !== undefined && answered?.has(callId));
+          });
+          if (done.length) {
+            consumed(done);
+            const rest = initialDeliveries.filter((delivery) => !done.includes(delivery));
+            if (!rest.length) return resumed === undefined ? null : extractOutput(resumed);
+            await forwardDeliveries(rest);
+            return extractOutput(await glove.processEvents(abortController.signal));
+          }
+        }
+        // Nothing to resume in place (the conversation moved on): the decision arrives as an event.
         await forwardDeliveries(initialDeliveries);
         return extractOutput(await glove.processEvents(abortController.signal));
       }
@@ -1106,13 +1156,25 @@ async function executeDefinition(
       defaultHandler: defaultRun,
       spawn,
     };
-    const result = definition.run
-      ? await resolveResolvable(definition.run(glove, handlerContext))
-      : definition.handler
-        ? await resolveResolvable(definition.handler(handlerContext))
-        : definition.spawn
-          ? await spawn()
-          : await defaultRun();
+    let awaitingApproval: { readonly approvalId: string; readonly toolName: string } | undefined;
+    let result: unknown;
+    try {
+      result = definition.run
+        ? await resolveResolvable(definition.run(glove, handlerContext))
+        : definition.handler
+          ? await resolveResolvable(definition.handler(handlerContext))
+          : definition.spawn
+            ? await spawn()
+            : await defaultRun();
+    } catch (cause) {
+      // The turn stopped at a tool call whose approval is still open: the run
+      // suspends, and the decision resumes the conversation from that call.
+      const deferral = isTurnSuspended(cause) ? cause.deferral.data as { approvalId?: unknown; toolName?: unknown } | undefined : undefined;
+      if (typeof deferral?.approvalId !== "string") throw cause;
+      awaitingApproval = { approvalId: deferral.approvalId, toolName: String(deferral.toolName ?? "") };
+      // API callers read the value as the reply, so say what the run is waiting on.
+      result = `Waiting for approval to run ${awaitingApproval.toolName || "a tool"} (${awaitingApproval.approvalId}).`;
+    }
     if (initialEventsPending) consumed(initialDeliveries);
     await guidance.snapshot();
     const sleep = [...controls.commands].reverse().find(
@@ -1121,13 +1183,15 @@ async function executeDefinition(
     const question = pendingQuestion.current;
     const waiting = pendingReply.current;
     return {
-      status: sleep || question || waiting ? "suspended" : "completed",
+      status: sleep || question || waiting || awaitingApproval ? "suspended" : "completed",
       value: serializable(result),
       ...(consumedEventIds.size ? { consumedEventIds: [...consumedEventIds] } : {}),
       agentId: request.agentId,
       conversationId: request.conversationId,
       workspaceId: request.workspaceId,
-      ...(question
+      ...(awaitingApproval
+        ? { suspension: { kind: "approval" as const, ...awaitingApproval } }
+        : question
         ? { suspension: { kind: "question" as const, ...question } }
         : waiting
           ? { suspension: { kind: "mesh" as const, ...waiting } }
@@ -1274,6 +1338,7 @@ export function compileAgentDefinition(
           threadId: z.string(),
           messageId: z.string(),
         }),
+        z.object({ kind: z.literal("approval"), approvalId: z.string(), toolName: z.string() }),
       ]).optional(),
     }));
   if (definition.runTimeoutMs !== undefined) builder = builder.timeout(definition.runTimeoutMs);

@@ -187,14 +187,14 @@ function whyItAsks(rule: string, rules: ParsedDot["rules"], review: Review): str
 }
 
 /**
- * The pending approvals of the person's dot and builder, on runs still in
- * progress: a run that was redirected or cancelled can't use its approval.
+ * The pending approvals of the person's dot and builder. Each stays open after
+ * its run pauses, and deciding it resumes the work; Foundry cancels the ones
+ * whose run was redirected or cancelled.
  */
-export async function approvalsOf(personId: string, team: Team, runs: ReadonlyArray<FoundryRun>, conversationId?: string): Promise<ApprovalView[]> {
+export async function approvalsOf(personId: string, team: Team, conversationId?: string): Promise<ApprovalView[]> {
   const agents = [team.dot.id, ...(team.builder ? [team.builder.id] : [])];
-  const active = new Set(runs.filter((run) => ACTIVE.has(run.status)).map((run) => run.id));
   return pendingApprovals(personId, {
-    filter: (approval) => agents.includes(approval.agentId) && active.has(approval.runId) && (!conversationId || approval.conversationId === conversationId),
+    filter: (approval) => agents.includes(approval.agentId) && (!conversationId || approval.conversationId === conversationId),
     describe: await describeApprovals(personId, team),
   });
 }
@@ -283,7 +283,7 @@ export async function chatState(personId: string, team: Team): Promise<ChatState
   });
 
   const runId = runs.find((run) => run.conversationId === conversationId && ACTIVE.has(run.status))?.id ?? null;
-  const [approvals, status] = await Promise.all([approvalsOf(personId, team, runs, conversationId), statusOf(team, runs, activations)]);
+  const [approvals, status] = await Promise.all([approvalsOf(personId, team, conversationId), statusOf(team, runs, activations)]);
   return {
     messages: runId ? withoutTrailingReplies(messages) : messages,
     approvals,
@@ -387,7 +387,7 @@ export async function activityState(personId: string, team: Team): Promise<Activ
     client.activations(personId),
     handoffs.openHandOffs([team.dot.id]),
   ]);
-  const approvals = await approvalsOf(personId, team, runs);
+  const approvals = await approvalsOf(personId, team);
   const active = runs.filter((run) => ACTIVE.has(run.status));
   const lines = await Promise.all(active.map(async (run): Promise<RunLine> => ({
     id: run.id,

@@ -533,6 +533,11 @@ export class FoundryClient<TRoutes extends FoundryRouteMap> {
     return readResponse(await this.fetcher(`${this.baseUrl}/api/approvals${suffix}`));
   }
 
+  /** One approval, by id: what a link to it opens. */
+  async approval(approvalId: string): Promise<FoundryApproval> {
+    return readResponse(await this.fetcher(`${this.baseUrl}/api/approvals/${encodeURIComponent(approvalId)}`));
+  }
+
   async resolveApproval(
     approvalId: string,
     decision: FoundryApprovalDecision,

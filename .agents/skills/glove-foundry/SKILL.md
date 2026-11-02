@@ -47,7 +47,7 @@ Docs: https://glove.dterminal.net/foundry/docs/agents-are-data
 | **Identity** | Whose agent is this? | One definition in code, many instances in data, each with its own conversations, context, installed capabilities and workspace. |
 | **Time** | When does it act? | Schedules, sleep, spawn and background work are built-in agent tools backed by durable activations. |
 | **Arrival** | What wakes it up? | Transmissions turn Slack, email, tickets or webhooks into typed events; playbooks route them; subscriptions create the instance if none exists. |
-| **Oversight** | Who keeps it in check? | Permission-gated tools become expiring approval records, running work can be steered, the inspector shows every run, model call and tool call. |
+| **Oversight** | Who keeps it in check? | Permission-gated tools become stored approvals a person decides from a link (a late decision resumes the run), running work can be steered, the inspector shows every run, model call and tool call. |
 | **Access** | How does other software call it? | A typed client, REST, an async run API and OpenAI-compatible endpoints, all writing into durable conversations. |
 
 ## Before you build it, use this
@@ -162,7 +162,7 @@ const done = await run.wait({ timeoutMs: 120_000 }); // also run.cancel(), run.s
 ```
 
 - **OpenAI SDKs**: `model` is an instance id (or a route with exactly one instance); instances are never created implicitly. Reuse `user`, `conversation_id` or the returned `x-foundry-conversation-id` header to continue a conversation.
-- **Approvals** expire after 5 minutes and fail closed; they do not engage if `defineAgent` supplies its own `displayManager`.
+- **Approvals** are stored and fail closed. A run waits 60 s, then suspends; the approval stays open 7 days and a later decision resumes the run at that call. They do not engage if `defineAgent` supplies its own `displayManager`.
 - **Steering** is interrupt-and-restart in the same conversation; it never injects text mid side effect.
 - **Health**: `GET /health` and `/health/detailed` answer 200 when `ok` is true, 503 with the same body otherwise.
 - **Security**: Foundry binds loopback by default and refuses a public interface without `requestAuthorization`. Foundry never acquires, stores or refreshes credentials; accounts carry an opaque `accessRef` your adapter resolves.

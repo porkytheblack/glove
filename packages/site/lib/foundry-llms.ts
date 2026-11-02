@@ -450,7 +450,7 @@ GET|POST /api/conversations, GET|POST /api/conversations/:id/messages,
 PATCH /api/conversations/:id, GET /api/runs, GET /api/runs/:id,
 POST /api/runs/:id/cancel, POST /api/runs/:id/steer, GET /api/events (SSE with
 Accept: text/event-stream), GET|PUT|DELETE /api/installations, GET /api/approvals,
-POST /api/approvals/:id, /api/workspaces/:id/entries|inbox|tasks|environment,
+GET|POST /api/approvals/:id, /api/workspaces/:id/entries|inbox|tasks|environment,
 /api/playbook-subscriptions, /api/activations, /api/transmissions,
 POST /api/transmissions/:routeId/fire, /api/accounts, /api/routes, /api/bindings,
 /api/application-connections, /api/capabilities, /api/surfaces.
@@ -481,14 +481,30 @@ role is rejected.
 ## 14. Approvals and steering
 
 A Glove tool with requiresPermission: true (or a function of its input), or an
-outbound transmission with requiresPermission, pauses the run on an approval
-record: status pending | approved | denied | expired | cancelled; identity = instance
-+ conversation + run + tool + serialized input; expires after 5 minutes; fails
-closed (deny) on expiry, cancellation or channel loss. Approval records live in a
-private temp directory of the Foundry process: they do not survive a restart, and
-the mechanism does not engage if defineAgent supplies its own displayManager. Resolve with
-client.approvals({ runId, status: "pending" }) and client.resolveApproval(id,
-"approve" | "deny"), the /api/approvals or /v1/approvals routes, or the inspector.
+outbound transmission with requiresPermission, waits on an approval record:
+status pending | approved | denied | expired | cancelled; identity = instance +
+conversation + run + tool + serialized input (+ toolCallId); fails closed (deny)
+on expiry, cancellation or channel loss. Approvals are durable when the data
+adapter stores approvals and the event journal (FileFoundryDataAdapter and
+MemoryFoundryDataAdapter do): the run waits approvals.waitMs (60 s), then
+suspends (output.status "suspended", suspension.kind "approval") with no result
+for the waiting call; the approval stays open approvals.expiresAfterMs (7 days)
+through restarts; a later decision goes to the conversation as a durable event and
+the run that takes it resumes at the waiting call (approved: it runs; denied: it
+is refused). If the conversation moved on, the decision arrives as an event and
+the agent may call the tool again with the same input, which then runs or is
+refused without asking. Cancelling or steering the run cancels its approvals.
+defineApplication({ approvals: { waitMs, expiresAfterMs, url } }); url(approval)
+gives each approval a page in your app, kept as approval.url. Without durable
+storage, approvals live in the Foundry process and expire after waitMs (5 min).
+The mechanism does not engage if defineAgent supplies its own displayManager.
+List with client.approvals({ runId, status: "pending" }), read one with
+client.approval(id), decide with client.resolveApproval(id, "approve" | "deny");
+or GET /api/approvals, GET|POST /api/approvals/:id (and /v1/...), or the
+inspector (/approvals/:id). In glove-core, a display manager throws
+ToolPermissionDeferred to stop a turn at a call (the turn rejects with
+TurnSuspended, earlier results saved) and glove.resumeToolCalls() carries on once
+the decision is saved with store.setPermission.
 Steering (handle.steer(message), /api/runs/:id/steer, /v1/runs/:id/steer, WebChat
 Redirect) is interrupt-and-restart: cooperative cancel, a wait (at most 10 s) for
 the cancelled run's process to finish unAbortable tools and cleanup, then a

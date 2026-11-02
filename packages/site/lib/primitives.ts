@@ -163,7 +163,7 @@ export const parts: Part[] = [
     name: "Oversight",
     question: "Who keeps it in check?",
     answer:
-      "Permission-gated tools become expiring approval records, running work can be steered, and the inspector shows every run, model call and tool call.",
+      "Permission-gated tools become stored approvals a person decides from a link (a late decision resumes the run), running work can be steered, and the inspector shows every run, model call and tool call.",
   },
   {
     id: "access",

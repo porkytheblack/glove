@@ -200,7 +200,7 @@ const result = await agent.processRequest("What shipped since Monday?");`}
         <li><strong>Identity: whose agent is this?</strong> One definition in code, many instances in data, each with its own conversations, context and installed tools.</li>
         <li><strong>Time: when does it act?</strong> Schedules, sleep and spawn are tools the agent calls itself, backed by durable records.</li>
         <li><strong>Arrival: what wakes it up?</strong> Transmissions turn Slack, email or a webhook into typed events; playbooks route them, and can create the agent that handles them.</li>
-        <li><strong>Oversight: who keeps it in check?</strong> A gated tool becomes an expiring approval record; running work can be steered; an inspector shows every call.</li>
+        <li><strong>Oversight: who keeps it in check?</strong> A gated tool becomes a stored approval a person decides from a link; running work can be steered; an inspector shows every call.</li>
         <li><strong>Access: how does other software call it?</strong> A typed client, REST, an async run API and OpenAI-compatible endpoints.</li>
       </ul>
       <p>

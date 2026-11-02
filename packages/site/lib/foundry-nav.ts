@@ -189,7 +189,7 @@ export const foundrySections: FoundryNavSection[] = [
         label: "Approvals & steering",
         href: "/foundry/docs/approvals",
         badge: "new",
-        summary: "Human-in-the-loop: permission-gated tools become expiring approval records; redirect active work with interrupt-and-restart steering.",
+        summary: "Human-in-the-loop: permission-gated tools become stored approvals with their own link; a late decision resumes the run. Redirect active work with interrupt-and-restart steering.",
       },
       {
         label: "Inspector & WebChat",

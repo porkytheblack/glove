@@ -1,3 +1,4 @@
+import type { FoundryApproval } from "./approval.js";
 import type { DurableSubagentOwnership } from "./durable-subagents.js";
 import { randomUUID } from "node:crypto";
 import { Effect } from "effect";
@@ -179,6 +180,16 @@ export interface FoundryDataAdapter {
   putPendingInbound?(record: FoundryPendingInbound): Effect.Effect<void, unknown, never>;
   deletePendingInbound?(id: string): Effect.Effect<void, unknown, never>;
   listPendingInbound?(): Effect.Effect<ReadonlyArray<FoundryPendingInbound>, unknown, never>;
+  /**
+   * Approvals (optional). With these and the event journal, an approval is
+   * kept until someone decides: the run that asked suspends after a short
+   * wait, the approval survives a restart, and a decision made later resumes
+   * the run at the tool call that asked. Without them, an approval nobody
+   * answers expires while its run waits.
+   */
+  putApproval?(approval: FoundryApproval): Effect.Effect<void, unknown, never>;
+  getApproval?(id: string): Effect.Effect<FoundryApproval | null, unknown, never>;
+  listApprovals?(): Effect.Effect<ReadonlyArray<FoundryApproval>, unknown, never>;
   getActivation(id: string): Effect.Effect<FoundryActivationRecord | null, unknown, never>;
   putActivation(activation: FoundryActivationRecord): Effect.Effect<void, unknown, never>;
   listActivations(workspaceId?: string): Effect.Effect<ReadonlyArray<FoundryActivationRecord>, unknown, never>;
@@ -286,7 +297,8 @@ export interface FoundryResult {
 
 /**
  * Why a run ended without finishing: it went to sleep, it asked a question
- * about a task delegated to it, or it is waiting for a peer's reply on the mesh.
+ * about a task delegated to it, it is waiting for a peer's reply on the mesh,
+ * or a tool call waits for an approval.
  */
 export type FoundrySuspension =
   | { readonly kind?: "sleep"; readonly commandId: string; readonly wakeAt: string }
@@ -301,6 +313,12 @@ export type FoundrySuspension =
       readonly commandId: string;
       readonly threadId: string;
       readonly messageId: string;
+    }
+  | {
+      /** Its tool call waits for a decision; the decision resumes it in a new run. */
+      readonly kind: "approval";
+      readonly approvalId: string;
+      readonly toolName: string;
     };
 
 export interface CreateAgentInstanceOptions {
@@ -348,6 +366,7 @@ export class MemoryFoundryDataAdapter implements FoundryDataAdapter {
   private readonly inboundDeliveries = new Map<string, InboundDeliveryClaim>();
   private readonly events = new Map<string, import("./event-delivery.js").FoundryEventRecord>();
   private readonly pendingInbound = new Map<string, FoundryPendingInbound>();
+  private readonly approvals = new Map<string, FoundryApproval>();
   private readonly activations = new Map<string, FoundryActivationRecord>();
   private readonly conversations = new Map<string, Conversation>();
   private readonly workspace = new Map<string, WorkspaceEntry>();
@@ -432,6 +451,7 @@ export class MemoryFoundryDataAdapter implements FoundryDataAdapter {
     const conversationIds = new Set([...this.conversations.values()].filter((item) => item.agentId === agentId).map((item) => item.id));
     for (const [id, item] of this.events) if (item.target.agentId === agentId) this.events.delete(id);
     for (const [id, item] of this.pendingInbound) if (item.request.agentId === agentId) this.pendingInbound.delete(id);
+    for (const [id, item] of this.approvals) if (item.agentId === agentId) this.approvals.delete(id);
     for (const [id, item] of this.activations) if (item.agentId === agentId) this.activations.delete(id);
     for (const id of conversationIds) this.conversations.delete(id);
     for (const [id, item] of this.inbox) if (item.agentId === agentId || conversationIds.has(item.conversationId ?? "")) this.inbox.delete(id);
@@ -501,6 +521,15 @@ export class MemoryFoundryDataAdapter implements FoundryDataAdapter {
   deletePendingInbound(id: string) { return Effect.sync(() => { this.pendingInbound.delete(id); }); }
   listPendingInbound() { return Effect.sync(() =>
     [...this.pendingInbound.values()].map((record) => structuredClone(record))); }
+  putApproval(approval: FoundryApproval) { return Effect.sync(() => {
+    this.approvals.set(approval.id, structuredClone(approval));
+  }); }
+  getApproval(id: string) { return Effect.sync(() => {
+    const approval = this.approvals.get(id);
+    return approval ? structuredClone(approval) : null;
+  }); }
+  listApprovals() { return Effect.sync(() =>
+    [...this.approvals.values()].map((approval) => structuredClone(approval))); }
   getActivation(id: string) { return Effect.succeed(this.activations.get(id) ?? null); }
   putActivation(activation: FoundryActivationRecord) { return Effect.sync(() => {
     this.activations.set(activation.id, reconstructActivation(activation));

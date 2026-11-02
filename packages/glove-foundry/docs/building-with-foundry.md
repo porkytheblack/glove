@@ -813,9 +813,13 @@ during active work through the typed steering operation.
 ## Effect approvals
 
 A Glove tool can set `requiresPermission: true` or return a boolean from
-`requiresPermission(input)`. In Foundry, an unset decision becomes a public,
-expiring approval record rather than an unresolved in-process display promise.
-The worker pauses; a trusted host lists and resolves the exact request:
+`requiresPermission(input)`. In Foundry, an unset decision becomes a stored
+approval record rather than an unresolved in-process display promise. The worker
+waits `approvals.waitMs` (60 s); if nobody decides, the run suspends at that call
+and the approval stays open (7 days, through restarts). A trusted host lists and
+resolves the exact request, or opens one by id from a link
+(`client.approval(id)`); a decision after the run suspended resumes the
+conversation at the waiting call:
 
 ```ts
 const [approval] = await client.approvals({
