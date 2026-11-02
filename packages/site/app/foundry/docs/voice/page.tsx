@@ -204,7 +204,8 @@ export const call = voiceCall({ room: (context) => liveKitRoom(roomNameFor(conte
           <tr><td><code>transcript</code></td><td><code>true</code>. Save both sides to the conversation&apos;s store.</td></tr>
           <tr><td><code>realtime</code></td><td>Passed to <code>RealtimeAgent</code>: <code>adapter</code>, <code>voice</code>, <code>instructions</code>, <code>excludeTools</code> (added to the defaults), <code>onToolCall</code>.</td></tr>
           <tr><td><code>announce</code></td><td>How a delegation update is put to the model. Return <code>null</code> to keep it silent.</td></tr>
-          <tr><td><code>offCall</code></td><td>Handles a delegation update that arrives when no call is live. Default: save it to the conversation.</td></tr>
+          <tr><td><code>announceMesh</code></td><td>How a message from a mesh peer is put to the model, for an agent on the <Link href="/foundry/docs/multi-agent#mesh">hosted mesh</Link>. Default: <code>announceMeshMessage</code>.</td></tr>
+          <tr><td><code>offCall</code></td><td>Handles a delegation update or mesh message that arrives when no call is live. Default: save it to the conversation.</td></tr>
         </tbody>
       </table>
       <p>

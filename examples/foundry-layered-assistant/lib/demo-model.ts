@@ -17,12 +17,12 @@ export class DemoModel implements ModelAdapter {
 
   async prompt(request: PromptRequest): Promise<ModelPromptResult> {
     // Runtime context (memory, open delegations) rides at the tail; read past it.
-    const last = [...request.messages].reverse().find((message) => !message.framework_context)!;
+    const last = [...request.messages].reverse().find((message) => !message.framework_context || message.framework_context === "event")!;
     if (last.tool_results?.length) return say(this.afterTool(JSON.stringify(last.tool_results[0]!.result)));
     return this.role === "interactor"
-      ? this.interactor(last.text)
+      ? this.interactor(eventText(last))
       : this.role === "coder"
-        ? this.coder(last.text)
+        ? this.coder(eventText(last))
         : say("Two sources agree: the release ships on Friday.");
   }
 
@@ -63,4 +63,15 @@ function say(text: string): ModelPromptResult {
 
 function call(tool: string, input: Record<string, unknown>): ModelPromptResult {
   return reply({ sender: "agent", text: "", tool_calls: [{ tool_name: tool, input_args: input, id: `${tool}-${Date.now()}` }] });
+}
+
+/**
+ * The text of a message. Deliveries (a delegation's result or question)
+ * arrive as one Glove event message: the escaped body of each <event>, joined.
+ */
+export function eventText(message: Message): string {
+  if (message.framework_context !== "event") return message.text;
+  return [...message.text.matchAll(/<event [^>]*>\n([\s\S]*?)\n<\/event>/g)]
+    .map((match) => match[1]!.replaceAll("&lt;", "<").replaceAll("&gt;", ">").replaceAll("&quot;", '"').replaceAll("&amp;", "&"))
+    .join("\n\n");
 }

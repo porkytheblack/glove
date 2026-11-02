@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { defaultEventFormatter } from "glove-core";
 import type { AgentEvent, EventFormatter, EventQueueAdapter, GloveFoldArgs } from "glove-core";
 import { z } from "zod";
+import { renderMeshMessage, type FoundryMeshMessage } from "./mesh.js";
 
 /** @internal Directory the runtime uses to hand deliveries to runs that are listening. */
 export const FOUNDRY_MAILBOX_DIRECTORY_ENV = "GLOVE_FOUNDRY_MAILBOX_DIRECTORY";
@@ -124,12 +125,27 @@ export type FoundryConversationDelivery = (
   | FoundryDelegationUpdate
   | FoundryDelegationReply
   | FoundryTransmissionDelivery
-  | { readonly kind: "agent-message"; readonly pendingId: string; readonly message: string }) & {
+  | { readonly kind: "agent-message"; readonly pendingId: string; readonly message: string }
+  | FoundryMeshDelivery) & {
     readonly deliveryId?: string;
     readonly request?: import("./primitives.js").FoundryRequest;
     /** Durable journal identity; the filesystem mailbox is only a live transport. */
     readonly durable?: { readonly id: string; readonly event: AgentEvent; readonly policy: import("./event-delivery.js").FoundryEventPolicy };
   };
+
+/**
+ * A message on the mesh Foundry hosts, for one side of a thread: the
+ * recipient (the thread's own conversation) or the agent that started it.
+ */
+export interface FoundryMeshDelivery {
+  readonly kind: "mesh";
+  readonly side: "recipient" | "starter";
+  readonly message: FoundryMeshMessage;
+}
+
+export function isMeshDelivery(delivery: FoundryConversationDelivery): delivery is FoundryConversationDelivery & FoundryMeshDelivery {
+  return delivery.kind === "mesh";
+}
 
 export function isDelegationUpdate(delivery: FoundryConversationDelivery): delivery is FoundryDelegationUpdate {
   return delivery.kind === "result" || delivery.kind === "question" || delivery.kind === "failed";
@@ -227,6 +243,7 @@ export function renderDelegatedTask(input: {
 /** How a delivery reads when it arrives as a message. */
 export function renderDelivery(delivery: FoundryConversationDelivery): string {
   if (delivery.kind === "transmission" || delivery.kind === "agent-message") return delivery.message;
+  if (delivery.kind === "mesh") return renderMeshMessage(delivery.message, delivery.side);
   if (delivery.kind === "reply") {
     return [
       `<delegation-reply id="${escapeAttribute(delivery.delegationId)}" from="${escapeAttribute(delivery.from)}">`,
@@ -480,6 +497,21 @@ export async function writeMailboxDelivery(
 const DELIVERY_SCHEMA = z.intersection(z.object({ request: z.custom<import("./primitives.js").FoundryRequest>().optional(), deliveryId: z.string().optional(), durable: z.object({ id: z.string(), event: z.custom<AgentEvent>(), policy: z.custom<import("./event-delivery.js").FoundryEventPolicy>() }).optional() }), z.union([
   z.object({ kind: z.literal("agent-message"), pendingId: z.string(), message: z.string() }),
   z.object({
+    kind: z.literal("mesh"),
+    side: z.enum(["recipient", "starter"]),
+    message: z.object({
+      kind: z.enum(["message", "reply", "failed", "ack"]),
+      id: z.string(),
+      threadId: z.string(),
+      from: z.object({ agentId: z.string(), name: z.string() }),
+      to: z.string(),
+      // A read receipt's note is optional, and JSON drops it when absent.
+      content: z.string().default(""),
+      inReplyTo: z.string().optional(),
+      createdAt: z.string(),
+    }),
+  }),
+  z.object({
     kind: z.literal("reply"),
     delegationId: z.string(),
     from: z.string(),
@@ -621,6 +653,13 @@ export interface RunMailboxSink {
 export interface RunMailbox {
   /** Wait up to `timeoutMs` for a reply on `delegationId`; null on timeout or abort. */
   waitForReply(delegationId: string, timeoutMs: number, signal: AbortSignal): Promise<FoundryDelegationReply | null>;
+  /**
+   * Wait up to `timeoutMs` for the next mesh message from `fromAgentId` (a
+   * blocking send on the mesh Foundry hosts); null on timeout or abort.
+   */
+  waitForMesh(fromAgentId: string, timeoutMs: number, signal: AbortSignal): Promise<FoundryMeshMessage | null>;
+  /** Take mesh messages (not read receipts) while registered, including any already waiting. */
+  onMesh(handler: (messages: ReadonlyArray<FoundryMeshMessage>) => void | Promise<void>): () => Promise<void>;
   /** Take results, questions and failures while registered, including any already waiting. */
   onUpdates(handler: (updates: ReadonlyArray<FoundryDelegationUpdate>) => void | Promise<void>): () => Promise<void>;
   /** Stop listening and hand what the run did not use back to the runtime. */
@@ -643,7 +682,10 @@ export function openRunMailbox(options: {
 }): RunMailbox {
   type UpdateHandler = (updates: ReadonlyArray<FoundryDelegationUpdate>) => void | Promise<void>;
   const waiters = new Map<string, (reply: FoundryDelegationReply | null) => void>();
+  const meshWaiters = new Map<string, (message: FoundryMeshMessage | null) => void>();
   const handlers = new Set<UpdateHandler>();
+  type MeshHandler = (messages: ReadonlyArray<FoundryMeshMessage>) => void | Promise<void>;
+  const meshHandlers = new Set<MeshHandler>();
   let closed = false;
   const toHandlers = async (updates: ReadonlyArray<FoundryDelegationUpdate>): Promise<void> => {
     for (const handler of [...handlers]) await handler(updates);
@@ -655,11 +697,22 @@ export function openRunMailbox(options: {
     ...(options.pollMs !== undefined ? { pollMs: options.pollMs } : {}),
     handler: async (deliveries) => {
       const replies = new Map<string, FoundryDelegationReply[]>();
+      const meshAnswers = new Map<string, Array<FoundryConversationDelivery & FoundryMeshDelivery>>();
+      const heardMesh: Array<FoundryConversationDelivery & FoundryMeshDelivery> = [];
       const updates: FoundryDelegationUpdate[] = [];
       const rest: FoundryConversationDelivery[] = [];
       for (const delivery of deliveries) {
         if (delivery.durable?.event.expiresAt && Date.parse(delivery.durable.event.expiresAt) <= Date.now()) {
           options.consumed?.([delivery]); continue;
+        }
+        if (delivery.kind === "mesh") {
+          const from = delivery.message.from.agentId;
+          if (meshWaiters.has(from)) meshAnswers.set(from, [...(meshAnswers.get(from) ?? []), delivery]);
+          // A read receipt only matters to a send that is waiting for it.
+          else if (delivery.message.kind === "ack") options.consumed?.([delivery]);
+          else if (meshHandlers.size > 0) heardMesh.push(delivery);
+          else rest.push(delivery);
+          continue;
         }
         if (delivery.kind === "reply" && waiters.has(delivery.delegationId)) {
           replies.set(delivery.delegationId, [...(replies.get(delivery.delegationId) ?? []), delivery]);
@@ -672,8 +725,13 @@ export function openRunMailbox(options: {
       for (const [delegationId, batch] of replies) {
         waiters.get(delegationId)?.({ ...batch[0]!, message: batch.map((reply) => reply.message).join("\n\n") });
       }
+      for (const [from, batch] of meshAnswers) {
+        const last = batch.at(-1)!.message;
+        meshWaiters.get(from)?.({ ...last, content: batch.map((item) => item.message.content).join("\n\n") });
+      }
       if (updates.length > 0) await toHandlers(updates);
-      options.consumed?.([...([...replies.values()].flat()), ...updates]);
+      if (heardMesh.length > 0) for (const handler of [...meshHandlers]) await handler(heardMesh.map((item) => item.message));
+      options.consumed?.([...([...replies.values()].flat()), ...([...meshAnswers.values()].flat()), ...updates, ...heardMesh]);
       if (rest.length > 0) await options.sink.forward(rest);
     },
   });
@@ -697,6 +755,40 @@ export function openRunMailbox(options: {
         signal.addEventListener("abort", onAbort, { once: true });
       });
     },
+    waitForMesh(fromAgentId, timeoutMs, signal) {
+      return new Promise((resolveMessage) => {
+        if (closed || timeoutMs <= 0 || signal.aborted || meshWaiters.has(fromAgentId)) {
+          resolveMessage(null);
+          return;
+        }
+        const finish = (message: FoundryMeshMessage | null): void => {
+          if (meshWaiters.get(fromAgentId) !== finish) return;
+          meshWaiters.delete(fromAgentId);
+          clearTimeout(timer);
+          signal.removeEventListener("abort", onAbort);
+          resolveMessage(message);
+        };
+        const onAbort = (): void => finish(null);
+        const timer = setTimeout(() => finish(null), timeoutMs);
+        meshWaiters.set(fromAgentId, finish);
+        signal.addEventListener("abort", onAbort, { once: true });
+      });
+    },
+    onMesh(handler) {
+      meshHandlers.add(handler);
+      // Messages that came in before this handler did are its to take.
+      const waiting = options.sink
+        .reclaim((delivery) => delivery.kind === "mesh" && delivery.message.kind !== "ack")
+        .then(async (taken) => {
+          const messages = taken.flatMap((delivery) => (delivery.kind === "mesh" ? [delivery.message] : []));
+          if (messages.length > 0) await handler(messages);
+          options.consumed?.(taken);
+        });
+      return async () => {
+        meshHandlers.delete(handler);
+        await waiting;
+      };
+    },
     onUpdates(handler) {
       handlers.add(handler);
       // Updates that came in before this handler did are its to take.
@@ -715,6 +807,7 @@ export function openRunMailbox(options: {
       if (closed) return;
       closed = true;
       for (const finish of [...waiters.values()]) finish(null);
+      for (const finish of [...meshWaiters.values()]) finish(null);
       await listener.stop(async () => {
         for (const delivery of await options.sink.reclaim(() => true)) {
           await writeMailboxDelivery(options.directory, options.conversationId, delivery);
@@ -736,6 +829,15 @@ const DELIVERY_KEY = "foundry_delivery";
 export function deliveryEvent(delivery: FoundryConversationDelivery): AgentEvent {
   if (delivery.durable) return { ...delivery.durable.event, metadata: { ...delivery.durable.event.metadata, [DELIVERY_KEY]: delivery } };
   if (delivery.kind === "agent-message") return { id: `agent-message:${delivery.pendingId}`, source: "foundry:agent", kind: "agent-message", content: delivery.message, metadata: { [DELIVERY_KEY]: delivery } };
+  if (delivery.kind === "mesh") {
+    return {
+      id: `mesh:${delivery.message.id}`,
+      source: `foundry:mesh:${delivery.message.from.agentId}`,
+      kind: `mesh.${delivery.message.kind}`,
+      content: renderDelivery(delivery),
+      metadata: { [DELIVERY_KEY]: delivery },
+    };
+  }
   if (delivery.kind === "transmission") {
     return {
       id: `transmission:${delivery.pendingId}`,

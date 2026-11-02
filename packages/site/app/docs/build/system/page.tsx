@@ -156,7 +156,9 @@ if (pending) await foundry.resolveApproval(pending.id, "approve");   // or "deny
         the same conversation. A worker that needs something asks with{" "}
         <code>glove_foundry_ask</code>. Decide the layers by how fast each part must reply, what
         it must remember and how long it runs; see{" "}
-        <Link href="/foundry/docs/layered-agents">Layered agents</Link>.
+        <Link href="/foundry/docs/layered-agents">Layered agents</Link>. Agents that already exist
+        as instances, such as a person&apos;s bots, message each other on{" "}
+        <Link href="/foundry/docs/multi-agent#mesh">the mesh</Link>.
       </p>
 
       <h2 id="access">Access: the APIs you didn&apos;t write</h2>

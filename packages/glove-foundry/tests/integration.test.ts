@@ -371,6 +371,16 @@ test("Foundry serves a typed run and a complete observable trace", async () => {
     const events = (await eventsResponse.json()) as Array<{ type: string }>;
     assert.ok(events.some((event) => event.type === "run.completed"));
     assert.ok(events.some((event) => event.type === "agent.text_delta"));
+    const modelRequest = events.find((event) => event.type === "agent.model_request") as
+      | { category: string; data: { request_id: string; system_prompt: { text?: string }; messages: { added: unknown[] } } }
+      | undefined;
+    assert.ok(modelRequest, "each model call is recorded with what it was sent");
+    assert.equal(modelRequest.category, "model");
+    assert.equal(typeof modelRequest.data.system_prompt.text, "string");
+    assert.ok(modelRequest.data.messages.added.length > 0);
+    assert.ok(events.some((event) => event.type === "agent.model_request_end" && (event as unknown as { data: { request_id: string } }).data.request_id === modelRequest.data.request_id));
+    const afterResponse = await fetch(`${listening.url}/api/runs/${accepted.id}/events?after=${(events.at(-2) as unknown as { sequence: number }).sequence}`);
+    assert.equal(((await afterResponse.json()) as unknown[]).length, 1, "a run's events can be read incrementally");
     assert.ok(
       events.some(
         (event) => event.type === "agent.foundry.assembly.resolve.complete",
@@ -443,7 +453,12 @@ test("Foundry serves a typed run and a complete observable trace", async () => {
 
     const nestedInspector = await fetch(`${listening.url}/runs/${accepted.id}`);
     assert.equal(nestedInspector.status, 200);
-    assert.match(await nestedInspector.text(), /Observable event trace/);
+    const nestedPage = await nestedInspector.text();
+    // The run page is a DevTools-style workbench over the run's own events.
+    assert.match(nestedPage, /function renderRun\(id\)/);
+    assert.match(nestedPage, /function buildRunTrace\(events,run\)/);
+    assert.match(nestedPage, /\/api\/runs\/"\+encodeURIComponent\(id\)\+"\/events/);
+    assert.match(nestedPage, /\["network","Network","network"\]/);
 
     const activations = await control.activations();
     assert.deepEqual(activations, []);

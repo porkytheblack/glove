@@ -9,12 +9,36 @@
 Foundry separates immutable code definitions from mutable runtime data.
 
 - `agents/<route>/agent.ts` defines reusable behavior and lazy assembly. It is not a running agent and never declares request input or result output.
-- Agent instances are persisted data with their own ids, workspace, context, installations, and playbooks. They can be provisioned, updated, removed, and reconstructed without changing the definition.
+- Agent instances are persisted data with their own ids, workspace, name, description, context, installations, and playbooks. They can be provisioned, updated, removed, and reconstructed without changing the definition.
 - Conversations are first-class instance-owned records. One instance may own many conversations.
 - Applications, transmissions, predicates, actions, shared tools, MCP definitions, memory profiles, layers, subscribers, and schedules are composable code values colocated with the owning agent.
 - Installations, selected accounts/routes, playbooks, subscriptions, scheduled activations, workspace state, and conversations are runtime data.
 
 Filenames own static identity. Convention files default-export one definition, and static code references imported values. Do not repeat string ids for code-owned relationships or add an `id` to a file-routed definition. String ids are appropriate only after serialization or at database, HTTP, frontend, and other data boundaries.
+
+## Agents are data
+
+A definition is the realm of what a kind of agent can be, like a server-rendered page that renders any props. Each agent is an instance, and who it is lives on the instance: `name`, `description`, `context`, `installations` and `workspaceId`. The definition reads them in resolvers and assembles the right agent for every run.
+
+- One definition per kind of agent, never one per agent. A person making a bot, renaming it or giving it Gmail is a write (`createAgent`, `configureAgent`, `install`), not a deploy.
+- No names, jobs or per-user settings in code: the prompt reads `ctx.agentInstance.name`, `.description` and `.context`.
+- Branch on data the instance carries (`context.routines`, `context.kind`), never on its id.
+- Agents can change their own data with a tool. A bot told its job names itself:
+
+  ```ts
+  {
+    name: "take_job",
+    inputSchema: z.object({ name: z.string(), description: z.string() }),
+    async do(job) {
+      const current = await Effect.runPromise(ctx.data.getAgent(ctx.agentId));
+      await Effect.runPromise(ctx.data.putAgent({ ...current!, ...job, updatedAt: new Date().toISOString() }));
+      return { status: "success", data: { renamed: job.name } };
+    },
+  }
+  ```
+
+- A workspace is a tenant (a person, a team): its agents share workspace entries, and with `mesh` they are peers. Conversations carry data too, such as the members of a group chat in `conversation.context`.
+- Add a definition only when a kind of agent runs differently, loads different things, or must never have another kind's tools (a voice front, a sandboxed worker, a read-only researcher). Its agents are still instances.
 
 ## Author colocated, composable definitions
 
@@ -52,7 +76,7 @@ Prefer the definition helper that owns the contract (`defineAgent`, `defineApp`,
 
 Agent assembly is contextual. Use a direct value for fixed behavior and a resolver when the result can depend on the instance, conversation, workspace, installation state, current Glove message, prior messages, or request.
 
-Common lazy fields include model, system prompt, tools, memory, inboxes, layers, subscribers, calls, subagents, mesh, playbooks, schedules, working environment, REPL, build, and run.
+Common lazy fields include model, system prompt, tools, memory, inboxes, layers, subscribers, calls, subagents, delegates, durable subagents, mesh, playbooks, schedules, working environment, REPL, build, and run.
 
 - Inboxes must be lazy; do not model an inbox as a static singleton.
 - Applications, MCPs, and shared tools are available through composition but mounted only when installed on the current instance.
@@ -67,6 +91,31 @@ An application may own multiple inbound and outbound transmissions. Outbound tra
 To triage inbound events with a classifier model (TypeSafe Jev, or any `ClassifierAdapter`) before an agent starts, use `glove-classifier/foundry`. `classifyInbound({ classifier, question: choice(...), events, fallback, minConfidence, state })` is the transmission's `inbound.classify`. `defineTransmissionPredicate(classifierPredicate({ classifier, questions, where, state }))` lets a playbook match only when the answers satisfy `where`; playbook predicate parameters `{ min, max, choice, where }` override the thresholds. Both return Effects that fail with `ClassifierError`.
 
 Connections are colocated with their application and receive the narrow Foundry connection context. Keep backend concepts such as Station networks, beacons, signals, or worker topology out of public agent definitions, client types, manifests, and inspector language. Expose only purpose-built agent-system concepts such as inbound connections, activations, scheduled work, and runs.
+
+### Apps people connect
+
+When people connect their own accounts (Gmail, Linear, Calendar), make each provider one Foundry app, not a bare `defineMcp`:
+
+- `mcp: { entry, auth, tools }` on `defineApp`. `entry` may be a function of the installation (`{ accountId, config }`), so one app can reach a live server or a local one. `auth(session)` returns headers (HTTP) or environment (stdio) from inside `accountSessions.withSession({ operation: "mcp:connect" })`; an installation without `accountId` is refused. `tools(tool, ctx)` returns `"allow" | "ask" | "hide"`; the default allows `readOnlyHint` tools and asks for the rest. Bare `defineMcp` tools run without approval in Foundry.
+- Sends are the app's outbound transmission (`glove_app_<app>__<transmission>_send`). Set `outbound.requiresPermission` (boolean or a function of the payload). Foundry delivers in its own process inside the account session, on a route the agent's binding grants.
+- Incoming events are a connection on the app (a Gmail watch, a socket) plus a playbook that picks the conversation.
+- Reads go in code: `defineRepl({ programmaticTools: { select: ({ apps }) => apps.flatMap((app) => app.tools.filter((tool) => tool.readOnly)), keepDirect: false } })`. Each app is a group named after it (`gmail.search_threads(...)`); `keepDirect: false` takes code-only tools out of the direct list. Never select the send tool: permission-gated tools are refused in code.
+- Accounts are yours. Supply `AccountDirectory` through `defineApplication({ services })` (it replaces `accounts`), with `fileTopologyStore(file)` so routes and bindings written at runtime (`putRoute`, `putBinding`) survive restarts. Connections look accounts up in the directory, so an account added after startup works.
+- To add policy to a send (a guard, an auto-review), wrap the generated tool in `configure`: its `requiresPermission` replaces the inner one and its `do` calls `inner.run(input, signal)`, so the person approves once.
+- `glove_foundry_transmit` only sends on routes the agent's playbooks declare and asks when the route's transmission asks.
+
+### A browser of its own, behind a guard
+
+For an agent that does errands on the web (a personal agent like Muse), mount a real browser in `configure`: `kuiperBrowser` from `glove-execution/kuiper` (Kuiper's browsers through `@kuiper-sh/sdk`, `kuiper.browsers`) and `mountBrowser` for `execute_browser`.
+
+- A Kuiper session belongs to the project, not the process. Keep the person's session and profile IDs on the instance's context and grant them to the next run with `sessionIds`. Never let the model choose an ID: sessions are project-wide.
+- `session` is host configuration: `{ profileId, persistProfile: true }` keeps the person's logins, and `inactivityTimeout` with `kuiper: { onInactive: "hibernate", record: true }` makes an idle browser hibernate and records it. Use `cleanup: "keep"` for a browser that waits on the person between runs.
+- `guard` sees every request the browser makes while the run is connected, before it leaves. Put a guard there whose inputs are the request, the person's own words for the run and their allowed sites, never the agent's conversation or the pages it read, so a page cannot talk it round. Decide page loads and anything that writes; give a page's own files quick checks only. A small model can decide through `glove-classifier`'s `llmClassifier` with one `choice` question.
+- A blocked load fails with `blocked`, and a blocked form post shows in the click's `blocked` list, never with the reason. So give the agent a tool that reads the guard's decision for the run and, only when it said "ask", waits for the person's approval (`requiresPermission` as a function). Their yes is a write to the instance.
+- Signing in is the person's: `onHandOff` gets Kuiper's interactive live view and sends it to them from host code, so the link never enters the agent's context. With `persistProfile`, their profile keeps the login.
+- Card numbers and other secrets go into the page from host code, through its own CDP connection, in a tab it closes. The agent never sees them.
+- For HTTP from scripts rather than a browser, `fetchFiles({ authorize, secretStore, credentials })` from `glove-env-fetch` is the same guard on every request and redirect, with logins by reference through `glove-env-secret`.
+- A log the model cannot edit: a `defineSubscriber` in the agent's `components` sees every `tool_use_result`.
 
 Foundry never acquires, refreshes, or stores credential material. Account records contain safe metadata and opaque access references. The consumer's account-session/provider adapter owns credential lookup and refresh. Never copy secrets into instance data, manifests, prompts, telemetry, or inspector payloads.
 
@@ -94,7 +143,7 @@ Do not expose the private execution backend as the authoring model for schedules
 
 Foundry owns a local Station 3 daemon for agent jobs. Applications can opt into `daemon: stationDaemon({ stationId, resources, onReady })`, importing `stationDaemon` from `glove-foundry/station`, to host browser and/or sandbox provider adapters on that same instance. The resource factory runs once in the managed process. Keep provider acquisition and private connection storage in application infrastructure; programmatic runtime setup supplies `applicationFilePath`. Foundry owns successful startup/shutdown and failed-startup cleanup. A factory that fails before returning releases its partial acquisitions.
 
-Mount capabilities with `mountBrowser(agent, { adapter })` and `mountSandbox(agent, { adapter })` from optional `glove-execution`, inside `configure`. Register `context.onCleanup` immediately after acquisition. Mounts never accept or replace the agent model. Default scripts use `glove-js`; Station transport is isolated in `glove-execution/station`. Core remains portable and has no native browser/sandbox backend. Screenshots use transient native content after tool results; media bytes are omitted from runtime-context telemetry. Do not automatically replay scripts after a mutation with an unknown outcome.
+Mount capabilities with `mountBrowser(agent, { adapter })` and `mountSandbox(agent, { adapter })` from optional `glove-execution`, inside `configure`. Register `context.onCleanup` immediately after acquisition. On Kuiper, `kuiperBrowser` and `kuiperSandbox` from `glove-execution/kuiper` are the adapters. They take `kuiper.browsers` and `kuiper.sandboxes` from `@kuiper-sh/sdk` and need no Station daemon, because a Kuiper session or sandbox outlives the run and the next run reconnects to it by ID. Mounts never accept or replace the agent model. Default scripts use `glove-js`; Station transport is isolated in `glove-execution/station`. Core remains portable and has no native browser/sandbox backend. Screenshots use transient native content after tool results; media bytes are omitted from runtime-context telemetry. Do not automatically replay scripts after a mutation with an unknown outcome.
 
 Memory defaults to an agent conversation. Broader recall, task checkpoints, prompts and eager/lazy capability acquisition are application decisions. Separate browser session/profile, sandbox file/service, script binding and memory lifetimes. See [execution ownership and setup](https://github.com/porkytheblack/glove/blob/main/packages/glove-foundry/docs/execution.md) and [Operator](https://github.com/porkytheblack/glove/blob/main/examples/foundry-operator/README.md). Node 22+ is required for Foundry; SQLite memory requires 22.13+.
 
@@ -104,7 +153,7 @@ Foundry mounts native Glove surfaces instead of reimplementing them.
 
 - Use `defineWorkingEnvironment(...)` for a guarded VFS, scripts, history, checkpoints, and artifact export.
 - Add a persistence adapter when work must survive across runs. Treat the VFS as the durable boundary; REPL bindings are run-scoped.
-- Use `defineRepl(...)` with `glove-js`, `glove-python`, or `glove-lisp` for computation over explicitly registered functions.
+- Use `defineRepl(...)` with `glove-js`, `glove-python`, or `glove-lisp` for computation over explicitly registered functions. `programmaticTools.select({ tools, apps })` picks them; installed apps arrive grouped with each tool's `readOnly`.
 - Use `glove-image` and the working-environment format adapters for image, document, slide, spreadsheet, archive, audio, or video work.
 - Pass artifacts between agents by durable workspace/VFS references rather than copying large document bodies into prompts.
 - For HTTP calls/downloads/uploads and host keystores, read [HTTP files and host secrets](https://github.com/porkytheblack/glove/blob/main/packages/glove-working-environment/HTTP-AND-SECRETS.md). Mount `fetchFiles()` and `secret()` in the environment options; scope the host store to the owning instance and re-supply it after restore. Snapshots do not persist secrets or network grants.
@@ -112,7 +161,7 @@ Foundry mounts native Glove surfaces instead of reimplementing them.
 
 ## Goals, facts, and prepared workflows
 
-Goals, forms, and pinned context require glove-core >=4.0.0 for live runtime snapshots. They append transient user-role messages at the model-input tail before each model iteration without rewriting system instructions or saved history. Runnable proxies forward `addContextProvider` and `getRuntimeContext`; subscribers receive `runtime_context` snapshots. Realtime voice refreshes silently at start and after tools; call `await realtime.refreshContext()` after external changes.
+Goals, forms, and pinned context require glove-core >=4.0.0 for live runtime snapshots. By default they append transient user-role messages at the model-input tail before each model iteration without rewriting system instructions or saved history. `goals: { …, delivery: "history" }` (and `forms`) save the snapshot to history once per change instead; `contextProviders` entries can be bare providers or `{ provider, delivery: "request" | "history", key }`. Runnable proxies forward `addContextProvider` and `getRuntimeContext`; subscribers receive `runtime_context` snapshots. Realtime voice refreshes silently at start and after tools; call `await realtime.refreshContext()` after external changes.
 
 Use `glove-memory/goals` for dynamic goals and `glove-facts` for reusable scoped evidence; there is no standalone `glove-goals` package. Mount `useGoalRunner` or `useFormRunner` from `glove-memory/tools` on the conversational runnable, and `useFacts` from `glove-facts` for capture.
 
@@ -140,15 +189,23 @@ keep, how long does it run. Then give each agent only the access its job needs.
   `delegatedBy`) and one conversation per delegation (id = delegation id).
   Keep secrets out of instance context.
 - Results, questions and failures arrive in the delegating conversation as
-  `<delegation id agent status>` messages: into a run that listens via
-  `ctx.onDelegationUpdate(handler)`, else as one new run (`source.kind`
-  `"delegation"`) once no run holds the conversation. Open delegations appear in
+  `<delegation id agent status>` messages: to a `ctx.onDelegationUpdate(handler)`,
+  else into the delegating turn at its next tool step while it is still calling
+  tools (a Glove event), else as one new run (`source.kind` `"delegation"`) once
+  the run has ended and no run holds the conversation. Replies reach a working
+  worker the same way. Open delegations appear in
   runtime context. `runtime.listDelegations(filter)` lists them; trace events are
   `delegation.started|question|replied|completed|failed|cancelled|delivered`.
+- Durable subagents: `durableSubagents: { research: { agent, inherit?, eventDelivery?, cleanup? } }`
+  gives an agent workers it owns, one per parent instance and slot, created on
+  first use (route `<parent>/workers/<slot>`). The delegate tools address them by
+  slot name; `glove_foundry_message({ to, message })` sends without a task, and
+  the worker answers with `to: "parent"`. Nothing is inherited unless `inherit`
+  selects it. Read `packages/glove-foundry/docs/durable-subagents.md`.
 - Voice: `run: voiceCall({ room, greeting?, idleMs?, maxDurationMs?, openDelayMs?,
   realtime?, announce?, offCall? })` from `glove-foundry/voice`. It hosts
   `RealtimeAgent` over the assembled agent, saves both sides to the store, speaks
-  delegation updates at the next pause (8 s max hold), and keeps Foundry's
+  delegation updates and mesh messages at the next pause (8 s max hold), and keeps Foundry's
   bookkeeping tools and every `requiresPermission` tool off the call (the
   realtime path has no approval step). A delegation run with no live call is
   saved to the conversation unless `offCall` handles it; or route
@@ -163,6 +220,31 @@ keep, how long does it run. Then give each agent only the access its job needs.
   utterance boundaries; Realtime VAD and final-turn assumptions do not apply.
   Read the [GPT-Live contract](https://github.com/porkytheblack/glove/blob/main/packages/glove-voice-s2s/README.md#gpt-live).
 
+## Messaging existing agents: the hosted mesh
+
+For agents that already exist as peers, each its own instance in one workspace
+(a person's bots), Foundry hosts Glove Mesh. Owned workers belong in
+`delegates` or `durableSubagents` instead.
+
+- `mesh: true | { peers?, waitMs?, mount? }` mounts `glove_mesh_list_agents`,
+  `glove_mesh_send_message({ to, content, in_reply_to?, blocking? })`,
+  `glove_mesh_broadcast` and `glove_mesh_acknowledge`. Agents are addressed by
+  instance id. Peers are the other instances in the workspace that pass
+  `peers(self, peer)` (default: all); an agent can always answer whoever
+  messaged it. `mount(ctx)` decides per run whether the tools are there. A
+  `mesh` value with an `adapter` is the raw glove-mesh transport instead.
+- A new message starts a thread: a conversation on the recipient, id = thread
+  id, record on `context.meshThread`. The recipient's final non-empty reply goes
+  back on its own; a failed or cancelled run sends a failure. Messages arrive as
+  `<mesh-message id thread from name status?>`: into a run that listens via
+  `ctx.onMeshMessage(handler)`, else as one new run (`source.kind` `"mesh"`) once
+  no run holds the conversation. They ride the same event journal as delegation
+  updates. A blocking send waits `waitMs` (default 90 s) in-run, then the run
+  suspends (`suspension.kind` `"mesh"`). Open threads appear in runtime context.
+  `runtime.listThreads(filter)` lists them; trace events are
+  `mesh.thread.started|replied|failed|cancelled`, `mesh.message.sent`,
+  `mesh.delivered`, `mesh.refused`.
+
 ## Multi-agent systems
 
 Choose the smallest correct composition surface:
@@ -170,7 +252,8 @@ Choose the smallest correct composition surface:
 - `delegates` for a fast agent that hands slow or tool-heavy work to siblings and hears back (see above).
 - `defineSubagent` for an isolated nested task under a parent run. Its `tools` can project a least-privilege subset of `parent.tools`; its `layers` (including `configureLayer(layer, config)`) and `subscribers` mount on each invocation, before `configure`, and are disposed when the subagent's request ends.
 - Foundry calls for typed agent-to-agent or agent-to-service invocation.
-- Mesh for peer messaging and acknowledgements.
+- `durableSubagents` for workers an agent owns that keep their identity, memory and files across tasks.
+- The hosted mesh (`mesh: true`) for agents that already exist as instances messaging each other by id: bots passing work around a team.
 - Playbook subscriptions for inbound events that can provision a workforce.
 - Workspaces, conversations, inbox items, tasks, and artifacts for durable coordination.
 

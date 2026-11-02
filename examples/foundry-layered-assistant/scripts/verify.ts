@@ -18,6 +18,7 @@ if (!process.env.ANTHROPIC_API_KEY) process.env.LAYERED_DEMO = "1";
 const { FoundryRuntime } = await import("glove-foundry");
 const { default: application } = await import("../foundry.application.js");
 const { default: config } = await import("../foundry.config.js");
+const { DEMO_PERSON } = await import("../lib/team.js");
 
 const runtime = await FoundryRuntime.discover({
   rootDir,
@@ -41,8 +42,11 @@ async function until<T>(read: () => Promise<T | undefined>, what: string, timeou
 try {
   assert.deepEqual(runtime.agents.map((agent) => agent.route).sort(), ["assistant", "coder", "researcher"]);
 
-  const maya = await runtime.createAgent("assistant", { id: "maya", context: { name: "Maya" } });
-  const chat = await runtime.createConversation(maya.id, { id: "maya-chat", title: "Chat with Maya" });
+  // Maya's assistant and chat are data, seeded by foundry.application.ts.
+  const maya = (await runtime.listAgentInstances("assistant")).find((agent) => agent.id === DEMO_PERSON.id)!;
+  assert.equal(maya?.workspaceId, DEMO_PERSON.id);
+  const chat = (await runtime.listConversations(maya.id)).find((item) => item.id === `${DEMO_PERSON.id}-chat`)!;
+  assert.ok(chat, "the seeded chat");
   const first = await runtime.send(maya.id, chat.id, "Write me a slugify function, please.");
   const firstRun = await runtime.waitForRun(first.id, { timeoutMs: 60_000 });
   assert.equal(firstRun?.status, "completed", firstRun?.error);

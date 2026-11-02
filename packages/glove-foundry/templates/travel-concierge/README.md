@@ -213,7 +213,7 @@ console.log((await run.wait()).output);
 | Overview | Is the runtime healthy, what is running, what needs attention |
 | Agents | Which definitions exist and which instances were provisioned |
 | Runs | Every invocation, with status, duration, and source |
-| Run detail | The phase spine and the full observable event trace |
+| Run | Each model request (system prompt, messages, memory, tools) and tool call, the log, and the outcome |
 | Automations | Schedules, sleeping runs, playbook listeners, inbound workers |
 | Integrations | Transmissions, accounts, routes, and bindings |
 | Workspaces | Shared entries, inbox, tasks, and non-secret environment values |

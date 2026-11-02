@@ -1,6 +1,5 @@
-import { defineWorkingEnvironment } from "glove-foundry";
+import { defineWorkingEnvironment, foundryDataEnvironmentPersistence } from "glove-foundry";
 import { fetchFiles } from "glove-env-fetch";
-import { fileWorkspaces } from "../../lib/workspaces.js";
 
 /**
  * The researcher's workspace adds HTTP through env:fetch, limited to public
@@ -10,5 +9,7 @@ export const researcherWorkspace = defineWorkingEnvironment({
   options: {
     stdlib: [fetchFiles({ maxResponseBytes: 2_000_000 })],
   },
-  persistence: fileWorkspaces,
+  // Saved per delegation: each task is its own conversation, and a follow-up
+  // on the same delegation finds the files it left.
+  persistence: foundryDataEnvironmentPersistence({ scope: "conversation" }),
 });

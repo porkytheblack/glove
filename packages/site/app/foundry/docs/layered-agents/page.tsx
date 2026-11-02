@@ -245,7 +245,8 @@ If you already know the answer, reply with glove_foundry_reply. Otherwise ask th
           <tr><td>A fast agent that hands off slow work and hears back</td><td><code>delegates</code></td><td>Separate process, instance and conversation per task. Results and questions come back.</td></tr>
           <tr><td>A bounded sub-task answered inside this turn</td><td><Link href="/foundry/docs/multi-agent#subagents"><code>defineSubagent</code></Link></td><td>Runs inside the parent&apos;s tool call; the parent waits for it.</td></tr>
           <tr><td>Start separate work and never hear back</td><td><Link href="/foundry/docs/multi-agent#spawn"><code>glove_foundry_spawn</code></Link></td><td>Fire and forget, with a run id in the trace.</td></tr>
-          <tr><td>Peers that talk while both are running</td><td><Link href="/foundry/docs/multi-agent#mesh"><code>mesh</code></Link></td><td>Messages between live runs over your transport.</td></tr>
+          <tr><td>Workers it owns that keep their memory and files across tasks</td><td><Link href="/foundry/docs/durable-subagents"><code>durableSubagents</code></Link></td><td>One persisted worker per instance and slot, created on first use. The same delegate tools reach it.</td></tr>
+          <tr><td>Agents that already exist as instances, messaging each other</td><td><Link href="/foundry/docs/multi-agent#mesh"><code>mesh</code></Link></td><td>Peers in one workspace, addressed by instance id. Replies come back on their own.</td></tr>
           <tr><td>Fan out from code you control</td><td><Link href="/foundry/docs/multi-agent#client-fan-out">the typed client</Link></td><td>Deterministic orchestration in a <code>run</code>.</td></tr>
         </tbody>
       </table>

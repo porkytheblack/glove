@@ -73,9 +73,18 @@ foundry.config.ts                    defineConfig (from glove-foundry/config) �
 
 - Definition (code): what an agent of this kind can assemble.
 - Instance (data, FoundryDataAdapter): { id, definitionId, workspaceId,
-  provisioningKey?, context, installations, playbooks, createdAt, updatedAt }.
-  Created by createAgent / POST /api/agent-instances / defineAgentInstance seeds /
-  subscriptions; edited with configureAgent / PATCH /api/agent-instances/:id.
+  provisioningKey?, name?, description?, context, installations, playbooks,
+  createdAt, updatedAt }. Created by createAgent / POST /api/agent-instances /
+  defineAgentInstance seeds / subscriptions; edited with configureAgent /
+  PATCH /api/agent-instances/:id (name, description, context, installations).
+- Agents are data. A definition is everything a kind of agent can be, like a
+  server-rendered page; each agent is an instance, and its name, job, apps,
+  owner and teammates are instance data. One definition per kind of agent,
+  never one per agent; no names or per-user settings in code; branch on
+  context, not ids. An agent can change its own data with a tool
+  (ctx.data.putAgent({ ...current, name, description })). Split definitions only
+  by what an agent can do or must load. A workspace is a tenant: its agents
+  share workspace entries, and with mesh they are peers.
 - Conversation (data): owned by one instance; an instance may own many.
 - Run: one message processed by a freshly assembled agent. Every run reloads the
   instance + conversation and resolves every definition field again, so instance
@@ -115,7 +124,9 @@ compactionInstructions, maxTurns, enableToolResultSummary, tools, hooks, skills,
 subagents, memory, goals, facts, forms, contextProviders, inboxes (always a
 function), subscribers, layers, calls, schedules, playbooks, mesh,
 workingEnvironment, repl, configure(agent, ctx), build(agent, ctx),
-spawn(agent, ctx, message), run(agent, ctx), mcpAdapter, accountSessions.
+spawn(agent, ctx, message), run(agent, ctx), delegates, durableSubagents,
+answerWaitMs, eventDelivery, runTimeoutMs, maxConcurrentRuns, mcpAdapter,
+accountSessions.
 An agent definition never declares request input/output — Foundry owns
 FoundryRequest/FoundryResult.
 
@@ -188,9 +199,14 @@ exposeToAgent? }) (exposed as a tool by default; callable via ctx.invoke).
   capabilities, events, inbound: { config, event, classify, predicates },
   outbound: { config, input, output, adapter: { deliver(input, context) }, observe? } })
   — Effect Schema types flow into account metadata, route config, events, input, output.
-- defineApp({ description, config?, inbound, outbound, connections?, install? }) —
+- defineApp({ description, config?, inbound, outbound, connections?, install?, mcp? }) —
   install returns Effect<{ tools }>. Installing an app mounts its outbound
   transmissions as validated tools; delivery runs in the parent runtime.
+  mcp: { entry (or (ctx) => entry), auth?: (session, ctx) => headers | env,
+  tools?: (tool { name, readOnly, destructive }, ctx) => "allow" | "ask" | "hide" }
+  opens the server per run with the installation's account (auth runs inside
+  accountSessions.withSession({ operation: "mcp:connect" })); default policy:
+  read-only allows, others ask. Tools are named <app>__<tool>.
 - defineConnection — a supervised long-lived inbound worker: connect(ctx) uses
   ctx.ready() and ctx.receive({ route, eventId, threadKey, conversationKey?,
   conversationScope?, awaitCompletion?, raw }). Started only when an installed app
@@ -198,7 +214,9 @@ exposeToAgent? }) (exposed as a tool by default; callable via ctx.invoke).
 - Topology is data: defineAccount({ id, transmission, externalAccountId, label,
   accessRef, metadata }), defineInboundRoute / defineOutboundRoute({ id,
   transmission, account, visibility, enabled, config }), defineBinding; register
-  them in defineApplication({ accounts, routes, bindings }).
+  them in defineApplication({ accounts, routes, bindings }). Your own account store:
+  defineApplication({ services: Layer.mergeAll(Layer.succeed(AccountDirectory, dir),
+  fileTopologyStore(file), memoryEventStore) }); putRoute / putBinding at runtime.
 - Outbound delivery requires an enabled defineBinding for the instance (registered in
   defineApplication bindings); without one delivery fails with "agent has no enabled
   bindings". Transmission ids are global across agents.
@@ -242,7 +260,7 @@ it has run once; subscriptions and client.setAgentPlaybooks apply immediately.
 | glove_foundry_schedules | list / update / pause / resume / cancel this instance's activations |
 | glove_foundry_sleep | Record a wake-up for the same instance + conversation ({ kind: "for", duration } or { kind: "until", at } in UTC ISO with Z); the current run ends and a new run starts at wake time |
 | glove_foundry_background | Queue a run on the same instance + conversation; with reconvene (default true) it waits up to 60 s and posts a resolved background.reconvene item to the shared inbox (it does not wake the conversation) |
-| glove_foundry_transmit | Deliver an outbound event through a route declared by this instance's playbook |
+| glove_foundry_transmit | Deliver an outbound event through a route declared by this instance's playbook; asks when the route's transmission asks |
 | glove_foundry_conversations | List this instance's conversations |
 | glove_foundry_workspace | Read or write a shared workspace value |
 | glove_foundry_shared_inbox | List or post shared inbox items |
@@ -268,11 +286,15 @@ and non-secret environment values. Pass artifact paths, not copied documents.
 
 defineWorkingEnvironment({ options, persistence? }) mounts glove-working-environment
 (guarded VFS, scripts, checkpoints, export). It closes after every run; add
-foundryDataEnvironmentPersistence({ scope }) or a native persistent Vfs to keep files.
+foundryDataEnvironmentPersistence({ scope: "agent" | "conversation" | "workspace" })
+(workspace = one tree shared by every agent in the workspace) or a native
+persistent Vfs to keep files.
 defineRepl({ language: "javascript" | "python" | "lisp", session, mount?,
-programmaticTools? }) — one REPL per run. programmaticTools.select projects exact
-live tools into the sandbox (maxCalls default 50); permission-gated tools are refused
-there. Add document/spreadsheet/slide/image/media/fetch/secret adapters from
+programmaticTools? }) — one REPL per run. programmaticTools.select({ tools, apps })
+projects exact live tools into the sandbox (maxCalls default 50); permission-gated
+tools are refused there. apps: [{ id, description, accountId?, tools: [{ name,
+readOnly }] }], each a group in code (gmail.search_threads(...)). keepDirect: false
+removes selected code-only tools from the direct tool list. Add document/spreadsheet/slide/image/media/fetch/secret adapters from
 glove-env-* packages. Browsers and sandboxes: mountBrowser / mountSandbox from
 glove-execution inside configure, with ctx.onCleanup.
 
@@ -315,10 +337,57 @@ delegates: [
 - Do not import another agent's agent.ts; delegates are routes so the interactor
   never loads a worker's dependencies.
 
+Durable subagents: durableSubagents: { <slot>: { agent, description?, inherit?,
+eventDelivery?, cleanup? } }. One worker per parent instance and slot, created on
+first use (route "<parent>/workers/<slot>", instance id worker_<hash>), kept with
+its own conversations, memory and files. The delegate tools address it by slot
+name; glove_foundry_message({ to, message, delivery? }) sends without a task; the
+worker answers with to: "parent". Nothing is inherited unless inherit selects it
+(context, tools, memory, apps via restrictApp). runtime.listSubagents(parentId).
+See packages/glove-foundry/docs/durable-subagents.md.
+
+Hosted mesh, for agents that already exist as instances in one workspace (a
+person's bots). Owned workers belong in delegates or durableSubagents.
+
+```ts
+// agents/bot/agent.ts: one definition, every bot an instance
+mesh: { waitMs: 60_000 },
+// your app: the bots are instances in the person's workspace
+await foundry.createAgent("bot", { id: "ada-sales", workspaceId: "ada", name: "Sales" });
+```
+
+- mesh: true | { peers?(self, peer) => boolean, waitMs? (default 90 000),
+  mount?(ctx) => boolean }. Tools (same names and inputs as glove-mesh):
+  glove_mesh_list_agents({ name? }) → { agents: [{ id, name, description }] },
+  glove_mesh_send_message({ to, content, in_reply_to?, blocking? }) →
+  { message_id, thread_id, to, reply? }, glove_mesh_broadcast({ content }),
+  glove_mesh_acknowledge({ message_id, note? }).
+- Peers: the other instances in the sender's workspace that pass the sender
+  definition's peers rule. Names and descriptions come from the instances
+  (meshIdentity). An agent can always answer whoever messaged it.
+- A new message starts a thread: a conversation on the recipient (id = thread
+  id, record on context.meshThread); the starter's conversation lists it in
+  context.meshThreads. The recipient's final non-empty reply goes back on its
+  own (status "replied"); a failed or cancelled run sends a failure. The
+  recipient asks back with glove_mesh_send_message to the sender; the sender
+  answers with in_reply_to (also how to send more work on a finished thread).
+- Messages arrive as <mesh-message id thread from name status?> blocks: into a
+  run that listens (ctx.onMeshMessage; voiceCall does), otherwise as one new
+  run once the conversation is free (source.kind "mesh"). Acks only reach a
+  live listener. blocking: true waits waitMs in-run; then the run ends
+  suspended (suspension.kind "mesh") and the reply starts the next run. Open
+  threads are in the starter's runtime context. Messages not yet handed over
+  ride the same event journal as delegation updates and are handed over again
+  when the runtime starts. runtime.listThreads({ agentId?, conversationId?, to?,
+  status? }); status working | waiting | replied | failed | cancelled. Events:
+  mesh.thread.started, mesh.message.sent, mesh.thread.replied,
+  mesh.thread.failed, mesh.thread.cancelled, mesh.delivered, mesh.refused.
+- A mesh value with an adapter is the raw glove-mesh transport (FoundryMeshConfig).
+  Recipients need a durable store.
 Voice calls: import { voiceCall, webSocketRoom } from "glove-foundry/voice";
 run: voiceCall({ room: (ctx) => webSocketRoom({ port, token }), greeting? }) with
 model: s2sDrivenModel(...). Saves both sides to the store, speaks delegation
-updates at the next pause (max 8 s hold), keeps glove_foundry_spawn/sleep/
+updates and mesh messages at the next pause (max 8 s hold), keeps glove_foundry_spawn/sleep/
 background/schedules/conversations/workspace/shared_inbox/tasks/environment and
 every requiresPermission tool off the call, ends on room end, idleMs (120 000),
 maxDurationMs (1 800 000) or cancel. A delegation run with no call live is saved
@@ -331,7 +400,7 @@ tools can be a least-privilege projection of the parent built from parent.tools
 — there is no projectTools export; a subagent's layers and subscribers mount per
 invocation and are disposed when its request ends), defineCall (typed function),
 glove_foundry_spawn (separate run, no result back), glove_foundry_background
-(reconvene via inbox), mesh field (glove-mesh), playbook subscriptions (provision
+(reconvene via inbox), playbook subscriptions (provision
 a workforce), workspace/inbox/tasks for coordination.
 
 ## 12. Client and HTTP API
@@ -407,8 +476,11 @@ side effect.
 glove foundry dev serves the inspector at the server URL: Overview, Agents,
 definition and instance pages, Chat (WebChat over exact stored transcripts, with
 attachments, Stop and Redirect), Runs (filters in the URL: ?status=&source=&q=),
-run detail (phase spine + event trace), Automations, Integrations, Workspaces.
-⌘K search, j/k navigation, c to start a run. Events stream from /api/events;
+a run opened like browser DevTools (Network: each model request with the system
+prompt, messages, runtime context/memory and tools it was sent, and each tool
+call with input, result and approval; Console: levelled log; Context: what the
+agent had; Summary; URL state ?tab=&item=&pane=), Automations, Integrations,
+Workspaces. ⌘K search, j/k navigation, 1-4 run views, c to start a run. Events stream from /api/events;
 custom sinks use defineSubscriber or a FoundryObservabilityAdapter. Use
 controls.emit({ type, data }) for safe work notes; never emit secrets or hidden
 reasoning. The event envelope carries the definition id and run id (not instance,

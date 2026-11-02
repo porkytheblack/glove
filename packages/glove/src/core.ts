@@ -15,6 +15,11 @@ import { splitAtLastCompaction, abortablePromise } from "./utils";
 /**
  * Discriminated union of all events that flow through the subscriber system.
  *
+ * **Request events** (emitted by Glove around every model call, only to
+ * subscribers that set `modelRequests: true`):
+ * - `model_request` — What the model is about to receive: system prompt, messages, tools
+ * - `model_request_end` — How that request ended: duration, outcome, response, tokens
+ *
  * **Model events** (emitted by ModelAdapter during prompt execution):
  * - `text_delta` — Streaming text chunk from the model
  * - `tool_use` — Model is invoking a tool
@@ -48,6 +53,36 @@ export type SubscriberEvent =
    * names the providers that were read; it is absent for an unfiltered read.
    */
   | { type: "runtime_context"; messages: Array<Message>; delivery?: "iteration" | "request" | "history" }
+  /**
+   * A model request is about to be sent. `system_prompt`, `messages` and
+   * `tools` are exactly what the adapter receives, after tool-result
+   * summaries, with runtime context at the tail. The arrays are the request's
+   * own: read them, don't change them. `purpose` is "compaction" when the
+   * request summarises the conversation.
+   */
+  | {
+      type: "model_request";
+      request_id: string;
+      model: string;
+      purpose: "turn" | "compaction";
+      system_prompt: string;
+      messages: ReadonlyArray<Message>;
+      tools: ReadonlyArray<ModelRequestTool>;
+    }
+  /** The request with this `request_id` ended. `messages` is the model's response. */
+  | {
+      type: "model_request_end";
+      request_id: string;
+      model: string;
+      duration_ms: number;
+      status: "success" | "error" | "aborted";
+      error?: string;
+      messages?: ReadonlyArray<Message>;
+      tokens_in?: number;
+      tokens_out?: number;
+      cache_read_input_tokens?: number;
+      cache_creation_input_tokens?: number;
+    }
   | { type: "text_delta"; text: string }
   | { type: "tool_use"; id: string; name: string; input: unknown }
   | { type: "model_response"; text: string; tool_calls?: ToolCall[]; stop_reason?: string; tokens_in?: number; tokens_out?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number }
@@ -156,6 +191,12 @@ export type NotifySubscribersFunction = <T extends SubscriberEvent["type"]>(
  * ```
  */
 export interface SubscriberAdapter {
+  /**
+   * Receive `model_request` and `model_request_end`. They carry the whole
+   * conversation on every model call, so a subscriber that forwards every
+   * event somewhere (a socket, a log) doesn't get them unless it asks.
+   */
+  modelRequests?: boolean;
   record: <T extends SubscriberEvent["type"]>(
     event_type: T,
     data: SubscriberEventDataMap[T],
@@ -345,6 +386,13 @@ export function toObjectRootJsonSchema(schema: Record<string, unknown>): Record<
   const { anyOf: _anyOf, oneOf: _oneOf, ...metadata } = schema;
   return { ...metadata, type: "object", properties, required,
     ...(schema.additionalProperties === undefined && variants.every((variant) => variant.additionalProperties === false && !Object.keys(variant.patternProperties ?? {}).length) ? { additionalProperties: false } : {}) };
+}
+
+/** A tool as a `model_request` reports it: what the model is told about it. */
+export interface ModelRequestTool {
+  name: string;
+  description: string;
+  input_schema: Record<string, unknown>;
 }
 
 export interface ToolCall {
@@ -740,16 +788,69 @@ export class PromptMachine {
 
   async run(messages: Array<Message>, tools?: Array<Tool<unknown>>, signal?: AbortSignal) {
     const prunedMessages = this.enableToolResultSummary ? this.summarizeOlderToolResults(messages) : messages
-    const result = await this.model.prompt(
-      {
-        messages: prunedMessages,
-        tools,
-      },
-      this.notifySubscribers,
-      signal,
-    );
+    const request = { messages: prunedMessages, tools };
+    const observers = this.subscribers.filter((s) => s.modelRequests);
+    if (!observers.length) return await this.model.prompt(request, this.notifySubscribers, signal);
+
+    const notify: NotifySubscribersFunction = async (event_name, event_data) => {
+      await Promise.all(observers.map((s) => s.record(event_name, event_data)));
+    };
+    const request_id = newRequestId();
+    const model = this.model.name;
+    await notify("model_request", {
+      request_id,
+      model,
+      purpose: prunedMessages.at(-1)?.is_compaction_request ? "compaction" : "turn",
+      system_prompt: this.systemPrompt,
+      messages: prunedMessages,
+      tools: (tools ?? []).map(requestTool),
+    });
+    const started = Date.now();
+    let result: ModelPromptResult;
+    try {
+      result = await this.model.prompt(request, this.notifySubscribers, signal);
+    } catch (error) {
+      const aborted = signal?.aborted || (error instanceof Error && error.name === "AbortError");
+      // The model call's own error is the one to surface, not a subscriber's.
+      await notify("model_request_end", {
+        request_id,
+        model,
+        duration_ms: Date.now() - started,
+        status: aborted ? "aborted" : "error",
+        error: error instanceof Error ? error.message : String(error),
+      }).catch(() => undefined);
+      throw error;
+    }
+    await notify("model_request_end", {
+      request_id,
+      model,
+      duration_ms: Date.now() - started,
+      status: "success",
+      messages: result.messages,
+      tokens_in: result.tokens_in,
+      tokens_out: result.tokens_out,
+      ...(result.cache_read_input_tokens != null && { cache_read_input_tokens: result.cache_read_input_tokens }),
+      ...(result.cache_creation_input_tokens != null && { cache_creation_input_tokens: result.cache_creation_input_tokens }),
+    });
     return result;
   }
+}
+
+// Tools are converted once; a request offers the same tool objects again and again.
+const requestTools = new WeakMap<Tool<unknown>, ModelRequestTool>();
+function requestTool(tool: Tool<unknown>): ModelRequestTool {
+  let described = requestTools.get(tool);
+  if (!described) {
+    described = { name: tool.name, description: tool.description, input_schema: getToolJsonSchema(tool) };
+    requestTools.set(tool, described);
+  }
+  return described;
+}
+
+let requestCount = 0;
+function newRequestId(): string {
+  const random = globalThis.crypto?.randomUUID?.();
+  return random ?? `req_${Date.now().toString(36)}_${(requestCount++).toString(36)}`;
 }
 
 // e.g if a tool call is requesting additional info from the user, perharps will create custom tool for this, but the good thing is this does not need to  be hardcoded into the sdk
@@ -1189,15 +1290,22 @@ export class Observer {
     return false;
   }
 
-  async tryCompaction() {
+  async tryCompaction(current?: Message) {
     const current_token_consumption = await this.getCurrentTokenConsumption();
 
     if (current_token_consumption < this.CONTEXT_COMPACTION_LIMIT) return;
 
-    return this.runCompactionNow();
+    return this.runCompactionNow(current);
   }
 
-  async runCompactionNow() {
+  /**
+   * Summarise the conversation and continue from the summary. `current` is the
+   * request being worked on when compaction runs partway through one. The
+   * model sees nothing from before the summary, so the summary carries that
+   * request word for word; otherwise only the summary's retelling of it is
+   * left, and the model can lose what it was asked.
+   */
+  async runCompactionNow(current?: Message) {
     const current_token_consumption = await this.getCurrentTokenConsumption();
 
     await this.notifySubscribers("compaction_start", {
@@ -1235,9 +1343,13 @@ export class Observer {
         lines.join("\n") + "\n";
     }
 
+    const request = current?.text.trim()
+      ? `\n\n[The request being worked on, word for word]\n${current.text}\n`
+      : "";
+
     const summaryMessage: Message = {
       sender: "user",
-      text: `[Conversation summary from compaction]\n\n${summaryText}${inboxBlock}\n\n` +
+      text: `[Conversation summary from compaction]\n\n${summaryText}${inboxBlock}${request}\n\n` +
         `[End of summary - the conversation continues from here]`,
       is_compaction: true
     }
@@ -1456,7 +1568,7 @@ export class Agent {
 
         if (should_compact && has_tool_calls) {
           // so that model results with tool calls are fully resolved, and the model has the full information to make decisions
-          await this.observer.runCompactionNow()
+          await this.observer.runCompactionNow(trigger)
         }
         await this.context.appendMessages(results.messages);
         await this.observer.addTokensConsumed({
@@ -1519,7 +1631,7 @@ export class Agent {
       const events = this.framework?.drainEvents ? await this.framework.drainEvents(signal) : [];
       if (events.length) await this.context.appendMessages(events);
 
-      await this.observer.tryCompaction();
+      await this.observer.tryCompaction(trigger);
     }
   }
 

@@ -7,7 +7,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import { FOUNDRY_EXECUTION_MARKER, FOUNDRY_APPLICATION_ENV } from "../src/definition.js";
-import { FoundryExecutionBackend } from "../src/execution-backend.js";
+import { DaemonDisconnectedError, FoundryExecutionBackend } from "../src/execution-backend.js";
 import { FoundryObserver, MemoryObservabilityAdapter } from "../src/observability.js";
 const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), "fixtures");
 function backend(filePath: string, env: Record<string, string> = {}) {
@@ -42,6 +42,31 @@ test("the execution daemon is a separate process and managed shutdown reaps it",
   } finally { await daemon.stop(); }
   assert.equal(alive(pid), false);
   await assert.rejects(daemon.ping(), /unavailable/);
+});
+test("a daemon that goes away while stopping has stopped, and says how when it goes away unasked", async () => {
+  // Asked to stop, the daemon may close its channel before its reply arrives (#208).
+  // Killing it as stop is sent makes that happen every time.
+  const stopping = backend(resolve(rootDir, "agents/assistant/agent.ts"));
+  await stopping.initialize();
+  const pid = stopping.processId!;
+  const stopped = stopping.stop();
+  process.kill(pid, "SIGKILL");
+  await stopped;
+  assert.equal(alive(pid), false);
+
+  // Unasked, it is a failure, with the exit and the masked end of its stderr.
+  const crashing = backend(resolve(rootDir, "agents/assistant/agent.ts"), { FOUNDRY_TEST_SECRET_TOKEN: "sk-test-1234567890" });
+  await crashing.initialize();
+  const loop = crashing.start().then(() => undefined, (cause: unknown) => cause);
+  const pending = crashing.getRun("missing").then(() => undefined, (cause: unknown) => cause);
+  process.kill(crashing.processId!, "SIGKILL");
+  const error = (await loop) as DaemonDisconnectedError;
+  assert.ok(error instanceof DaemonDisconnectedError, String(error));
+  assert.match(error.message, /disconnected/);
+  assert.ok(!error.stderrTail.includes("sk-test-1234567890"));
+  const failedRequest = await pending;
+  assert.ok(failedRequest === undefined || failedRequest instanceof DaemonDisconnectedError);
+  await crashing.stop();
 });
 test("failed definition discovery fails startup and reaps the daemon", async () => {
   const daemon = backend(resolve(rootDir, "missing-agent.ts"));

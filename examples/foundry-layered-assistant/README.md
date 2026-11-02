@@ -4,6 +4,13 @@ A personal assistant built as layers of agents in Glove Foundry. One agent talks
 to the person; the others do the work. Use it as a starting point for any
 assistant that has to stay responsive while real work happens elsewhere.
 
+The definitions in `agents/` say what an assistant, a coder and a researcher
+can be. The assistant itself is data: `lib/team.ts` describes a person's
+assistant ("Iris") in their own workspace. `foundry.application.ts` seeds
+Maya's with `defineAgentInstance`, and `scripts/onboard.ts` creates the same
+record for anyone else. Foundry creates its coder and researcher on the first
+task.
+
 ```
             person (chat or call)
                     │
@@ -46,8 +53,10 @@ lib/
   models.ts       one model choice per layer
   demo-model.ts   scripted models used when no API key is set
   file-store.ts   durable transcripts
-  workspaces.ts   saves each delegation's workspace
-scripts/verify.ts the whole exchange, offline
+  team.ts         a person's assistant, as data
+scripts/
+  verify.ts       the whole exchange, offline
+  onboard.ts      create a person's assistant on a running Foundry
 ```
 
 ## Run it
@@ -59,7 +68,8 @@ cp .env.example .env                                    # add ANTHROPIC_API_KEY
 pnpm --filter glove-foundry-layered-assistant dev       # inspector at http://localhost:4142
 ```
 
-In the inspector, create an `assistant` instance, open WebChat and ask for some
+Maya's assistant is there from the start (`pnpm tsx scripts/onboard.ts ada "Ada"`
+adds another). In the inspector, open WebChat with it and ask for some
 code. The assistant delegates to the coder and keeps talking. If the coder needs
 to know something, its question comes back to the assistant, which answers from
 memory or asks you. The result arrives as a new turn in the same chat.

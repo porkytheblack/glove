@@ -40,7 +40,8 @@ export default function CapabilitiesPage() {
           <tr><td>A tool every instance has</td><td><code>tools</code> field</td><td>Every run (a resolver can filter per message)</td><td>Code</td></tr>
           <tr><td>A tool only some instances have, with per-instance settings</td><td><code>defineSharedTool</code> + <code>install</code></td><td>The instance has an installation for it</td><td>Installation <code>config</code> (zod)</td></tr>
           <tr><td>A bundle of tools and inbound/outbound transports</td><td><code>defineApp</code> + <code>install</code></td><td>Installed</td><td>Installation config and account</td></tr>
-          <tr><td>An external MCP server</td><td><code>defineMcp</code> + <code>install</code> + <code>mcpAdapter</code></td><td>Installed</td><td><code>entry</code> / config; auth in the adapter</td></tr>
+          <tr><td>An app a person connects with their own account (Gmail, Linear)</td><td><code>defineApp({"{ mcp }"})</code> + <code>install</code> with an account</td><td>Installed</td><td>Installation config; the account&apos;s session opens the server</td></tr>
+          <tr><td>A shared MCP server your team runs</td><td><code>defineMcp</code> + <code>install</code> + <code>mcpAdapter</code></td><td>Installed</td><td><code>entry</code> / config; auth in the adapter</td></tr>
           <tr><td>Memory (context, entities, episodes, resources)</td><td><code>defineMemory</code> + <code>memory</code> field</td><td>The definition selects it</td><td><code>configureMemory</code></td></tr>
           <tr><td>Raw access to the Glove agent each run</td><td><code>defineLayer</code> + <code>layers</code> field</td><td>Selected</td><td><code>configureLayer</code></td></tr>
           <tr><td>Observe model and tool events</td><td><code>defineSubscriber</code> + <code>subscribers</code></td><td>Selected</td><td>Code</td></tr>
@@ -144,6 +145,44 @@ export default helpdesk;`} />
         Transmissions, accounts, routes and connections are covered in{" "}
         <Link href="/foundry/docs/applications">Apps &amp; transmissions</Link>.
       </p>
+
+      <h3 id="app-mcp">Apps backed by an MCP server</h3>
+      <p>
+        When a person connects one of their own accounts, make the connection an app and
+        give it <code>mcp</code>. The server&apos;s tools then reach the agent through the app:
+        opened with the installation&apos;s account, filtered by the app&apos;s tool policy, and
+        grouped under the app in the REPL. The same app can also carry the transmissions and
+        the connection for that provider, so everything about Gmail lives in one file.
+      </p>
+      <CodeBlock filename="agents/assistant/apps/linear.app.ts" language="typescript" code={`import { defineApp } from "glove-foundry";
+import { z } from "zod";
+
+export default defineApp({
+  description: "Linear: find, file and update issues",
+  config: z.object({ alwaysAllow: z.array(z.string()).default([]) }),
+  mcp: {
+    entry: { name: "Linear", description: "The person's Linear workspace", url: "https://mcp.linear.app/mcp" },
+    // Runs inside the agent's accountSessions with the installation's account.
+    // HTTP servers get headers; a stdio server gets environment variables.
+    auth: (session) => ({ authorization: \`Bearer \${(session as { accessToken: string }).accessToken}\` }),
+    // "allow" runs, "ask" waits for approval, "hide" leaves the tool out.
+    tools: (tool, { config }) =>
+      tool.readOnly || config.alwaysAllow.includes(tool.name) ? "allow" : "ask",
+  },
+});`} />
+      <ul>
+        <li>Install it with the person&apos;s account: <code>install(linear, {"{}"}, {"{ account }"})</code>, or <code>{'{ kind: "application", id: "linear", accountId }'}</code> over HTTP. An app whose <code>mcp</code> has <code>auth</code> refuses an installation without an account.</li>
+        <li><code>tools</code> sees each tool&apos;s <code>name</code>, <code>description</code>, and the server&apos;s <code>readOnly</code> and <code>destructive</code> hints, plus the install context (config, account, request). Without it, read-only tools run and everything else asks.</li>
+        <li>Tools are named <code>&lt;app&gt;__&lt;server tool&gt;</code>. The connection closes when the run ends.</li>
+        <li><code>entry</code> may be a function of the install context, such as the account, to pick a server per installation.</li>
+        <li>No <code>mcpAdapter</code> is needed: the account&apos;s session is the credential. Your <code>accountSessions</code> resolves and refreshes tokens; Foundry never holds them.</li>
+      </ul>
+      <div className="docs-note"><span className="docs-note-icon">!</span><p>
+        Foundry agents run headless, so a bare <code>defineMcp</code> server&apos;s tools run
+        without approval. Use one for servers you trust with every tool, or narrow it with{" "}
+        <code>includeTools</code> and <code>excludeTools</code>. For anything that writes on a
+        person&apos;s behalf, use an app with a tool policy.
+      </p></div>
 
       <h3 id="mcp">defineMcp</h3>
       <p>

@@ -1,0 +1,26 @@
+{
+  "mailbox": "support",
+  "messages": [
+    {
+      "id": "msg-1031",
+      "from": "dana@acme.test",
+      "subject": "CSV export never finishes",
+      "body": "Our weekly export of 14k rows has been stuck for two days. We need it for Monday's review.",
+      "at": "2026-10-22T09:12:00Z"
+    },
+    {
+      "id": "msg-1032",
+      "from": "li@globex.test",
+      "subject": "Export broken?",
+      "body": "Large CSV exports fail with a timeout. Small ones are fine.",
+      "at": "2026-10-22T14:40:00Z"
+    },
+    {
+      "id": "msg-1033",
+      "from": "ari@initech.test",
+      "subject": "Love the new charts",
+      "body": "The new charts are great. Any chance of a dark mode?",
+      "at": "2026-10-23T08:05:00Z"
+    }
+  ]
+}

@@ -12,6 +12,7 @@ export function buildFoundryLlmsTxt(): string {
     "Key facts:",
     "- Install: npx glove-foundry init my-agents; run: pnpm dev (http://127.0.0.1:4141). Node 22+; 22.13+ for SQLite memory.",
     "- composeAgent(...) only makes shared tools, apps and MCP servers available; an instance must install() them. Always-on tools go in defineAgent's tools field.",
+    "- Agents are data. A definition (defineAgent) is everything a kind of agent can be, like a server-rendered page; each agent is an instance whose name, description, context, installations and workspaceId are data. Never write one definition per agent or put a name, job or per-user setting in code: a new agent is createAgent, a rename is configureAgent or a tool that writes the instance, and neither needs a deploy. Branch on instance data (context.routines, context.kind), not on ids. Split definitions only by what an agent can do or must load. Seed known agents with defineAgentInstance(importedDefinition, data) in the data adapter; create the rest with createAgent(route, data) at runtime.",
     "- Instances are data (FoundryDataAdapter); every run reloads the instance and conversation and re-resolves the definition against the new message.",
     "- Each run executes in a fresh child process: a plain MemoryStore and other in-memory state reset on every message. Persist four things separately: runtime data, transcripts (store), memory, and working-environment files.",
     "- Install capabilities with install() at creation, client.install, or PUT /api/installations; the inspector only displays installations.",
@@ -19,8 +20,9 @@ export function buildFoundryLlmsTxt(): string {
     "- A non-loopback bind requires a requestAuthorization adapter.",
     "- Layer agents as siblings by speed, context and duration: a fast interactor that talks and keeps personal memory lists workers in delegates: [{ agent: \"coder\", description }]; it gets glove_foundry_delegate and glove_foundry_reply, workers get glove_foundry_ask, and results and questions come back to the delegating conversation.",
     "- Durable subagents: durableSubagents: { analysis: { agent: worker, inherit, eventDelivery, cleanup } }; one owned instance per parent and slot, created on first use and reused across tasks and restarts. Explicit inheritance, direct messages, tracked delegation and addressed durable events. See /foundry/docs/durable-subagents for identity, provisioning, permissions, delivery and data lifecycle.",
-    "- Voice: run: voiceCall({ room, greeting }) from glove-foundry/voice, with model: s2sDrivenModel(...). Delegation results are spoken at the next pause; approval-gated and bookkeeping tools are kept off the call.",
-    "- Keep agent.ts for assembly: prompts, tools, memory, workspaces and model choices live in modules beside it; sibling delegates refer by route; durableSubagents reuse imported or inline agent definitions.",
+    "- Agents that already exist as instances in one workspace (a person's bots) can message each other on the mesh Foundry hosts: mesh: true (or { peers, waitMs, mount }) on defineAgent mounts glove_mesh_list_agents, glove_mesh_send_message, glove_mesh_broadcast and glove_mesh_acknowledge. Agents are addressed by instance id; peers are the other instances in the same workspace. A new message starts a thread (a conversation on the recipient); its final reply comes back to the sender's conversation on its own. For workers an agent owns, use delegates or durableSubagents.",
+    "- Voice: run: voiceCall({ room, greeting }) from glove-foundry/voice, with model: s2sDrivenModel(...). Delegation results and mesh messages are spoken at the next pause; approval-gated and bookkeeping tools are kept off the call.",
+    "- Keep agent.ts for assembly: prompts, tools, memory, workspaces and model choices live in modules beside it; sibling delegates refer by route; durableSubagents reuse imported or inline agent definitions; mesh peers are addressed by instance id.",
     "",
     `- Product page: ${SITE_URL}/foundry`,
     `- Complete condensed reference: ${SITE_URL}/foundry/llms-full.txt`,
@@ -28,6 +30,7 @@ export function buildFoundryLlmsTxt(): string {
     "- Source: https://github.com/porkytheblack/glove/tree/main/packages/glove-foundry",
     "- Canonical example: https://github.com/porkytheblack/glove/tree/main/examples/foundry-agent",
     "- Layered assistant example (interactor + workers + voice): https://github.com/porkytheblack/glove/tree/main/examples/foundry-layered-assistant",
+    "- Rebuilds of always-on agent products, each a runnable example with an illustrated build: Grok Bot (examples/foundry-bot-crew), Claude Duet (examples/foundry-proactive-partner), OpenAI Dots (examples/foundry-standing-agents).",
     "- Agent skill: https://github.com/porkytheblack/glove/blob/main/.claude/skills/glove-foundry/SKILL.md",
     "",
   ];
@@ -111,10 +114,17 @@ foundry.config.ts                    defineConfig (from glove-foundry/config) �
 ## 3. The model: definition, instance, conversation, run
 
 - Definition (code): what an agent of this kind can assemble.
-- Instance (data, FoundryDataAdapter): { id, definitionId, workspaceId,
-  provisioningKey?, context, installations, playbooks, createdAt, updatedAt }.
-  Created by createAgent / POST /api/agent-instances / defineAgentInstance seeds /
-  subscriptions; edited with configureAgent / PATCH /api/agent-instances/:id.
+- Instance (data, FoundryDataAdapter): { id, definitionId, workspaceId, name?,
+  description?, provisioningKey?, context, installations, playbooks, createdAt,
+  updatedAt }. Created by createAgent / POST /api/agent-instances /
+  defineAgentInstance seeds / subscriptions; edited with configureAgent / PATCH
+  /api/agent-instances/:id (name, description, context, installations).
+- Agents are data: the definition is the realm of possibilities, the instance is
+  the agent. One "bot" definition serves every bot a person makes; its name, job,
+  apps, role and team are instance data. A workspace is a tenant (a person's or
+  a company's agents), and a conversation's context can carry data too (a group
+  chat's members). A tool can write its own instance (ctx.data.putAgent), so an
+  agent can rename itself.
 - Conversation (data): owned by one instance; an instance may own many.
 - Run: one message processed by a freshly assembled agent. Every run reloads the
   instance + conversation and resolves every definition field again, so instance
@@ -299,7 +309,9 @@ and non-secret environment values. Pass artifact paths, not copied documents.
 
 defineWorkingEnvironment({ options, persistence? }) mounts glove-working-environment
 (guarded VFS, scripts, checkpoints, export). It closes after every run; add
-foundryDataEnvironmentPersistence({ scope }) or a native persistent Vfs to keep files.
+foundryDataEnvironmentPersistence({ scope: "agent" | "conversation" | "workspace" })
+(workspace = one tree shared by every agent in the workspace) or a native
+persistent Vfs to keep files.
 defineRepl({ language: "javascript" | "python" | "lisp", session, mount?,
 programmaticTools? }) — one REPL per run. programmaticTools.select projects exact
 live tools into the sandbox (maxCalls default 50); permission-gated tools are refused
@@ -343,10 +355,63 @@ delegates: [
 - Do not import another agent's agent.ts; delegates are routes so the interactor
   never loads a worker's dependencies.
 
+Durable subagents: durableSubagents: { <slot>: { agent, description?, inherit?,
+eventDelivery?, cleanup? } }. One worker per parent instance and slot, created on
+first use (route "<parent>/workers/<slot>"), kept with its own conversations,
+memory and files. The delegate tools address it by slot name;
+glove_foundry_message({ to, message, delivery? }) sends without a task; the
+worker answers with to: "parent". Nothing is inherited unless inherit selects it.
+See /foundry/docs/durable-subagents.
+
+The mesh (Foundry-hosted Glove Mesh), for agents that already exist as instances
+in one workspace (a person's bots). Owned workers belong in delegates or
+durableSubagents. Agents message each other by instance id:
+
+\`\`\`ts
+// agents/bot/agent.ts: one definition, every bot an instance
+mesh: { waitMs: 60_000 },
+// data: the person's bots, one workspace
+await foundry.createAgent("bot", { id: "maya-sales", workspaceId: "maya", name: "Sales" });
+await foundry.createAgent("bot", { id: "maya-ops", workspaceId: "maya", name: "Ops" });
+\`\`\`
+
+- Tools: glove_mesh_list_agents({ name? }) → { agents: [{ id, name, description,
+  metadata: { definitionId } }] } from instance data; glove_mesh_send_message({ to,
+  content, in_reply_to?, blocking? }) → { message_id, thread_id, to };
+  glove_mesh_broadcast({ content }) (one thread per peer);
+  glove_mesh_acknowledge({ message_id, note? }) (reaches only a waiting run).
+- Peers: the other instances in the sender's workspace, filtered by the sender
+  definition's mesh.peers(self, peer). An agent can always answer whoever
+  messaged it, so peers: () => false makes an agent that only answers. Other
+  workspaces are never visible.
+- A new message starts a thread: a conversation on the recipient (id
+  "thread_<uuid>", context.meshThread holds the record) and a run there. The
+  sender's conversation lists its thread ids in context.meshThreads.
+- When the recipient's run completes, its final non-empty text is sent back as a
+  reply; a failed or cancelled run sends a failed message (a steered run does
+  not). Messages either way go into a run listening with ctx.onMeshMessage
+  (voiceCall does), otherwise wait until the conversation is free and start one
+  run with source.kind "mesh", rendered as <mesh-message id thread from name
+  status?="replied|failed">body</mesh-message>.
+- blocking: true waits in-run up to waitMs (default 90 000) for the reply and
+  returns it as the tool result; on timeout the run should end its turn and
+  finishes suspended (suspension { kind: "mesh", commandId, threadId,
+  messageId }); the reply then starts a new run. Durable stores are required.
+- mesh.mount(ctx) decides per run whether the tools are mounted (e.g. none on a
+  read-only scheduled run). Open threads appear in the sender's runtime context;
+  ctx.threads / ctx.thread in resolvers.
+- Mesh messages ride the same event journal as delegation updates and are
+  handed over after a restart. A mesh value with an adapter is the raw
+  glove-mesh transport (FoundryMeshConfig). runtime.listThreads({ agentId?, conversationId?, to?,
+  status? }). Events: mesh.thread.started, mesh.message.sent, mesh.delivered,
+  mesh.thread.replied, mesh.thread.failed, mesh.thread.cancelled, mesh.refused.
+- Routing and checks happen in the Foundry runtime, not the run's process, so
+  any data adapter works. Never import another agent's agent.ts.
+
 Voice calls: import { voiceCall, webSocketRoom } from "glove-foundry/voice";
 run: voiceCall({ room: (ctx) => webSocketRoom({ port, token }), greeting? }) with
 model: s2sDrivenModel(...). Saves both sides to the store, speaks delegation
-updates at the next pause (max 8 s hold), keeps glove_foundry_spawn/sleep/
+updates and mesh messages at the next pause (max 8 s hold), keeps glove_foundry_spawn/sleep/
 background/schedules/conversations/workspace/shared_inbox/tasks/environment and
 every requiresPermission tool off the call, ends on room end, idleMs (120 000),
 maxDurationMs (1 800 000) or cancel. A delegation run with no call live is saved
@@ -451,8 +516,11 @@ side effect.
 glove foundry dev serves the inspector at the server URL: Overview, Agents,
 definition and instance pages, Chat (WebChat over exact stored transcripts, with
 attachments, Stop and Redirect), Runs (filters in the URL: ?status=&source=&q=),
-run detail (phase spine + event trace), Automations, Integrations, Workspaces.
-⌘K search, j/k navigation, c to start a run. Events stream from /api/events;
+a run opened like browser DevTools (Network: each model request with the system
+prompt, messages, runtime context/memory and tools it was sent, and each tool
+call with input, result and approval; Console: levelled log; Context: what the
+agent had; Summary; URL state ?tab=&item=&pane=), Automations, Integrations,
+Workspaces. ⌘K search, j/k navigation, 1-4 run views, c to start a run. Events stream from /api/events;
 custom sinks use defineSubscriber or a FoundryObservabilityAdapter. Use
 controls.emit({ type, data }) for safe work notes; never emit secrets or hidden
 reasoning. The event envelope carries the definition id and run id (not instance,
@@ -611,6 +679,267 @@ tests real-model memory writes and recall after forced compaction in an isolated
 conversation, without modifying the user's pinned memory.
 `;
 
+const REBUILDS_REFERENCE = `## Rebuilds: four always-on agent products
+
+Independent examples, not affiliated with xAI, Anthropic, OpenAI or Meta. Each
+runs offline with pnpm verify (scripted models) and deploys on Kuiper. All four
+follow "agents are data": definitions say what a kind of agent can be; every
+agent is an instance in its person's workspace.
+
+Connected apps work the same way in all four. Each provider (Gmail, Linear,
+Google Calendar) is a Foundry app installed on the agent with the person's
+account (installation.accountId):
+- app mcp: { entry, auth, tools } opens the provider's MCP server (Google's
+  gmailmcp/calendarmcp, Linear's mcp.linear.app) with a bearer header from
+  accountSessions.withSession({ operation: "mcp:connect" }). tools decides
+  allow | ask | hide per tool (default: readOnlyHint allows, the rest ask).
+- defineRepl({ programmaticTools: { select: ({ apps }) => apps.flatMap((app) =>
+  app.tools.filter((tool) => tool.readOnly)), keepDirect: false } }): reads are
+  functions in execute_js (gmail.search_threads(...), linear.list_issues(...))
+  and leave the direct tool list. Writes stay direct tools with approvals.
+- Sending mail is the app's outbound transmission (glove_app_gmail__gmail_send,
+  requiresPermission true). Foundry delivers it in its own process inside the
+  account session, on the route the binding grants (capability gmail:send).
+- New mail: a gmail-watch connection renews Gmail's users.watch daily, pulls
+  the Pub/Sub subscription, reads each message with history.list and emits a
+  mail-received event; a playbook runs the agent in a chosen conversation.
+- Accounts and tokens live in your store (lib/accounts.ts). Foundry reads them
+  through your AccountDirectory, passed with routes and bindings in
+  defineApplication({ services }) (fileTopologyStore keeps routes and bindings
+  on disk). connectApp writes the account, the routes, the binding and the
+  installation; scripts/connect.ts runs the provider's OAuth sign-in with PKCE.
+- glove_foundry_transmit only sends on routes the agent's playbooks declare,
+  and asks when the route's transmission asks.
+
+Grok Bot → examples/foundry-bot-crew (${SITE_URL}/foundry/docs/rebuilds/grok-bot)
+Facts from Cursor's and xAI's Grok Bot docs: launched in beta on 11 August
+2026, on Cursor's cloud; bots have a name, a job and a working style; a starred
+Primary Bot takes everyday asks and routes to specialists; all of a person's
+bots share one cloud computer and the person's connected apps, so isolation is
+per person, not per bot; bots hand work to each other and share group chats of
+2-6 bots; skills are shared and invoked with /; a routine assigns a workflow to
+one bot on a schedule or after an event (up to 50 per bot, up to 50 bots);
+approvals are allow once, deny or always allow, and require-approval rules win;
+you take over for passwords, 2FA and CAPTCHAs, and other secrets go through a
+masked request. SpaceXAI picks the model; here the operator sets one.
+- The bots are siblings: one definition and no coordinator kind. One is
+  starred as the Primary Bot (context.starred; lib/people.ts primaryOf,
+  starBot moves the star); askPrimary (lib/groups.ts) sends an ask that names
+  no bot to its chat, and it hands siblings their part over the mesh. A bot runs
+  when its person writes to it (its "chat" conversation), when it is
+  @-mentioned in a group chat (or nobody is), when a sibling hands it work over
+  the mesh, or when one of its routines fires.
+- One definition, agents/bot/agent.ts. Every bot is an instance in the person's
+  workspace: lib/people.ts botFor({ id, name?, job?, style?, starred?,
+  routines?, installations? }) (name "New bot" until it has a job),
+  chatWith(botId) (conversation key "chat"). lib/connect.ts makeBot creates
+  every bot with the person's apps and refuses a 51st. foundry.application.ts
+  seeds Maya's first bot, Inbox Manager, starred, with her Gmail and a routine
+  on new mail, plus its chat.
+- Prompt and playbooks are built from instance data; every bot uses the same
+  model. A bot without a description asks what it is for and calls take_job,
+  which writes name, description and an optional working style
+  (context.style) with ctx.data.putAgent (no deploy).
+- Routines: on a schedule, glove_foundry_schedule (owned by that bot); after an
+  event, add_routine writes context.routines ([{ on: "new-mail", skill?,
+  instruction }]) and the playbooks resolver builds newMailFor(accountId,
+  routine) from it; a bot can have several on one event. add_routine refuses a
+  51st routine, counting its schedules. New mail reaches every bot whose
+  routine asks, in its chat. configure wraps glove_foundry_schedule with the
+  same 50-routine count (one-off "at" schedules don't count).
+- Group chats have no host (lib/groups.ts): openGroup creates a conversation per
+  member (key "group:<id>", context.group.members); postToGroup sends the
+  person's message to the bots it @-mentions, or to all members for @everyone
+  or no mention. A member with nothing to add replies empty (posts nothing).
+- Gmail and Linear apps (agents/bot/apps): every bot carries the person's
+  installations; connect_app (requiresPermission) is the Connect button, and
+  connectApp gives the account to every bot in the workspace. Bug triage files
+  issues with linear__save_issue (asks first); reads run in code.
+- mesh: { waitMs: 60_000 }: siblings find each other with glove_mesh_list_agents
+  and hand parts of their work over by id; answers come back on their own.
+  Handoffs name output path, done, evidence, open questions, next owner.
+- One computer per workspace: foundryDataEnvironmentPersistence({ scope:
+  "workspace" }). Skills are workspace entries "skill:<name>" (save_skill has
+  requiresPermission), read with glove_read_skill and invoked by the person as
+  /name through the definition's skills resolver (agents/bot/skills.ts).
+- lib/templates.ts: duplicateBot copies name (as "<name> (copy)"), job, style, routines, schedules
+  (context.schedules, armed by the schedules resolver on its first run) and
+  installations, not memory or chats; templateOf / fromTemplate carry
+  instructions, chosen memories, skills, routines and first-party apps, never
+  accounts, chats, custom MCP or scripts; MARKETPLACE lists ready-made ones.
+- Each app installation has alwaysAllow and alwaysAsk; alwaysAsk wins.
+- Gmail's send, save_skill and request_sign_in ask first (sign-in = the person
+  takes over for a password, a 2FA code, a CAPTCHA or single sign-on on the
+  shared computer; the bot never sees the password).
+- Left out on purpose: routing bot traffic through the person's desktop to get
+  past datacenter-IP blocks. Not built: teach-a-task recording.
+
+Claude Duet → examples/foundry-proactive-partner (${SITE_URL}/foundry/docs/rebuilds/claude-duet)
+- lib/onboarding.ts: partnerFor(person, preferences) (workspace = person id,
+  context { name, timezone, preferences { briefAt, checkInHours, hearAbout } }),
+  threadFor(person); foundry.application.ts seeds Ada's with
+  defineAgentInstance. The computer is a durable subagent the partner owns
+  (durableSubagents: { computer }), created on the first long job; it persists with foundryDataEnvironmentPersistence({ scope: "agent" }).
+- schedules resolve from instance data: morning-brief cron from briefAt and
+  check-in cron from checkInHours, in context.timezone. Changing preferences with
+  configureAgent moves the schedule on the next run. Definition schedules attach
+  to the conversation of the run that first syncs them, so send a first message
+  in the thread. Scheduled runs have request.source.kind === "activation".
+- notify_person is the only way to the phone; quiet check-ins reply
+  "(nothing new)". The brief flags clashes (a call during a flight).
+- Gmail and Calendar apps; the brief reads both in one execute_js program.
+  New mail goes into the one thread (playbook, conversation "thread").
+- Gmail's send, pay_invoice, sign_document, delete_file wait for approval.
+  configure wraps Gmail's send (send.ts guardSends): requiresPermission is
+  (input) => !strictlyBlocked(text), so a message the guard refuses is not
+  asked about; the wrapper calls the inner tool's run, so the person approves
+  once. No tool exists for trading or moving money between accounts.
+- lib/guard.ts: strict tier in code (Luhn card numbers, government ID numbers)
+  always blocks; sensitive tier (health, personal finance) via a glove-classifier
+  noul pair, blocked unless the person's own message asked to share it.
+- durableSubagents: { computer }: long jobs go to the computer with
+  glove_foundry_delegate; its result comes back to the thread and the partner
+  notifies the person. voiceCall for calls.
+
+OpenAI Dots → examples/foundry-standing-agents (${SITE_URL}/foundry/docs/rebuilds/openai-dots)
+Facts from OpenAI's announcement and help center: launched at DevDay on 29
+September 2026 on GPT-6 Astra; one primary dot you name, with a handle like
+@pip-dot (more dots and teams of dots planned), its own cloud computer and
+browser, and notes on preferences, decisions and ongoing responsibilities; a
+coordinator that splits work across background agents and Codex; proactive
+research with read-only tools; triggers: self-scheduled follow-ups, fixed
+schedules with a time zone, event triggers; Custom Rules per action: act
+without asking, act when asked, ask first, or hand off to you; an auto-review
+you can't switch off checks sensitive actions; password changes and money
+transfers are always handed to you, and permanent deletion, software installs
+and saved-card purchases always need approval; memory = chat + account memory
++ the dot's own notes; Activity View to redirect or pause; safety monitoring
+can pause or stop a dot; ChatGPT, Slack, Teams and voice (Teams isn't built
+here); specialist dots with their own identity for organisations, in preview.
+- One dot definition; each dot is an instance (workspace = owner) whose context
+  holds name, kind (primary | specialist), responsibilities [{ job,
+  sources, attention, mustNot }], rules (action → "allow" | "when_asked" |
+  "ask" | "block", labelled act without asking, act when asked, ask first, hand
+  off to you), paused and routing { progress, decisions }. primaryDot(owner, dot), specialistFor(org, { …,
+  account }) build the data; foundry.application.ts seeds Sam's dot (Pip) and
+  app conversation with defineAgentInstance. The builder is not seeded: it is a
+  durable subagent (durableSubagents: { builder }) created on the first task.
+- research schedule every 2h. On runs not started by the person (not direct,
+  not the owner's Slack message, not the builder's result or question, not a follow-up),
+  and on every run of a paused dot, the tools resolver returns only read tools,
+  the Gmail app hides everything but reads, configure removes Gmail's send,
+  workingEnvironment resolves to undefined and configureDot removes
+  glove_foundry_delegate, glove_foundry_reply and glove_foundry_message. New mail is
+  one of those read-only runs (an event trigger that only reads).
+- Follow-ups act: on acting runs, followUps() (agents/dot/research.ts) wraps
+  glove_foundry_schedule and glove_foundry_spawn so their payload carries
+  followUp: true, and readOnly() treats an activation, spawn or background run
+  with that payload as acting. Read-only runs can only list schedules. Cron
+  takes a timezone.
+- reviewed(action, review) wraps every acting tool. levelFor: ALWAYS_YOURS
+  (change_password, transfer_money) is always "block", which never runs and
+  hands it to the person; ALWAYS_ASKS (delete_permanently, install_software,
+  buy_with_saved_card) never goes below "ask"; ask → requiresPermission: true;
+  when_asked acts without asking only on a run the person started; allow runs,
+  but an unknown recipient asks (function form of requiresPermission). No rule
+  → ask.
+- lib/monitor.ts: the run hook counts hand-offs and denials in a row; after
+  PAUSE_AFTER (3) it writes paused: true with ctx.data.putAgent. A paused dot
+  only reads; configureDot also removes its write tools and the builder's. The
+  person resumes it with configureAgent. Stopping doesn't undo actions taken. Gmail's send goes
+  through the same review in configure (rule send_email, recipient payload.to;
+  known contacts come from gmail__search_threads).
+- The dot's own computer: a working environment with
+  foundryDataEnvironmentPersistence({ scope: "agent" }). Coding jobs go to its
+  builder with glove_foundry_delegate({ to: "builder", task }); the result or a
+  question comes back to the conversation that asked as a <delegation> message.
+- Channels are conversations on one instance (conversationKey "app" and
+  "slack"), plus voiceCall for calls. Memory is the person's account memory
+  (one namespace per workspace, read-only to the dot) under the dot's own notes
+  (per instance), shared across channels. Slack through a transmission, a predicate on the owner's
+  Slack user id and a playbook; a forwarder answers url_verification and checks
+  x-slack-signature.
+- Resolvers read the instance fresh from ctx.data.getAgent, because recurring
+  schedules fire with the envelope captured when armed
+  (porkytheblack/glove#199).
+
+Meta Muse → examples/foundry-personal-agent (${SITE_URL}/foundry/docs/rebuilds/meta-muse)
+Facts from Meta's announcement and reviews: announced 8 September 2026 by Meta
+Superintelligence Labs, on its Muse Spark model; one personal agent per person
+that does the work (email, bookings, forms, purchases) and turns a goal into a
+plan; you set its name, avatar and style; the Muse app and WhatsApp; email,
+calendar, banks through Plaid and retail partners, with read and write granted
+separately per app; Muse Secure VM, a dedicated VM per person holding the
+credentials of connected services; a Sentinel agent on the same machine,
+isolated from Muse, without whose approval nothing reaches the internet, which
+asks you when needed; it can't see passwords or payment methods; checkout with
+Stripe's Link, whose agent wallet issues single-use cards; checks before sending
+or buying; keeps working after the app closes; remembers, suggests unprompted
+and forgets on request; a log of what it did and plans.
+Here: Muse on Claude Sonnet and the Sentinel on Claude Haiku through Kuiper's
+model gateway; everyone's Muse shares one unit and its /data disk (memory and
+log per person); only the browser and its profile are per person; the Sentinel
+guards the browser, while app reads and sends go through Foundry's apps.
+- One instance per person (lib/people.ts museFor; name person.agentName ??
+  "Muse"; context { name, phone, avatar?, style?, sentinel { read, write,
+  blocked } }), conversations "app" and "whatsapp", one defineMemory profile.
+  glove_context_unset is how it forgets; the activity subscriber logs only
+  "memory changed" for glove_context_* tools, so the log never holds a fact
+  as a memory entry (what Muse sent, which may mention it, stays logged).
+- Plans are Foundry goals at instance scope (lib/memory.ts personalPlans, goals
+  resolver on the definition): one goal per plan, one item per step. A daily
+  "suggest" schedule runs a short pass that suggests one thing or replies
+  "(nothing to suggest)".
+- WhatsApp is a Foundry app (transmission in and out). Inbound on one shared
+  route (Muse's business number, an app-owned account); each person's playbook
+  has a from-person predicate on their number. Outbound on a route per person
+  whose config.to fixes the recipient. The web app's /webhooks/whatsapp route
+  (lib/whatsapp-webhook.ts) answers Meta's verify-token handshake, checks
+  X-Hub-Signature-256 and forwards each text message to
+  /api/transmissions/whatsapp-in/fire on loopback, in the same unit.
+- Access per app is installation config { access: "read" | "act" }. The app's
+  mcp.tools policy hides writes under "read"; configure removes Gmail's
+  transmission send tool; the send binding is enabled only for "act".
+  setAccess and disconnect (lib/connect.ts) are writes.
+- The browser (agents/muse/browser.ts): in configure, mountBrowser(agent, {
+  adapter: kuiperBrowser({ browsers: kuiper.browsers, sessionIds, session: {
+  profileId, persistProfile: true, inactivityTimeout, kuiper: { onInactive:
+  "hibernate", record: true } }, cleanup: "keep", guard: sentinel.guard,
+  onHandOff, onOpen }) }) from glove-execution/kuiper and @kuiper-sh/sdk. The
+  instance keeps context.browser { profileId, sessionId }; Kuiper sessions
+  belong to the project, so the next run reconnects by ID. execute_browser:
+  browser.sessions/open/navigate/observe/interact/screenshot/handOff/close.
+- The Sentinel (agents/muse/sentinel.ts) is the browser's guard: every request
+  the browser makes while Muse is connected. Page loads and anything that
+  writes get a decision; a page's own files get quick checks. Rules in code
+  first (blocked host; personal data in a URL to a host not allowed; allowed
+  host), then its own model via glove-classifier llmClassifier with one choice
+  question (allow | ask | block); a doubtful allow becomes ask. It sees only
+  the request, the person's own words for this run and their allowed sites,
+  never Muse's conversation or pages. A blocked load fails with "blocked"
+  without the reason, so request_access reads the run's decision: block stays
+  blocked with no approval; ask has requiresPermission and the person's yes
+  grants the host for reading (GET/HEAD) or writing, separately, in
+  context.sentinel.read / write. A read grant never lets it post.
+- Turned away: if a site says it doesn't allow automated agents, Muse stops and
+  tells the person. Its tabs say what they are: lib/kuiper.ts identify() adds
+  AGENT_TOKEN to the browser's real user agent (kuiperBrowser's connect
+  option), never a different browser's.
+- Sign-in: browser.handOff gives Kuiper's interactive live view to onHandOff,
+  which sends it to the person on WhatsApp from host code; Muse never sees the
+  link or the password. persistProfile keeps the login in their profile.
+  onOpen keeps the session's view-only debugUrl as context.browser.watchUrl for
+  the person's app; the prompt never reads it.
+- buy (requiresPermission) gets a one-time card and host code types it into
+  the checkout open in Muse's browser, in a tab it closes (lib/payments.ts);
+  the Sentinel allows that checkout for the run; Muse sees the last four
+  digits. The example ships a stand-in issuer only.
+- The log (lib/activity.ts): a defineSubscriber in components records every
+  tool_use_result; the Sentinel records every decision; the browser's host
+  code records opens and hand-offs; plans are open plan steps, Foundry's
+  activations and pending approvals (logFor).
+`;
+
 // Keep both full-reference routes on the same complete source.
 const DURABLE_REFERENCE = `${durableSubagentsGuide}
 
@@ -623,4 +952,4 @@ Its transport, model choices and fictional vendor corpus belong to this example.
 
 ${durableResearchSource}`;
 
-export const FOUNDRY_LLMS_FULL = `${FOUNDRY_BASE_REFERENCE}\n\n${OPERATOR_REFERENCE}\n\n${DURABLE_REFERENCE}`;
+export const FOUNDRY_LLMS_FULL = `${FOUNDRY_BASE_REFERENCE}\n\n${REBUILDS_REFERENCE}\n\n${OPERATOR_REFERENCE}\n\n${DURABLE_REFERENCE}`;

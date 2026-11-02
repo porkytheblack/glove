@@ -26,6 +26,7 @@ import {
   EMPTY_CAPABILITY_REGISTRY,
   installRegistry,
   isInboxCapableStore,
+  type FoundryInstalledApp,
   mountAgentDefinitionMemory,
   type FoundryMemorySelection,
 } from "./capabilities.js";
@@ -46,7 +47,26 @@ import {
   type FoundryMeshConfig,
   type FoundryExecutionContext,
   type Resolvable,
+  hostedMeshOptions,
+  isMeshTransport,
 } from "./definition.js";
+import { FOUNDRY_MODEL_REQUESTS_ENV, requestTracer } from "./request-trace.js";
+import {
+  FOUNDRY_CORE_COMMAND_DIRECTORY_ENV,
+  createFoundryCoreCommandRequest,
+  waitForFoundryCoreCommandResult,
+} from "./core-command-result.js";
+import {
+  createMeshTools,
+  isOpenThread,
+  renderOpenThreads,
+  renderOwnThread,
+  threadFromContext,
+  type FoundryMeshCommand,
+  type FoundryMeshMessage,
+  type FoundryMeshThread,
+  type PendingMeshReply,
+} from "./mesh.js";
 import {
   mountFoundrySurfaces,
   type FoundryLayerSelection,
@@ -225,12 +245,31 @@ function writeAgentEvent(type: string, data: unknown): Promise<void> {
 }
 
 function executionSubscriber(): SubscriberAdapter {
+  // Each model request is recorded compactly; see request-trace.ts.
+  const trace = requestTracer();
   return {
+    modelRequests: process.env[FOUNDRY_MODEL_REQUESTS_ENV] !== "off",
     async record<T extends SubscriberEvent["type"]>(
       eventType: T,
       data: SubscriberEventDataMap[T],
     ): Promise<void> {
-      await writeAgentEvent(eventType, data);
+      if (eventType === "model_request" || eventType === "model_request_end") {
+        // Recording a request must never fail the model call it describes.
+        let recorded: unknown;
+        try {
+          recorded = eventType === "model_request"
+            ? trace.request(data as SubscriberEventDataMap["model_request"])
+            : trace.end(data as SubscriberEventDataMap["model_request_end"]);
+        } catch (cause) {
+          recorded = {
+            request_id: (data as { request_id?: unknown }).request_id,
+            unrecorded: cause instanceof Error ? cause.message : String(cause),
+          };
+        }
+        await writeAgentEvent(eventType, recorded);
+      } else {
+        await writeAgentEvent(eventType, data);
+      }
     },
   };
 }
@@ -357,6 +396,7 @@ async function executeDefinition(
     readonly eventTurn?: boolean;
     readonly activations?: ReadonlyArray<FoundryActivationRecord>;
     readonly delegations?: ReadonlyArray<FoundryDelegation>;
+    readonly threads?: ReadonlyArray<unknown>;
     /** The runtime admitted this run, so it already holds its conversation. */
     readonly conversationLease?: true;
   };
@@ -445,6 +485,10 @@ async function executeDefinition(
       delegations: Object.freeze([...(envelope.delegations ?? [])]),
       ...(delegationFromContext(envelope.conversation.context)
         ? { delegation: delegationFromContext(envelope.conversation.context)! }
+        : {}),
+      threads: Object.freeze([...((envelope.threads ?? []) as ReadonlyArray<FoundryMeshThread>)]),
+      ...(threadFromContext(envelope.conversation.context)?.to.agentId === envelope.agent.id
+        ? { thread: threadFromContext(envelope.conversation.context)! }
         : {}),
       data,
       input,
@@ -543,7 +587,8 @@ async function executeDefinition(
         resolveOptional<ReadonlyArray<FoundryCall>>("calls", definition.calls, []),
         resolveOptional<ReadonlyArray<ComposedAgentPlaybook>>("playbooks", definition.playbooks, []),
         resolveOptional<ReadonlyArray<FoundryScheduleDefinition>>("schedules", definition.schedules, []),
-        resolveOptional<FoundryMeshConfig | undefined>("mesh", definition.mesh, undefined),
+        // Your own mesh transport; the mesh Foundry hosts is mounted below.
+        resolveOptional<FoundryMeshConfig | undefined>("mesh", isMeshTransport(definition.mesh) ? definition.mesh : undefined, undefined),
         resolveOptional<FoundryWorkingEnvironmentDefinition | undefined>("workingEnvironment", definition.workingEnvironment, undefined),
         resolveOptional<FoundryReplDefinition | undefined>("repl", definition.repl, undefined),
       ]);
@@ -617,7 +662,10 @@ async function executeDefinition(
       data: { count: desiredSchedules.length, names: desiredSchedules.map((item) => item.name) },
     });
     const effectiveInstallations = [...installations];
-    for (const tool of createFoundryCoreTools(assemblyContext, desiredSchedules)) base.fold(tool);
+    for (const tool of createFoundryCoreTools(assemblyContext, desiredSchedules, {
+      playbooks: desiredPlaybooks,
+      applications: registry.capabilities.applications,
+    })) base.fold(tool);
     const applicationTransmissionTools = createInstalledApplicationTransmissionTools(
       assemblyContext,
       registry.capabilities.applications,
@@ -789,18 +837,76 @@ async function executeDefinition(
         waitForReply,
       })) base.fold(tool);
     }
+    // The mesh Foundry hosts: message peers (existing instances in the
+    // workspace) by id, and hear back through this run's mailbox.
+    const coreCommandDirectory = process.env[FOUNDRY_CORE_COMMAND_DIRECTORY_ENV];
+    const emitMeshCommand = (command: FoundryMeshCommand): void => {
+      controls.commands.push(command);
+      controls.emit({ type: FOUNDRY_CORE_COMMAND_EVENT, data: command });
+    };
+    /** Send a mesh command and wait for the runtime's answer. */
+    const callMesh = async (command: FoundryMeshCommand): Promise<unknown> => {
+      if (!coreCommandDirectory) throw new Error("Foundry cannot answer mesh calls without its parent runtime.");
+      const pending = await createFoundryCoreCommandRequest(coreCommandDirectory, {
+        id: command.id,
+        runId,
+        type: "mesh",
+        timeoutMs: 60_000,
+      });
+      emitMeshCommand(command);
+      return waitForFoundryCoreCommandResult(coreCommandDirectory, pending, abortController.signal, { cleanup: true });
+    };
+    /** Wait in this run for the next message from an agent. Start it before sending. */
+    const waitFrom = (agentId: string, timeoutMs: number) => {
+      const stop = new AbortController();
+      const onAbort = (): void => stop.abort();
+      abortController.signal.addEventListener("abort", onAbort, { once: true });
+      const message = (mailboxDirectory
+        ? mailbox().waitForMesh(agentId, timeoutMs, stop.signal)
+        : Promise.resolve(null)
+      ).finally(() => abortController.signal.removeEventListener("abort", onAbort));
+      return { message, cancel: () => stop.abort() };
+    };
+    const pendingReply: PendingMeshReply = {};
+    const ownThread = assemblyContext.thread;
+    const hostedMesh = hostedMeshOptions(definition.mesh);
+    if (hostedMesh && (hostedMesh.mount?.(assemblyContext) ?? true)) {
+      for (const tool of createMeshTools({
+        definitionId: id,
+        agentId: request.agentId,
+        conversationId: request.conversationId,
+        workspaceId: request.workspaceId,
+        options: hostedMesh,
+        call: callMesh,
+        waitFrom,
+        pending: pendingReply,
+      })) base.fold(tool);
+      controls.emit({
+        type: "foundry.mesh.mounted",
+        data: { open: assemblyContext.threads.length, thread: ownThread?.id ?? null },
+      });
+    }
+    if (hostedMesh || assemblyContext.threads.length > 0 || ownThread) {
+      base.addContextProvider(() => [
+        ownThread ? renderOwnThread(ownThread) : null,
+        renderOpenThreads(assemblyContext.threads.filter(isOpenThread)),
+      ].filter(Boolean).join("\n\n") || null);
+    }
+
     // The run listens on its conversation for as long as it lasts: what
     // arrives for it (delegation updates, inbound events on its thread) joins
     // its turn at the next tool step, and the rest goes back to the runtime
     // as the conversation's next run when this one ends.
     if (mailboxDirectory) mailbox();
 
+    const installedApps: FoundryInstalledApp[] = [];
     const workbench = await mountFoundryWorkbench({
       glove: base,
       context: assemblyContext,
       ...(workingEnvironment ? { workingEnvironment } : {}),
       ...(repl ? { repl } : {}),
       deferRepl: Boolean(repl?.programmaticTools),
+      apps: () => installedApps,
     });
     cleanups.push(workbench.dispose);
 
@@ -845,11 +951,19 @@ async function executeDefinition(
       ...guidance.handles,
       events: assemblyContext.events,
       delegations: assemblyContext.delegations,
+      agentInstance: assemblyContext.agentInstance,
+      conversation: assemblyContext.conversation,
+      data: assemblyContext.data,
       installations: effectiveInstallations,
       onCleanup: (cleanup) => { cleanups.push(cleanup); },
       invoke,
       onDelegationUpdate: (handler: (updates: ReadonlyArray<FoundryDelegationUpdate>) => void | Promise<void>) => {
         const stop = mailbox().onUpdates(handler);
+        cleanups.push(stop);
+        return stop;
+      },
+      onMeshMessage: (handler: (messages: ReadonlyArray<FoundryMeshMessage>) => void | Promise<void>) => {
+        const stop = mailbox().onMesh(handler);
         cleanups.push(stop);
         return stop;
       },
@@ -916,6 +1030,8 @@ async function executeDefinition(
         },
         ...(definition.mcpAdapter ? { mcpAdapter: definition.mcpAdapter } : {}),
         ...(definition.accountSessions ? { accountSessions: definition.accountSessions } : {}),
+        onApp: (app) => { installedApps.push(app); },
+        onCleanup: (cleanup) => { cleanups.push(cleanup); },
       }),
     );
     await Effect.runPromise(
@@ -1065,8 +1181,9 @@ async function executeDefinition(
       (command: FoundryCoreCommand) => command.type === "sleep",
     );
     const question = pendingQuestion.current;
+    const waiting = pendingReply.current;
     return {
-      status: sleep || question || awaitingApproval ? "suspended" : "completed",
+      status: sleep || question || waiting || awaitingApproval ? "suspended" : "completed",
       value: serializable(result),
       ...(consumedEventIds.size ? { consumedEventIds: [...consumedEventIds] } : {}),
       agentId: request.agentId,
@@ -1076,6 +1193,8 @@ async function executeDefinition(
         ? { suspension: { kind: "approval" as const, ...awaitingApproval } }
         : question
         ? { suspension: { kind: "question" as const, ...question } }
+        : waiting
+          ? { suspension: { kind: "mesh" as const, ...waiting } }
         : sleep && sleep.type === "sleep"
           ? { suspension: { commandId: sleep.id, wakeAt: sleep.wakeAt } }
           : {}),
@@ -1115,7 +1234,7 @@ export function compileAgentDefinition(
     payload: z.unknown().optional(),
     context: z.record(z.string(), z.unknown()).optional(),
     source: z.object({
-      kind: z.enum(["direct", "transmission", "activation", "spawn", "background", "delegation", "agent-message"]),
+      kind: z.enum(["direct", "transmission", "activation", "spawn", "background", "delegation", "agent-message", "mesh"]),
       id: z.string().optional(),
       provider: z.string().optional(),
       eventId: z.string().optional(),
@@ -1129,6 +1248,8 @@ export function compileAgentDefinition(
     eventTurn: z.boolean().optional(),
     agent: z.object({
       id: z.string(), definitionId: z.string(), workspaceId: z.string(),
+      provisioningKey: z.string().optional(),
+      name: z.string().optional(), description: z.string().optional(),
       durableSubagent: z.object({ parentAgentId: z.string(), name: z.string(), status: z.enum(["active", "archived", "purged"]) }).optional(),
       context: z.record(z.string(), z.unknown()),
       installations: z.array(z.object({
@@ -1191,6 +1312,7 @@ export function compileAgentDefinition(
       question: z.string().optional(), result: z.string().optional(), error: z.string().optional(),
       createdAt: z.string(), updatedAt: z.string(),
     })).default([]),
+    threads: z.array(z.record(z.string(), z.unknown())).default([]),
     conversationLease: z.literal(true).optional(),
   });
   let builder = signal(internalAgentName(route))
@@ -1209,6 +1331,12 @@ export function compileAgentDefinition(
           commandId: z.string(),
           delegationId: z.string(),
           question: z.string(),
+        }),
+        z.object({
+          kind: z.literal("mesh"),
+          commandId: z.string(),
+          threadId: z.string(),
+          messageId: z.string(),
         }),
         z.object({ kind: z.literal("approval"), approvalId: z.string(), toolName: z.string() }),
       ]).optional(),

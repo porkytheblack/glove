@@ -31,6 +31,13 @@ export interface FoundryConfig {
   readonly execution?: FoundryExecutionConfig;
   readonly observability?: {
     readonly maxEvents?: number;
+    /**
+     * Record what each model request was sent: system prompt, messages,
+     * runtime context and tools, compactly. The inspector's Network and
+     * Context views read these. On by default; `false` leaves them out of
+     * `/api/events` for systems that must not keep prompts.
+     */
+    readonly modelRequests?: boolean;
   };
   readonly branding?: FoundryBrandingConfig;
   readonly strictFileRoutes?: boolean;

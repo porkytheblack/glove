@@ -12,6 +12,8 @@ const instanceFields: { name: string; type: string; notes: string }[] = [
   { name: "definitionId", type: "string", notes: "The definition route, e.g. support. Fixed for the instance's life." },
   { name: "workspaceId", type: "string", notes: "Default \"default\". Its conversations and requests must use the same workspace." },
   { name: "provisioningKey?", type: "string", notes: "Set only by event-driven provisioning; the data adapter keeps it unique." },
+  { name: "name?", type: "string", notes: "Who the agent is, to people and to its peers on the mesh. Data: change it with configureAgent or from a tool. Defaults to the id." },
+  { name: "description?", type: "string", notes: "What the agent does, in a sentence its peers read to choose it." },
   { name: "context", type: "Record<string, unknown>", notes: "Free-form JSON. Resolvers read it as ctx.agentInstance.context." },
   { name: "installations", type: "AgentInstallation[]", notes: "{ kind: \"tool\" | \"application\" | \"mcp\", id, config?, accountId? }" },
   { name: "playbooks", type: "AgentPlaybook[]", notes: "Inbound-event policy (see Playbooks, schedules & sleep)." },
@@ -29,6 +31,15 @@ export default function DefinitionsAndInstancesPage() {
         and playbooks. You serve a new customer by creating data, not by writing code, and
         every run rebuilds the agent from the latest code and the latest data.
       </p>
+      <div className="docs-note">
+        <span className="docs-note-icon">›</span>
+        <p>
+          A definition is not one agent. It is everything that kind of agent could be; which
+          agent it is, what it is called, what it does and who it works with are instance
+          data. If you are about to add a definition to add an agent, read{" "}
+          <Link href="/foundry/docs/agents-are-data">Agents are data</Link> first.
+        </p>
+      </div>
 
       <h2 id="split">What lives where</h2>
       <table>
@@ -36,7 +47,7 @@ export default function DefinitionsAndInstancesPage() {
         <tbody>
           <tr><td>Lives in</td><td><code>agents/&lt;route&gt;/agent.ts</code></td><td>Your <code>FoundryDataAdapter</code></td></tr>
           <tr><td>Identity</td><td>The file path: <code>agents/support/agent.ts</code> is <code>support</code></td><td>An <code>id</code> string such as <code>support-acme</code></td></tr>
-          <tr><td>Holds</td><td>Model, prompt, tools, assembly logic, the capability catalogue</td><td>Context, installations, playbooks, workspace</td></tr>
+          <tr><td>Holds</td><td>Model, prompt, tools, assembly logic, the capability catalogue</td><td>Name, description, context, installations, playbooks, workspace</td></tr>
           <tr><td>Changes by</td><td>Deploying code</td><td><code>configureAgent</code>, install/uninstall, provisioning</td></tr>
           <tr><td>How many</td><td>One per route</td><td>Any number per definition</td></tr>
         </tbody>
@@ -100,9 +111,9 @@ export default function DefinitionsAndInstancesPage() {
         </tbody>
       </table>
       <p>
-        <code>options</code> is <code>{"{ id?, workspaceId?, context?, installations?, playbooks? }"}</code>.
-        Omitted fields default to <code>agent_&lt;uuid&gt;</code>, <code>&quot;default&quot;</code>,{" "}
-        <code>{"{}"}</code>, <code>[]</code> and <code>[]</code>. There is no{" "}
+        <code>options</code> is <code>{"{ id?, workspaceId?, name?, description?, context?, installations?, playbooks? }"}</code>.
+        Omitted fields default to <code>agent_&lt;uuid&gt;</code>, <code>&quot;default&quot;</code>,
+        none, none, <code>{"{}"}</code>, <code>[]</code> and <code>[]</code>. There is no{" "}
         <code>provisioningKey</code> option; only provisioning sets it. <code>createAgent</code>{" "}
         rejects an unknown definition, an installation that is not in that definition&apos;s{" "}
         <code>components</code>, invalid playbooks, and an id that already exists.
@@ -183,8 +194,10 @@ content-type: application/json
 
       <h2 id="updating">Changing an instance</h2>
       <p>
-        <code>configureAgent(agentId, {"{ context?, installations?, playbooks? }"})</code> exists on
-        the runtime and the client, and as <code>PATCH /api/agent-instances/:id</code>.
+        <code>configureAgent(agentId, {"{ name?, description?, context?, installations?, playbooks? }"})</code> exists on
+        the runtime and the client, and as <code>PATCH /api/agent-instances/:id</code>. A tool
+        can also write its own instance through <code>ctx.data.putAgent</code>, which is how
+        an agent renames itself.
       </p>
       <ul>
         <li>Each field you pass <strong>replaces</strong> that whole field. <code>context</code> is not merged; spread the current value yourself.</li>

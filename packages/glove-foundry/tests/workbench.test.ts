@@ -290,6 +290,31 @@ test("programmatic workflow selectors reject counterfeit tool objects", async ()
   );
 });
 
+test("workspace-scoped persistence gives every agent in a workspace one computer, and no one else", async () => {
+  const data = new MemoryFoundryDataAdapter();
+  const persistence = foundryDataEnvironmentPersistence({ scope: "workspace" });
+  const context = (agentId: string, definitionId: string, workspaceId: string) => ({
+    definitionId,
+    agentId,
+    conversationId: `${agentId}-chat`,
+    workspaceId,
+    runId: `${agentId}-run`,
+    data,
+    signal: new AbortController().signal,
+  });
+  const snapshot: EnvSnapshot = {
+    version: 1,
+    dirs: ["/", "/workspace"],
+    files: [{ path: "/workspace/leads.csv", data: Buffer.from("dana@example.com").toString("base64"), mtime: 1 }],
+  };
+
+  await resolveResolvable(persistence.save(snapshot, context("maya-bot-1", "bot", "maya")));
+  // Another agent of another definition, in the same workspace, finds it.
+  assert.deepEqual(await resolveResolvable(persistence.load(context("maya-coder", "coder", "maya"))), snapshot);
+  // Another workspace does not.
+  assert.equal(await resolveResolvable(persistence.load(context("ada-bot-1", "bot", "ada"))), null);
+});
+
 test("Foundry data persistence keeps VFS snapshots off public workspace entries", async () => {
   const data = new MemoryFoundryDataAdapter();
   const persistence = foundryDataEnvironmentPersistence({ scope: "agent" });

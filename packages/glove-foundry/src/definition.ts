@@ -39,6 +39,11 @@ import type {
   FoundryDelegation,
   FoundryDelegationUpdate,
 } from "./delegation.js";
+import type {
+  FoundryMeshMessage,
+  FoundryMeshOptions,
+  FoundryMeshThread,
+} from "./mesh.js";
 import type { FoundryScheduleDefinition } from "./schedule.js";
 import type { ComposedAgentPlaybook } from "./playbook.js";
 import type {
@@ -102,6 +107,10 @@ export interface AgentAssemblyContext<TInput = unknown> {
   readonly delegations: ReadonlyArray<FoundryDelegation>;
   /** The task this run works on, when another agent delegated it. */
   readonly delegation?: FoundryDelegation;
+  /** Mesh threads this conversation started that were still open when the run began. */
+  readonly threads: ReadonlyArray<FoundryMeshThread>;
+  /** The thread this conversation answers, when a peer on the mesh messaged this one. */
+  readonly thread?: FoundryMeshThread;
   readonly data: FoundryDataAdapter;
   readonly input: TInput;
   /** Native Glove representation of the current inbound user turn. */
@@ -169,6 +178,10 @@ export function defineCall<
 
 export interface FoundryExecutionContext<TInput = unknown>
   extends FoundrySurfaceContext<TInput>, FoundryGuidanceHandles {
+  /** The instance being run, as resolvers see it. */
+  readonly agentInstance: AgentInstance;
+  readonly conversation: Conversation;
+  readonly data: FoundryDataAdapter;
   readonly installations: ReadonlyArray<AgentInstallation>;
   readonly events?: ReadonlyArray<import("glove-core").AgentEvent>;
   readonly delegations?: ReadonlyArray<FoundryDelegation>;
@@ -190,6 +203,15 @@ export interface FoundryExecutionContext<TInput = unknown>
    */
   readonly onDelegationUpdate: (
     handler: (updates: ReadonlyArray<FoundryDelegationUpdate>) => void | Promise<void>,
+  ) => () => Promise<void>;
+  /**
+   * Receive messages from peers on the mesh Foundry hosts inside this run
+   * while it stays live, such as a voice call. Without a handler, a message
+   * joins the run's turn at its next tool step. Returns a function that stops
+   * listening; anything that arrives after it goes to that turn, or to a new run.
+   */
+  readonly onMeshMessage: (
+    handler: (messages: ReadonlyArray<FoundryMeshMessage>) => void | Promise<void>,
   ) => () => Promise<void>;
 }
 export interface AgentHandlerContext<TInput = unknown>
@@ -269,7 +291,20 @@ export interface AgentAssemblyOptions<TInput = unknown> {
   readonly schedules?: FoundryListResolver<FoundryScheduleDefinition, TInput>;
   /** Runtime policy composed from transmission primitives and persisted on the instance. */
   readonly playbooks?: FoundryListResolver<ComposedAgentPlaybook, TInput>;
-  readonly mesh?: FoundryResolver<FoundryMeshConfig | undefined, TInput>;
+  /**
+   * Put this agent on Glove Mesh, in one of two ways.
+   *
+   * - Hosted by Foundry: `true` or `{ peers, waitMs, mount }`. The agent gets
+   *   glove_mesh_list_agents, glove_mesh_send_message, glove_mesh_broadcast and
+   *   glove_mesh_acknowledge, and messages peers that are existing instances
+   *   in its workspace, by instance id. Their names come from data. Messages
+   *   travel through Foundry's durable event delivery.
+   * - Your own transport: a `FoundryMeshConfig` with an `adapter` (or a
+   *   resolver returning one). Foundry mounts glove-mesh on it as is.
+   *
+   * For workers an agent owns, use `durableSubagents` or `delegates`.
+   */
+  readonly mesh?: true | FoundryMeshOptions | FoundryResolver<FoundryMeshConfig | undefined, TInput>;
   /** Sandboxed persistent files + named script execution, assembled per context. */
   readonly workingEnvironment?: FoundryResolver<
     FoundryWorkingEnvironmentDefinition | undefined,
@@ -309,6 +344,25 @@ export interface FoundryMeshConfig {
   readonly whenIdle?: "wake" | "defer" | "auto";
   readonly adapter: MeshAdapter;
   readonly identity?: Omit<AgentIdentity, "id"> & { readonly id?: string };
+}
+
+/**
+ * Whether a definition's `mesh` names your own transport (a config with an
+ * adapter, or a resolver for one) rather than the mesh Foundry hosts.
+ */
+export function isMeshTransport<TInput>(
+  mesh: true | FoundryMeshOptions | FoundryResolver<FoundryMeshConfig | undefined, TInput> | undefined,
+): mesh is FoundryResolver<FoundryMeshConfig | undefined, TInput> {
+  if (mesh === undefined || mesh === true) return false;
+  return typeof mesh === "function" || (typeof mesh === "object" && mesh !== null && "adapter" in mesh);
+}
+
+/** The hosted-mesh options a definition asks for, if it asks for the hosted mesh. */
+export function hostedMeshOptions<TInput>(
+  mesh: true | FoundryMeshOptions | FoundryResolver<FoundryMeshConfig | undefined, TInput> | undefined,
+): FoundryMeshOptions | undefined {
+  if (mesh === undefined || isMeshTransport(mesh)) return undefined;
+  return mesh === true ? {} : mesh;
 }
 
 export interface DefineAgentOptions extends AgentAssemblyOptions<FoundryRequest> {
@@ -447,6 +501,23 @@ function validateDefinition(options: DefineAgentOptions, route?: string): void {
     (!Number.isFinite(options.answerWaitMs) || options.answerWaitMs < 0)
   ) {
     throw new Error(`Foundry agent "${id ?? "<file route>"}" answerWaitMs must be a non-negative number.`);
+  }
+  if (options.mesh !== undefined && options.mesh !== true && !isMeshTransport(options.mesh)) {
+    if (typeof options.mesh !== "object" || options.mesh === null) {
+      throw new Error(`Foundry agent "${id ?? "<file route>"}" mesh must be true, hosted-mesh options, or a mesh config with an adapter.`);
+    }
+    if (options.mesh.mount !== undefined && typeof options.mesh.mount !== "function") {
+      throw new Error(`Foundry agent "${id ?? "<file route>"}" mesh.mount must be a function of the run's context.`);
+    }
+    if (options.mesh.peers !== undefined && typeof options.mesh.peers !== "function") {
+      throw new Error(`Foundry agent "${id ?? "<file route>"}" mesh.peers must be a function of (self, peer).`);
+    }
+    if (
+      options.mesh.waitMs !== undefined &&
+      (!Number.isFinite(options.mesh.waitMs) || options.mesh.waitMs < 0)
+    ) {
+      throw new Error(`Foundry agent "${id ?? "<file route>"}" mesh.waitMs must be a non-negative number.`);
+    }
   }
   if (options.inboxes !== undefined && typeof options.inboxes !== "function") {
     throw new Error(

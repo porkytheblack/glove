@@ -132,9 +132,9 @@ import { dataDir } from "../../lib/paths.js";
 export default defineAgent({
   description: "A general-purpose Glove assistant",
 
-  // new Kuiper() reads its gateway key from KUIPER_GATEWAY_KEY.
+  // The gateway key. Kuiper keeps KUIPER_ names for itself, so name it here.
   model: () => {
-    const kuiper = new Kuiper();
+    const kuiper = new Kuiper({ apiKey: process.env.GATEWAY_KEY });
     return createAdapter({
       provider: "anthropic",
       model: "claude-sonnet-5-5",
@@ -166,7 +166,7 @@ export default defineAgent({
       <CodeBlock language="bash" code={`kuiper providers add anthropic --key -`} />
       <p>
         For local development, make a gateway key for your laptop and put it in{" "}
-        <code>.env.local</code> as <code>KUIPER_GATEWAY_KEY</code>. Your laptop and
+        <code>.env.local</code> as <code>GATEWAY_KEY</code>. Your laptop and
         production then take the same code path:
       </p>
       <CodeBlock language="bash" code={`kuiper keys create laptop -p assistant --services models`} />
@@ -185,13 +185,14 @@ kuiper units create assistant
 openssl rand -hex 24 | kuiper secrets set FOUNDRY_TOKEN=-
 kuiper env set -u assistant \\
   'FOUNDRY_TOKEN=\${{secrets.FOUNDRY_TOKEN}}' \\
-  'KUIPER_GATEWAY_KEY=\${{models.API_KEY}}' \\
+  'GATEWAY_KEY=\${{models.API_KEY}}' \\
   AGENT_DATA_DIR=/data
 
 kuiper deploy --source . -u assistant --wait`} />
       <p>
         The variable names are the ones this code reads: <code>FOUNDRY_TOKEN</code> by the
-        authorizer, <code>KUIPER_GATEWAY_KEY</code> by the SDK, <code>AGENT_DATA_DIR</code>{" "}
+        authorizer, <code>GATEWAY_KEY</code> by the model setup (a unit can&apos;t set names
+        that start with <code>KUIPER_</code>), <code>AGENT_DATA_DIR</code>{" "}
         by <code>lib/paths.ts</code>. Their values are templates.{" "}
         <code>{"${{secrets.FOUNDRY_TOKEN}}"}</code> reads a sealed project secret, which never
         enters the image and is redacted from logs. <code>{"${{models.API_KEY}}"}</code> is a

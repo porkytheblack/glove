@@ -343,7 +343,7 @@ try {
 }
 ```
 
-- Backends: Station 3 adapters live in `glove-execution/station` (`stationBrowserClient`, `stationSandbox`, `stationLocalSandbox`). Any other backend implements `BrowserAdapter` / `SandboxAdapter`, or a `SandboxBackend` passed to `createSandboxAdapter`, which handles grants, capacity, bounded results and retain/destroy cleanup.
+- Backends: Station 3 adapters live in `glove-execution/station` (`stationBrowserClient`, `stationSandbox`, `stationLocalSandbox`). Kuiper's live in `glove-execution/kuiper` (`kuiperBrowser({ browsers: kuiper.browsers })`, `kuiperSandbox({ sandboxes: kuiper.sandboxes })` on `@kuiper-sh/sdk`): a real Chrome with profiles, hibernation, a `guard` on every request and `handOff` to a person through the live view, and remote sandboxes that resume before work. Any other backend implements `BrowserAdapter` / `SandboxAdapter`, or a `SandboxBackend` passed to `createSandboxAdapter`, which handles grants, capacity, bounded results and retain/destroy cleanup.
 - Closing a sandbox scope retains files and services by default; `cleanup: "destroy-created"` deletes only sandboxes the scope created. Never automatically retry a mutation whose outcome is unknown.
 - In Foundry, mount inside `configure(agent, context)` and register `context.onCleanup` right after acquiring the adapter. `stationDaemon({ stationId, resources, onReady })` from `glove-foundry/station` hosts browser/sandbox providers on Foundry's own managed Station.
 - Page content is untrusted evidence. `allowEvaluate: true` is an explicit host grant for in-page JavaScript.

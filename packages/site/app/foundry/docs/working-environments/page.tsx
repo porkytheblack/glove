@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { CodeBlock } from "@/components/code-block";
 
 export const metadata = {
@@ -121,6 +122,32 @@ export function makerTree(instanceId: string) {
       <p>
         The next message may expose different functions. This is intentional: the REPL
         becomes a small task-specific computer, not a permanent catalog of every API.
+      </p>
+
+      <h3 id="app-functions">Installed apps as functions</h3>
+      <p>
+        <code>programmaticTools.select</code> also receives <code>apps</code>: each installed
+        app, with its live tools already named for code, grouped under the app and marked
+        read-only where its server says so. Select an app&apos;s reads and the agent writes{" "}
+        <code>gmail.search_threads(...)</code> or <code>linear.list_issues(...)</code> in one
+        program, with the REPL&apos;s discovery listing one server per app.
+        <code>keepDirect: false</code> takes the selected tools out of the model&apos;s tool list,
+        so a person with ten connected apps does not put ten catalogues in context.
+      </p>
+      <CodeBlock filename="agents/assistant/agent.ts (excerpt)" language="typescript" code={`repl: () => defineRepl({
+  language: "javascript",
+  session: JsSession.create(),
+  mount: { discovery: "auto" },
+  programmaticTools: {
+    // Reads only. Writes stay direct tools, so a person can see and approve them.
+    select: ({ apps }) => apps.flatMap((app) => app.tools.filter((tool) => tool.readOnly)),
+    keepDirect: false,
+  },
+}),`} />
+      <p>
+        A tool that needs approval always stays direct, whatever you select, and calling it
+        from code is refused. See{" "}
+        <Link href="/foundry/docs/capabilities#app-mcp">apps backed by an MCP server</Link>.
       </p>
 
       <h2 id="adapters">Add artifact capabilities</h2>
