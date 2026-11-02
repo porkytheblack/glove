@@ -547,7 +547,7 @@ export function claimTicket(ctx: AgentAssemblyContext): GloveFoldArgs<z.infer<ty
           <tr><td>Inbound events no run had finished with</td><td>Delivered again at startup, in arrival order, with a data adapter that keeps pending inbound events (<code>FileFoundryDataAdapter</code> does; a custom adapter implements the optional <code>putPendingInbound</code>, <code>deletePendingInbound</code> and <code>listPendingInbound</code>). Lost otherwise. The delivery claim still stops a retried webhook from running the event twice.</td></tr>
           <tr><td>Run list and status (<code>/api/runs</code>)</td><td>Lost. The execution queue lives in memory in the managed daemon.</td></tr>
           <tr><td>Event history (<code>/api/events</code>)</td><td>Lost by default: the built-in buffer keeps the last <code>observability.maxEvents</code> (10,000) in memory.</td></tr>
-          <tr><td>Pending approvals</td><td>Lost: approval records are files in a per-runtime temporary directory (and expire after 5 minutes by default anyway).</td></tr>
+          <tr><td>Pending approvals</td><td>Kept with a data adapter that stores approvals and the event journal (<code>FileFoundryDataAdapter</code> does). A run that was waiting on one is not resumed then; the decision, whenever it comes, resumes the conversation at the waiting call. See <Link href="/foundry/docs/approvals#durable">Durable approvals</Link>. Lost otherwise.</td></tr>
           <tr><td>Accounts, routes, bindings</td><td>Re-created from <code>foundry.application.ts</code>. Routes and bindings added at runtime through the API live in an in-memory store unless you supply a durable <code>services</code> layer.</td></tr>
         </tbody>
       </table>

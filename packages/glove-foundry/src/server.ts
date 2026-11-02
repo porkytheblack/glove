@@ -313,7 +313,7 @@ function openAiCurrentInput(
 
 function openAiOutput(value: unknown): string {
   if (typeof value === "string") return value;
-  if (value === undefined) return "";
+  if (value === undefined || value === null) return "";
   return JSON.stringify(value);
 }
 
@@ -737,6 +737,12 @@ export class FoundryServer {
         return;
       }
       const v1Approval = url.pathname.match(/^\/v1\/approvals\/([^/]+)$/);
+      if (v1Approval && method === "GET") {
+        const approval = await this.runtime.getApproval(decodeURIComponent(v1Approval[1]!));
+        if (!approval) throw new RequestError(404, "Foundry approval was not found.");
+        json(response, 200, approval);
+        return;
+      }
       if (v1Approval && method === "POST") {
         json(response, 200, await this.runtime.resolveApproval(
           decodeURIComponent(v1Approval[1]!),
@@ -1159,6 +1165,12 @@ export class FoundryServer {
         return;
       }
       const approvalMatch = url.pathname.match(/^\/api\/approvals\/([^/]+)$/);
+      if (approvalMatch && method === "GET") {
+        const approval = await this.runtime.getApproval(decodeURIComponent(approvalMatch[1]!));
+        if (!approval) throw new RequestError(404, "Foundry approval was not found.");
+        json(response, 200, approval);
+        return;
+      }
       if (approvalMatch && method === "POST") {
         json(response, 200, await this.runtime.resolveApproval(
           decodeURIComponent(approvalMatch[1]!),

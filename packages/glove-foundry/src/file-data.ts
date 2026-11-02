@@ -3,6 +3,7 @@ import { mkdir, open, readFile, rename, stat, unlink } from "node:fs/promises";
 import { dirname } from "node:path";
 import { Effect } from "effect";
 import type { EnvSnapshot } from "glove-working-environment";
+import type { FoundryApproval } from "./approval.js";
 import {
   createAgentInstance,
   reconstructAgentInstance,
@@ -36,6 +37,7 @@ interface FileFoundryState {
   inboundDeliveries: InboundDeliveryClaim[];
   events: import("./event-delivery.js").FoundryEventRecord[];
   pendingInbound: FoundryPendingInbound[];
+  approvals: FoundryApproval[];
   activations: FoundryActivationRecord[];
   conversations: Conversation[];
   workspaceEntries: WorkspaceEntry[];
@@ -68,6 +70,7 @@ function emptyState(environment: ReadonlyArray<EnvironmentValue>): FileFoundrySt
     inboundDeliveries: [],
     events: [],
     pendingInbound: [],
+    approvals: [],
     activations: [],
     conversations: [],
     workspaceEntries: [],
@@ -121,7 +124,7 @@ export class FileFoundryDataAdapter implements FoundryDataAdapter {
   private readonly lockFile: string;
   private readonly lockTimeoutMs: number;
   private readonly staleLockMs: number;
-  private readonly seeds: Omit<FileFoundryState, "events" | "version" | "inboundDeliveries" | "pendingInbound" | "workspaceEntries" | "workingEnvironments" | "inbox" | "tasks">;
+  private readonly seeds: Omit<FileFoundryState, "events" | "version" | "inboundDeliveries" | "pendingInbound" | "approvals" | "workspaceEntries" | "workingEnvironments" | "inbox" | "tasks">;
   private initialized: Promise<void> | undefined;
   private queue: Promise<unknown> = Promise.resolve();
 
@@ -195,6 +198,7 @@ export class FileFoundryDataAdapter implements FoundryDataAdapter {
         inboundDeliveries: parsed.inboundDeliveries ?? [],
         events: parsed.events ?? [],
         pendingInbound: parsed.pendingInbound ?? [],
+        approvals: parsed.approvals ?? [],
         activations: parsed.activations ?? [],
         conversations: parsed.conversations ?? [],
         workspaceEntries: parsed.workspaceEntries ?? [],
@@ -317,6 +321,7 @@ export class FileFoundryDataAdapter implements FoundryDataAdapter {
       const ids = new Set(state.conversations.filter((item) => item.agentId === agentId).map((item) => item.id));
       state.events = state.events.filter((item) => item.target.agentId !== agentId);
       state.pendingInbound = state.pendingInbound.filter((item) => item.request.agentId !== agentId);
+      state.approvals = state.approvals.filter((item) => item.agentId !== agentId);
       state.activations = state.activations.filter((item) => item.agentId !== agentId);
       state.conversations = state.conversations.filter((item) => item.agentId !== agentId);
       state.workingEnvironments = state.workingEnvironments.filter((item) => item.owner.agentId !== agentId);
@@ -419,6 +424,17 @@ export class FileFoundryDataAdapter implements FoundryDataAdapter {
 
   listPendingInbound() { return effect(async () =>
     structuredClone((await this.snapshot()).pendingInbound)); }
+
+  putApproval(approval: FoundryApproval) { return effect(async () => {
+    await this.ensureInitialized();
+    await this.mutate((state) => { replaceById(state.approvals, structuredClone(approval)); });
+  }); }
+
+  getApproval(id: string) { return effect(async () =>
+    structuredClone((await this.snapshot()).approvals.find((item) => item.id === id) ?? null)); }
+
+  listApprovals() { return effect(async () =>
+    structuredClone((await this.snapshot()).approvals)); }
 
   releaseInboundDelivery(key: string) { return effect(async () => {
     await this.ensureInitialized();

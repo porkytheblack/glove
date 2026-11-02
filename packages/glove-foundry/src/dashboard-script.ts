@@ -177,7 +177,7 @@ function recent(array){return[...array].sort((a,b)=>String(b.updatedAt||b.create
 function approvalRail(approvals,heading){
   if(!approvals.length)return"";
   return'<section class="approval-rail" aria-label="Effect approvals"><header><div><span class="approval-kicker">Decision required</span><h2>'+esc(heading||"An agent is waiting for you")+'</h2><p>Review the exact tool input. Nothing runs unless you approve it.</p></div><span class="approval-count">'+count(approvals.length,"request")+'</span></header><div class="approval-list">'
-    +approvals.map(item=>'<article class="approval-item" data-approval="'+attr(item.id)+'"><div class="approval-context"><span class="approval-tool">'+esc(item.toolName)+'</span><a class="approval-run" href="/runs/'+attr(item.runId)+'" data-link>Run '+esc(short(item.runId))+'</a></div><pre class="approval-input">'+esc(jsonText(item.toolInput))+'</pre><div class="approval-foot"><span>Requested '+relCell(item.requestedAt)+' · expires '+relCell(item.expiresAt)+'</span><div class="approval-actions"><button class="button" type="button" data-approval-id="'+attr(item.id)+'" data-approval-decision="deny">Deny</button><button class="button approve" type="button" data-approval-id="'+attr(item.id)+'" data-approval-decision="approve">Approve this input</button></div></div></article>').join("")
+    +approvals.map(item=>'<article class="approval-item" data-approval="'+attr(item.id)+'"><div class="approval-context"><span class="approval-tool">'+esc(item.toolName)+'</span><a class="approval-run" href="/approvals/'+attr(item.id)+'" data-link>Approval '+esc(short(item.id))+'</a><a class="approval-run" href="/runs/'+attr(item.runId)+'" data-link>Run '+esc(short(item.runId))+'</a></div><pre class="approval-input">'+esc(jsonText(item.toolInput))+'</pre><div class="approval-foot"><span>Requested '+relCell(item.requestedAt)+' · expires '+relCell(item.expiresAt)+'</span><div class="approval-actions"><button class="button" type="button" data-approval-id="'+attr(item.id)+'" data-approval-decision="deny">Deny</button><button class="button approve" type="button" data-approval-id="'+attr(item.id)+'" data-approval-decision="approve">Approve this input</button></div></div></article>').join("")
     +'</div></section>';
 }
 function explainRun(run){
@@ -608,6 +608,21 @@ function renderWorkspacePanel(data){
   $("workspace-panel").innerHTML=card(active[0].toUpperCase()+active.slice(1),'<div class="card-body">'+body+'</div>',count(values.length,"item"));
 }
 
+function renderApproval(id){
+  const item=state.approvals.find(x=>x.id===id);if(!item)return renderNotFound("Approval");
+  crumbs([{label:"Runs",href:"/runs"},{label:"Approval "+short(id)}]);
+  const open=item.status==="pending";
+  let html=pageHead("Approval",item.toolName,open?(item.suspendedAt?"The agent stopped at this call and waits for you. Deciding now resumes it.":"The agent is waiting on this call now."):"This request was "+item.status+".",'<button class="button" data-copy="'+attr(location.origin+"/approvals/"+item.id)+'">'+icon("copy")+'<span>Copy link</span></button>');
+  html+=open?approvalRail([item],"Decide this request"):'<pre class="approval-input">'+esc(jsonText(item.toolInput))+'</pre>';
+  html+='<div class="detail-strip">'
+    +'<div><label>Status</label><strong>'+status(item.status)+'</strong></div>'
+    +'<div><label>Asked by run</label><strong><a class="link mono" href="/runs/'+attr(item.runId)+'" data-link>'+esc(short(item.runId))+'</a></strong></div>'
+    +'<div><label>Requested</label><strong>'+relCell(item.requestedAt)+'</strong></div>'
+    +'<div><label>'+(open?"Expires":"Decided")+'</label><strong>'+relCell(open?item.expiresAt:item.resolvedAt)+'</strong></div>'
+    +(item.resumeRunId?'<div><label>Resumed in run</label><strong><a class="link mono" href="/runs/'+attr(item.resumeRunId)+'" data-link>'+esc(short(item.resumeRunId))+'</a></strong></div>':"")
+    +'</div>';
+  $("content").innerHTML=html;dataLinks();
+}
 function renderNotFound(label){crumbs([{label:"Not found"}]);$("content").innerHTML=pageHead("Inspector",label+" not found","The requested runtime record does not exist or is no longer retained.",'<a class="button" href="/" data-link>Return to overview</a>');dataLinks()}
 async function loadBase(){
   const endpoints=["/api/manifest","/api/agent-instances","/api/playbook-subscriptions","/api/application-connections","/api/runs","/api/events","/health","/api/transmissions","/api/accounts","/api/routes","/api/bindings","/api/activations","/api/approvals"];
@@ -653,7 +668,7 @@ async function navigate(load=true,preserve=false){
     if(load&&current.section==="instances"&&current.id)await ensureConversations(current.id);
     if(load&&current.section==="workspaces"&&current.id)await ensureWorkspace(current.id);
     if(current.section==="chat")await loadChat(current);
-    if(current.section==="overview")renderOverview();else if(current.section==="agents"&&!current.id)renderAgents();else if(current.section==="agents")renderDefinition(current.id);else if(current.section==="instances")renderInstance(current.id);else if(current.section==="chat")renderChat();else if(current.section==="runs"&&!current.id)renderRuns();else if(current.section==="runs")renderRun(current.id);else if(current.section==="automations")renderAutomations();else if(current.section==="integrations")renderIntegrations();else if(current.section==="workspaces")renderWorkspaces(current.id);else renderNotFound("Page");
+    if(current.section==="overview")renderOverview();else if(current.section==="agents"&&!current.id)renderAgents();else if(current.section==="agents")renderDefinition(current.id);else if(current.section==="instances")renderInstance(current.id);else if(current.section==="chat")renderChat();else if(current.section==="runs"&&!current.id)renderRuns();else if(current.section==="runs")renderRun(current.id);else if(current.section==="approvals"&&current.id)renderApproval(current.id);else if(current.section==="automations")renderAutomations();else if(current.section==="integrations")renderIntegrations();else if(current.section==="workspaces")renderWorkspaces(current.id);else renderNotFound("Page");
   }catch(error){$("content").innerHTML='<div class="form-error">'+esc(error.message)+'</div>';console.error(error)}
   restoreView(view);
   tickTimes();

@@ -249,6 +249,8 @@ export {
   type FoundryRuntimeOptions,
 } from "./runtime.js";
 export {
+  DEFAULT_APPROVAL_EXPIRES_AFTER_MS,
+  DEFAULT_APPROVAL_WAIT_MS,
   FOUNDRY_APPROVAL_DIRECTORY_ENV,
   FoundryApprovalDisplayManager,
   createFoundryApproval,
@@ -257,6 +259,7 @@ export {
   withFoundryPermissions,
   type FoundryApproval,
   type FoundryApprovalDecision,
+  type FoundryApprovalPolicy,
   type FoundryApprovalStatus,
 } from "./approval.js";
 export {

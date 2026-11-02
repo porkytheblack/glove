@@ -303,7 +303,9 @@ export default defineConfig({
       <p>
         Foundry turns <code>requiresPermission</code> into an approval record only through its
         default display manager; if the definition sets <code>displayManager</code>, requests go
-        to yours instead. Records expire after 5 minutes and do not survive a runtime restart.
+        to yours instead. Without durable storage in the data adapter, records expire with
+        the run and do not survive a restart (see{" "}
+        <Link href="/foundry/docs/approvals#durable">Durable approvals</Link>).
         Programmatic tool calling from a REPL refuses to run a tool whose input needs approval;
         the model must call it directly. Denied, expired and undeliverable requests fail closed:
         the tool does not run and the model receives{" "}

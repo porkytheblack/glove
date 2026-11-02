@@ -142,7 +142,7 @@ export default defineAgent({
       name: "issue_refund",
       description: "Refund an order, fully or in part.",
       inputSchema: z.object({ orderId: z.string(), amount: z.number().positive() }),
-      requiresPermission: true, // becomes an expiring approval record
+      requiresPermission: true, // becomes a stored approval; a late decision resumes the run
       async do(input) {
         return { status: "success" as const, data: await orders.refund(input) };
       },

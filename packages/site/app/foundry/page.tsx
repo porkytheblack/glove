@@ -60,7 +60,7 @@ const features: { title: string; text: string; api: string; href: string }[] = [
   },
   {
     title: "Approvals",
-    text: "Mark a tool as permission-gated and the run pauses on an expiring approval record until a person approves or denies it.",
+    text: "Mark a tool as permission-gated and the run waits on an approval a person decides from a link. If they answer later, even after a restart, the run resumes at that call.",
     api: "requiresPermission · resolveApproval",
     href: "/foundry/docs/approvals",
   },
