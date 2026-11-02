@@ -1,5 +1,12 @@
 # glove-avatar-rooms-web
 
+## 1.0.11
+
+### Patch Changes
+
+- Updated dependencies []:
+  - glove-voice@3.6.10
+
 ## 1.0.10
 
 ### Patch Changes

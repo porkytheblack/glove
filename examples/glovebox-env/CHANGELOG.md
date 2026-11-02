@@ -1,5 +1,14 @@
 # glovebox-env-example
 
+## 0.0.11
+
+### Patch Changes
+
+- Updated dependencies [[`dbc7e0f`](https://github.com/porkytheblack/glove/commit/dbc7e0fcb44cd1ee57d389a83c92b00fd6d9be3c), [`d51fc4b`](https://github.com/porkytheblack/glove/commit/d51fc4ba6f775960ee09825b15b5b9ff81e36599), [`5b24bf7`](https://github.com/porkytheblack/glove/commit/5b24bf7b559684fb28c18c231e67014b167842a3)]:
+  - glove-core@4.7.0
+  - glove-working-environment@0.7.0
+  - glovebox-core@0.6.10
+
 ## 0.0.10
 
 ### Patch Changes

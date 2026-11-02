@@ -1,5 +1,82 @@
 # glove-foundry
 
+## 0.8.0
+
+### Minor Changes
+
+- [#222](https://github.com/porkytheblack/glove/pull/222) [`5b24bf7`](https://github.com/porkytheblack/glove/commit/5b24bf7b559684fb28c18c231e67014b167842a3) Thanks [@porkytheblack](https://github.com/porkytheblack)! - Durable, resumable approvals.
+
+  **glove-core.** A permission prompt can be deferred. A display manager that will not decide now throws `ToolPermissionDeferred` from `pushAndWait`. The turn stops at that tool call: calls before it in the same step keep their results, and no result is recorded for it or the calls after it. The request rejects with `TurnSuspended` (`deferral`, `completed`, `pending`). `glove.resumeToolCalls(signal?)` carries the turn on later: it runs the calls left without a result, with the decision the host saved through `store.setPermission`, then continues the loop. It returns `undefined` when the latest tool step has nothing pending or the conversation moved on. `Agent.pendingToolCalls()` reports what a resume would run. The permission prompt's input now includes `toolCallId`. `isToolPermissionDeferred` and `isTurnSuspended` work across copies of glove-core.
+
+  **glove-foundry.** Approvals are stored and outlive the run that asked.
+
+  - The data adapter keeps them: `putApproval`, `getApproval` and `listApprovals` (optional). `FileFoundryDataAdapter` and `MemoryFoundryDataAdapter` implement them. With these and the event journal, approvals are durable.
+  - The run waits `approvals.waitMs` (60 s by default) for a decision. If nobody decides, it suspends at that call: the run ends with `status: "suspended"` and `suspension: { kind: "approval", approvalId, toolName }`, and the conversation is free. The approval stays open for `approvals.expiresAfterMs` (7 days by default), through restarts.
+  - A decision made after the run suspended goes to the conversation as a durable event. The run that takes it resumes the turn at the waiting call: approved, it runs and its real result is saved; denied, it is refused. If the conversation moved on, the decision arrives as an event and the agent may call the tool again with the same input, which then runs or is refused without asking. A decision delivered twice does not run the call twice.
+  - Every approval has an address. `GET /api/approvals/:id` and `GET /v1/approvals/:id` return one; `client.approval(id)` reads it; the inspector shows it at `/approvals/:id`. `defineApplication({ approvals: { url } })` gives each approval a page in your app, kept as `approval.url`, so a message or an email can link straight to it.
+  - Cancelling or steering the run that asked cancels its open approvals. After a restart, open approvals are marked suspended and decisions not yet handed back are delivered.
+  - New fields on `FoundryApproval`: `toolCallId`, `url`, `suspendedAt`, `resumedAt`, `resumeRunId`, `settledInRun`. New events: `agent.foundry.approval.suspended`, `approval.resumed`.
+
+  Behaviour change: with the bundled adapters, an approval nobody answers no longer expires after 5 minutes with the call refused. The run suspends after 60 s and the approval stays open for 7 days. Set `approvals: { waitMs, expiresAfterMs }` to change either. A custom adapter without the approval methods keeps the old behaviour.
+
+- [#200](https://github.com/porkytheblack/glove/pull/200) [`f064b7a`](https://github.com/porkytheblack/glove/commit/f064b7a162087687e972eb109828e2b6bd2882f3) Thanks [@porkytheblack](https://github.com/porkytheblack)! - Apps can be backed by an MCP server, the REPL sees installed apps as groups, and topology can live in a file.
+
+  - `defineApp({ mcp: { entry, auth, tools } })` mounts an MCP server's tools through the app. The connection opens with the installation's account: `auth(session)` turns the agent's `accountSessions` session into HTTP headers or stdio environment, so Foundry never holds the credential. `tools(tool, ctx)` returns `"allow"`, `"ask"` or `"hide"` for each tool. By default read-only tools run and everything else waits for approval. Connections close when the run ends. An app that connects with an account refuses an installation without one.
+  - `programmaticTools.select` receives `apps`: one group per installed app, its live tools named for code (`gmail.search_threads(...)`), grouped under the app and marked read-only where the server says so. `keepDirect: false` takes the selected tools out of the model's tool list, so they are reached only from code; a tool that needs approval always stays direct.
+  - `fileTopologyStore(file)` keeps routes and bindings in a JSON file, so topology an application writes at runtime survives a restart on one host. Use it in `defineApplication({ services })` with your account directory and `memoryEventStore`.
+  - Application connections find their account through the account directory, so accounts an application's own directory adds at runtime get their connections.
+  - `glove_foundry_transmit` delivers only through outbound routes the instance's playbooks declare, and asks for approval whenever the route's transmission requires it, as its application's send tool does. When the route could belong to more than one application's transmission (the directive names no `applicationId`), it asks if any of them would. Before, a route granted by a binding was enough and no approval was asked.
+  - `configure`, `run` and call handlers receive `agentInstance`, `conversation` and `data`, as resolvers and `build` do, so an agent can apply its own rules around an installed app's tools.
+
+- [#200](https://github.com/porkytheblack/glove/pull/200) [`d1ae4de`](https://github.com/porkytheblack/glove/commit/d1ae4de5002abac83c42f1ecb8bc3e9443d59f8f) Thanks [@porkytheblack](https://github.com/porkytheblack)! - The inspector opens a run like a browser's DevTools.
+
+  - **Network** lists every model request and tool call in order, with type, status, initiator, size, time and a waterfall. Filter by text or by model, tools or errors.
+    - A model request opens to Overview, Prompt (the system prompt), Messages (the conversation as that request sent it, with earlier messages folded), Context (memory and other runtime context, marked new or changed), Tools (descriptions and schemas), Response and Raw.
+    - **Copy request** copies the request as JSON.
+    - A tool call opens to its input, result, the request that made it, and its approval.
+  - **Console** is the run as a levelled log. Streamed text is one line, and you can filter by text, level and source.
+  - **Context** is a tree of what the agent had: per request (system prompt, runtime context, tools, messages), the run's input and output, the instance's context, installations and playbooks, and goals, facts, forms and memory.
+  - **Summary** has the phases, the output, the slowest steps and the errors. **Export trace** downloads the run and its events.
+  - The view, the open request and its pane are in the URL (`?tab=&item=&pane=`). `1`–`4` switch views, `j`/`k` walk requests and `Esc` closes one.
+  - A run's page reads that run's own events (`/api/runs/:id/events`, which now takes `?after=`), so a long run isn't cut off by the global event list.
+
+  Runs record each model request from Glove's new `model_request` events, compactly:
+
+  - The system prompt and tools are recorded in full once per run, then by hash.
+  - Messages are recorded as a change against the previous request. Runtime context is recorded each time.
+  - Text and JSON are cut, media becomes a placeholder, and `renderData` and echoed reasoning are left out.
+
+  Set `observability: { modelRequests: false }` in `foundry.config.ts` to leave them out of the event stream. Runs recorded without them still list their tool calls and responses.
+
+- [#200](https://github.com/porkytheblack/glove/pull/200) [`f0ffa03`](https://github.com/porkytheblack/glove/commit/f0ffa03643b39b68756f4c63c1dfb812d838fab9) Thanks [@porkytheblack](https://github.com/porkytheblack)! - Foundry hosts Glove Mesh for agents that already exist as instances, instances carry a name and a description, and voice calls speak mesh messages.
+
+  - `defineAgent({ mesh: true })` gives an agent the Glove Mesh tools, for peers that already exist, such as a person's bots. Owned workers stay on `delegates` and `durableSubagents`. The tools are `glove_mesh_list_agents`, `glove_mesh_send_message`, `glove_mesh_broadcast` and `glove_mesh_acknowledge`. Agents are addressed by instance id. Its peers are the other instances in its workspace, so who is on a team is data, not code.
+  - `mesh: true` or `{ peers, waitMs, mount }` is the hosted mesh; a value with an `adapter` is still the raw glove-mesh transport. `peers(self, peer)` narrows who an agent may see and message, from instance data. An agent can always answer whoever messaged it. `waitMs` (90 s by default) is how long a blocking send waits inside the run. `mount(ctx)` decides per run whether the tools are there at all, so a read-only run can have none.
+  - A new message starts a thread: a conversation on the recipient. Its final reply goes back to the conversation that sent it on its own, and a run that fails or is cancelled sends a failure. Messages either way go straight into a run that listens with `ctx.onMeshMessage`. Otherwise they wait until the conversation is free and start one run, with source kind `"mesh"`, as `<mesh-message>` messages.
+  - A blocking send that runs out of time suspends the run with `suspension.kind: "mesh"`. Open threads appear in the sender's runtime context. `runtime.listThreads()` lists them all. Mesh messages ride the same event journal as delegation updates, so they are handed over again after a restart. Older thread records with their own lists of owed messages move to the journal on start.
+  - `AgentInstance` has `name` and `description`. `createAgent`, `configureAgent` and the HTTP API set them, the inspector shows them, and the mesh lists agents by them. A tool can write them, so an agent can rename itself.
+  - `foundryDataEnvironmentPersistence({ scope: "workspace" })` keeps one working environment for every agent in a workspace, such as a computer a person's agents share. Saves replace the snapshot, so the last run to finish wins.
+  - Schedules no longer skip because another instance of the same definition is busy. Overlap was checked per definition, so with many instances of one definition a busy agent made the others miss their schedules.
+  - `voiceCall` from `glove-foundry/voice` also speaks mesh messages at the next pause (`announceMesh`, default `announceMeshMessage`), alongside delegation updates, and hands either to `offCall` when no call is live.
+
+### Patch Changes
+
+- [#200](https://github.com/porkytheblack/glove/pull/200) [`55d078a`](https://github.com/porkytheblack/glove/commit/55d078a9dcb7c9b182794f989ebc9df19abb75d7) Thanks [@porkytheblack](https://github.com/porkytheblack)! - Stopping Foundry no longer fails now and then with "execution daemon disconnected" ([#208](https://github.com/porkytheblack/glove/issues/208)). Asked to stop, the background process closed its channel right after sending its reply, and the reply could be lost. It now closes the channel once the reply is written, and the host treats the process going away during a stop as stopped. When the process goes away unasked, the error names its exit code or signal, and the host's stderr gets the end of its output, with secret-looking values masked.
+
+- [#200](https://github.com/porkytheblack/glove/pull/200) [`f0ffa03`](https://github.com/porkytheblack/glove/commit/f0ffa03643b39b68756f4c63c1dfb812d838fab9) Thanks [@porkytheblack](https://github.com/porkytheblack)! - An app installed with an account now gets `withAccountSession` inside a run. The run's envelope dropped the installation's `accountId`, so app tools that need the account's session saw it as missing.
+
+- Updated dependencies [[`dbc7e0f`](https://github.com/porkytheblack/glove/commit/dbc7e0fcb44cd1ee57d389a83c92b00fd6d9be3c), [`d51fc4b`](https://github.com/porkytheblack/glove/commit/d51fc4ba6f775960ee09825b15b5b9ff81e36599), [`5b24bf7`](https://github.com/porkytheblack/glove/commit/5b24bf7b559684fb28c18c231e67014b167842a3)]:
+  - glove-core@4.7.0
+  - glove-facts@0.1.8
+  - glove-js@0.5.6
+  - glove-lisp@0.5.6
+  - glove-mcp@1.2.6
+  - glove-memory@2.3.3
+  - glove-mesh@0.2.3
+  - glove-python@0.4.6
+  - glove-voice-s2s@0.4.6
+  - glove-working-environment@0.7.0
+
 ## 0.7.0
 
 ### Minor Changes
