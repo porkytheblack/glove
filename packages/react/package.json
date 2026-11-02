@@ -1,6 +1,6 @@
 {
   "name": "glove-react",
-  "version": "4.0.9",
+  "version": "4.0.10",
   "description": "React bindings for Glove agent framework",
   "type": "module",
   "license": "MIT",

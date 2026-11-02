@@ -1,0 +1,8 @@
+# glove-foundry-web-kit
+
+## 1.0.1
+
+### Patch Changes
+
+- Updated dependencies [[`5b24bf7`](https://github.com/porkytheblack/glove/commit/5b24bf7b559684fb28c18c231e67014b167842a3), [`f064b7a`](https://github.com/porkytheblack/glove/commit/f064b7a162087687e972eb109828e2b6bd2882f3), [`55d078a`](https://github.com/porkytheblack/glove/commit/55d078a9dcb7c9b182794f989ebc9df19abb75d7), [`d1ae4de`](https://github.com/porkytheblack/glove/commit/d1ae4de5002abac83c42f1ecb8bc3e9443d59f8f), [`f0ffa03`](https://github.com/porkytheblack/glove/commit/f0ffa03643b39b68756f4c63c1dfb812d838fab9), [`f0ffa03`](https://github.com/porkytheblack/glove/commit/f0ffa03643b39b68756f4c63c1dfb812d838fab9)]:
+  - glove-foundry@0.8.0

@@ -1,5 +1,35 @@
 # glove-core
 
+## 4.7.0
+
+### Minor Changes
+
+- [#200](https://github.com/porkytheblack/glove/pull/200) [`d51fc4b`](https://github.com/porkytheblack/glove/commit/d51fc4ba6f775960ee09825b15b5b9ff81e36599) Thanks [@porkytheblack](https://github.com/porkytheblack)! - Glove reports what each model call is sent. Every call to the model adapter now emits two subscriber events:
+
+  - `model_request` carries `request_id`, `model`, `purpose` (`"turn"` or `"compaction"`), `system_prompt`, `messages` and `tools` (name, description and JSON Schema). These are exactly what the adapter receives, after tool-result summaries, with runtime context at the tail.
+  - `model_request_end` carries the same `request_id`, `duration_ms`, `status` (`success`, `error` or `aborted`), `error`, the response `messages` and the token counts. A failed call still ends its request, and the model's own error is the one that is thrown.
+
+  Both carry the whole conversation on every call. So they go only to subscribers that set `modelRequests: true`, and a subscriber that forwards every event to a socket or a log doesn't start sending prompts. The arrays are the request's own: read them, don't change them. `ModelRequestTool` is exported.
+
+- [#222](https://github.com/porkytheblack/glove/pull/222) [`5b24bf7`](https://github.com/porkytheblack/glove/commit/5b24bf7b559684fb28c18c231e67014b167842a3) Thanks [@porkytheblack](https://github.com/porkytheblack)! - Durable, resumable approvals.
+
+  **glove-core.** A permission prompt can be deferred. A display manager that will not decide now throws `ToolPermissionDeferred` from `pushAndWait`. The turn stops at that tool call: calls before it in the same step keep their results, and no result is recorded for it or the calls after it. The request rejects with `TurnSuspended` (`deferral`, `completed`, `pending`). `glove.resumeToolCalls(signal?)` carries the turn on later: it runs the calls left without a result, with the decision the host saved through `store.setPermission`, then continues the loop. It returns `undefined` when the latest tool step has nothing pending or the conversation moved on. `Agent.pendingToolCalls()` reports what a resume would run. The permission prompt's input now includes `toolCallId`. `isToolPermissionDeferred` and `isTurnSuspended` work across copies of glove-core.
+
+  **glove-foundry.** Approvals are stored and outlive the run that asked.
+
+  - The data adapter keeps them: `putApproval`, `getApproval` and `listApprovals` (optional). `FileFoundryDataAdapter` and `MemoryFoundryDataAdapter` implement them. With these and the event journal, approvals are durable.
+  - The run waits `approvals.waitMs` (60 s by default) for a decision. If nobody decides, it suspends at that call: the run ends with `status: "suspended"` and `suspension: { kind: "approval", approvalId, toolName }`, and the conversation is free. The approval stays open for `approvals.expiresAfterMs` (7 days by default), through restarts.
+  - A decision made after the run suspended goes to the conversation as a durable event. The run that takes it resumes the turn at the waiting call: approved, it runs and its real result is saved; denied, it is refused. If the conversation moved on, the decision arrives as an event and the agent may call the tool again with the same input, which then runs or is refused without asking. A decision delivered twice does not run the call twice.
+  - Every approval has an address. `GET /api/approvals/:id` and `GET /v1/approvals/:id` return one; `client.approval(id)` reads it; the inspector shows it at `/approvals/:id`. `defineApplication({ approvals: { url } })` gives each approval a page in your app, kept as `approval.url`, so a message or an email can link straight to it.
+  - Cancelling or steering the run that asked cancels its open approvals. After a restart, open approvals are marked suspended and decisions not yet handed back are delivered.
+  - New fields on `FoundryApproval`: `toolCallId`, `url`, `suspendedAt`, `resumedAt`, `resumeRunId`, `settledInRun`. New events: `agent.foundry.approval.suspended`, `approval.resumed`.
+
+  Behaviour change: with the bundled adapters, an approval nobody answers no longer expires after 5 minutes with the call refused. The run suspends after 60 s and the approval stays open for 7 days. Set `approvals: { waitMs, expiresAfterMs }` to change either. A custom adapter without the approval methods keeps the old behaviour.
+
+### Patch Changes
+
+- [#200](https://github.com/porkytheblack/glove/pull/200) [`dbc7e0f`](https://github.com/porkytheblack/glove/commit/dbc7e0fcb44cd1ee57d389a83c92b00fd6d9be3c) Thanks [@porkytheblack](https://github.com/porkytheblack)! - Compaction partway through a request keeps the request. The model sees nothing from before a compaction summary. So when compaction ran between a request's model calls, the request survived only as the summary's retelling of it, and a model could answer as if it had lost the thread. The summary now ends with the request, word for word. `Observer.runCompactionNow(current?)` and `tryCompaction(current?)` take it, and the agent loop passes the request it is working on. A compaction between requests is unchanged, and the request is still stored once, so a chat shows it once.
+
 ## 4.6.0
 
 ### Minor Changes
