@@ -4,6 +4,7 @@ import { DASHBOARD_TRACE_SCRIPT } from "../src/dashboard-trace.js";
 import { DASHBOARD_FOUNDRY_SCRIPT } from "../src/dashboard-foundry.js";
 import { assemblyRecorder } from "../src/assembly-trace.js";
 
+type ChainNode = { id: string; edge: { label: string }; children: ChainNode[] };
 type Row = { key: string; dir: string; channel: string; title: string; preview: string; status: string; seenBy: string | null; childRunId?: string; nextRunAt?: string; injectedAt?: number };
 const kit = new Function(`${DASHBOARD_TRACE_SCRIPT}\n${DASHBOARD_FOUNDRY_SCRIPT}; return { buildRunTrace, buildComposition, buildQueues, buildRunChain };`)() as {
   buildRunTrace(events: unknown[], run?: unknown): { items: Array<{ key: string; kind: string; sequence: number }> };
@@ -16,7 +17,7 @@ const kit = new Function(`${DASHBOARD_TRACE_SCRIPT}\n${DASHBOARD_FOUNDRY_SCRIPT}
   buildRunChain(runId: string, runs: unknown[], events: unknown[]): {
     origin: { kind: string; id?: string } | null;
     ancestors: Array<{ id: string; edge: { label: string } }>;
-    self: { id: string; children: Array<{ id: string; edge: { label: string }; children: Array<{ id: string; edge: { label: string } }> }> };
+    self: ChainNode;
   };
 };
 
