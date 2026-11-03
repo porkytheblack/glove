@@ -6,10 +6,10 @@
  * and uses its helpers and the trace functions from dashboard-trace.ts.
  */
 export const DASHBOARD_RUN_SCRIPT = String.raw`
-const RUN_TABS=[["summary","Summary","overview"],["network","Network","network"],["console","Console","terminal"],["context","Context","context"]];
+const RUN_TABS=[["summary","Summary","overview"],["network","Network","network"],["console","Console","terminal"],["context","Context","context"],["composition","Composition","definitions"],["queues","Queues","integrations"],["chain","Call chain","agent"]];
 function runView(){
   const params=new URLSearchParams(location.search);const tab=params.get("tab");
-  return{tab:RUN_TABS.some(t=>t[0]===tab)?tab:"network",item:params.get("item")||"",pane:params.get("pane")||"",node:params.get("node")||"",request:params.get("request")||""};
+  return{tab:RUN_TABS.some(t=>t[0]===tab)?tab:"network",item:params.get("item")||"",pane:params.get("pane")||"",node:params.get("node")||"",request:params.get("request")||"",cnode:params.get("cnode")||"",queue:params.get("queue")||""};
 }
 function setRunView(patch){
   const params=new URLSearchParams(location.search);
@@ -104,23 +104,66 @@ function netMatches(item,kind,term){
   const text=[item.name,item.model,item.fn,tracePreview(item.input,600),item.kind==="model"?(item.response||[]).map(message=>message.text).join(" "):tracePreview(item.result&&item.result.data,600)].join(" ").toLowerCase();
   return text.includes(term);
 }
-function netRow(item,trace,selectedKey){
+/* Like DevTools' Timing tab: the phases of one row, in order. */
+function itemPhases(item){
+  const phases=[];
+  if(item.kind==="model"){
+    if(Number.isFinite(item.ttftMs)){phases.push(["Waiting for the first token",item.ttftMs,"wait"]);phases.push(["Streaming the response",Math.max(0,item.durationMs-item.ttftMs),"run"])}
+    else if(Number.isFinite(item.durationMs))phases.push(["Model request",item.durationMs,"run"]);
+  }else if(item.kind==="tool"){
+    if(item.queuedMs>0)phases.push(["Queued behind earlier calls",item.queuedMs,"queue"]);
+    if(Number.isFinite(item.runMs)){phases.push([item.approval?"Waiting for approval":"Permission check and validation",Math.max(0,item.durationMs-item.runMs),"wait"]);phases.push(["Running",item.runMs,"run"])}
+    else if(Number.isFinite(item.durationMs))phases.push(["Running",item.durationMs,"run"]);
+  }else if(Number.isFinite(item.durationMs))phases.push(["Running",item.durationMs,"run"]);
+  return phases;
+}
+function wfBar(item,trace){
   const span=Math.max(1,trace.end-trace.start);const pending=item.status==="pending";
-  const left=Number.isFinite(item.startAt)?Math.min(99.4,Math.max(0,(item.startAt-trace.start)/span*100)):0;
-  const width=Number.isFinite(item.durationMs)?Math.max(.6,item.durationMs/span*100):pending?100-left:.6;
+  const pct=(ms)=>ms/span*100;
+  const left=Number.isFinite(item.startAt)?Math.min(99.4,Math.max(0,pct(item.startAt-trace.start))):0;
+  const width=Math.min(Number.isFinite(item.durationMs)?Math.max(.6,pct(item.durationMs)):pending?100-left:.6,100-left);
+  const lead=item.queuedMs>0?Math.min(left,pct(item.queuedMs)):0;
+  // The light part is waiting (first token, a permission check); the solid part is work.
+  const waitMs=item.kind==="model"?item.ttftMs:item.kind==="tool"&&Number.isFinite(item.runMs)?item.durationMs-item.runMs:NaN;
+  const wait=Number.isFinite(waitMs)&&Number.isFinite(item.durationMs)&&item.durationMs>0?Math.max(0,Math.min(100,waitMs/item.durationMs*100)):0;
+  const tip=itemPhases(item).map(phase=>phase[0]+": "+durationText(phase[1])).join(" · ");
+  return'<span class="wf-track" title="'+attr(tip)+'">'+(lead?'<span class="wf-queue" style="left:'+(left-lead).toFixed(2)+'%;width:'+lead.toFixed(2)+'%"></span>':"")
+    +'<span class="wf-bar'+(pending?" pending":"")+'" style="left:'+left.toFixed(2)+'%;width:'+width.toFixed(2)+'%">'+(wait&&!pending?'<i class="wf-wait" style="width:'+wait.toFixed(1)+'%"></i>':"")+'</span></span>';
+}
+function turnLabel(turn){return"Turn "+turn.index+" · "+(turn.trigger==="events"?"events woke the agent":turn.trigger==="resume"?"resumed at its tool step":"request")}
+function turnRow(turn){
+  const st={success:["ok","ok"],error:["err","failed"],aborted:["warn","aborted"],suspended:["warn","suspended"],pending:["live","running"]}[turn.status]||["",turn.status];
+  return'<tr class="net-turn"><td colspan="7"><span>'+esc(turnLabel(turn))+'</span><span class="st '+st[0]+'">'+esc(st[1])+'</span><span class="muted mono">'+esc(Number.isFinite(turn.durationMs)?durationText(turn.durationMs):"")+'</span>'+(turn.error?'<span class="sum-msg">'+esc(tracePreview(turn.error,120))+'</span>':"")+'</td></tr>';
+}
+function netRow(item,trace,selectedKey){
+  const pending=item.status==="pending";
   const failed=["error","aborted","denied","limit"].includes(item.status);
-  return'<tr class="net-row kind-'+attr(item.kind)+(item.purpose==="compaction"?" compaction":"")+(item.key===selectedKey?" selected":"")+(failed?" failed":"")+'" data-net-item="'+attr(item.key)+'">'
+  return'<tr class="net-row kind-'+attr(item.kind)+(item.purpose==="compaction"?" compaction":"")+(item.key===selectedKey?" selected":"")+(failed?" failed":"")+(item.depth?" nested":"")+'" data-net-item="'+attr(item.key)+'"'+(item.depth?' style="--depth:'+Math.min(item.depth,6)+'"':"")+'>'
     +'<td class="c-name"><span class="net-name"><i class="net-glyph"></i><span><b>'+esc(item.name)+'</b><small>'+esc(itemSubtitle(item))+'</small></span></span></td>'
     +'<td class="c-type">'+esc(itemType(item))+'</td>'
     +'<td class="c-status">'+itemStatus(item)+'</td>'
     +'<td class="c-init">'+(item.initiator.key?'<button type="button" class="net-link" data-net-item="'+attr(item.initiator.key)+'">'+esc(item.initiator.label)+'</button>':'<span class="muted">'+esc(item.initiator.label)+'</span>')+'</td>'
     +'<td class="c-size">'+esc(itemSize(item))+'</td>'
     +'<td class="c-time">'+(pending?'<span class="st live">…</span>':esc(durationText(item.durationMs)))+'</td>'
-    +'<td class="c-wf"><span class="wf-track"><span class="wf-bar'+(pending?" pending":"")+'" style="left:'+left.toFixed(2)+'%;width:'+Math.min(width,100-left).toFixed(2)+'%"></span></span></td></tr>';
+    +'<td class="c-wf">'+wfBar(item,trace)+'</td></tr>';
 }
-function modelPanes(item){return[["overview","Overview"],["prompt","Prompt"],["messages","Messages",item.messages.length],["context","Context",item.context.length],["tools","Tools",item.toolNames.length],["response","Response"],["raw","Raw"]]}
-function toolPanes(){return[["overview","Overview"],["input","Input"],["result","Result"],["raw","Raw"]]}
-function detailPanes(item){return item.kind==="model"?modelPanes(item):item.kind==="tool"?toolPanes():[["overview","Overview"],["raw","Raw"]]}
+function modelPanes(item){return[["overview","Overview"],["prompt","Prompt"],["messages","Messages",item.messages.length],["context","Context",item.context.length],["tools","Tools",item.toolNames.length],["response","Response"],["timing","Timing"],["raw","Raw"]]}
+function toolPanes(){return[["overview","Overview"],["input","Input"],["result","Result"],["timing","Timing"],["raw","Raw"]]}
+function timingPane(item,run){
+  const base=new Date(runStartedAt(run)).getTime();
+  const phases=itemPhases(item);
+  if(!phases.length)return'<p class="dt-note">'+(item.status==="pending"?"Still running.":"No timing recorded.")+'</p>';
+  const total=phases.reduce((sum,phase)=>sum+phase[1],0)||1;
+  const notes={"Waiting for the first token":"From sending the request to the first streamed text or tool call.","Streaming the response":"From the first token to the end of the response.","Queued behind earlier calls":"The model asked for this call; the calls before it in the same step ran first.","Permission check and validation":"Checking whether the call may run, then validating its input.","Waiting for approval":"A person had to decide before the call could run.","Running":"The tool itself."};
+  return kv([
+    Number.isFinite(item.askedAt)&&item.kind==="tool"?["Asked for",esc(offsetFrom(base,isoAt(item.askedAt)))]:null,
+    Number.isFinite(item.startAt)?["Started",esc(offsetFrom(base,isoAt(item.startAt)))]:null,
+    Number.isFinite(item.endAt)?["Finished",esc(offsetFrom(base,isoAt(item.endAt)))]:null,
+  ])+'<div class="timing">'+phases.map((phase,index)=>{const left=phases.slice(0,index).reduce((sum,prior)=>sum+prior[1],0)/total*100;return'<div class="timing-row"><span class="timing-name">'+esc(phase[0])+'<small>'+esc(notes[phase[0]]||"")+'</small></span><span class="timing-track"><i class="timing-bar '+attr(phase[2])+'" style="left:'+Math.min(99,left).toFixed(1)+'%;width:'+Math.max(.8,phase[1]/total*100).toFixed(1)+'%"></i></span><span class="mono">'+esc(durationText(phase[1]))+'</span></div>'}).join("")
+    +'<div class="timing-row total"><span class="timing-name">Total</span><span></span><span class="mono">'+esc(durationText(total))+'</span></div></div>'
+    +(item.kind==="model"&&item.streamed?'<div class="dt-section">Streamed text</div><pre class="dt-pre">'+esc(item.streamed)+'</pre>':"");
+}
+function detailPanes(item){return item.kind==="model"?modelPanes(item):item.kind==="tool"?toolPanes():[["overview","Overview"],["timing","Timing"],["raw","Raw"]]}
 function kv(rows){return'<dl class="dt-kv">'+rows.filter(Boolean).map(row=>'<dt>'+esc(row[0])+'</dt><dd>'+row[1]+'</dd>').join("")+'</dl>'}
 function itemLink(key,label){return'<button type="button" class="net-link" data-net-item="'+attr(key)+'">'+esc(label)+'</button>'}
 function requestJson(item){return jsonText({model:item.model,system:item.systemPrompt??null,messages:item.messages,context:item.context,tools:item.tools||item.toolNames})}
@@ -150,13 +193,14 @@ function modelDetail(item,trace,run,pane){
       +(item.response||[]).map((message,index)=>traceMessageHtml(message,item.key+":r"+index,false)).join("");
   }
   if(pane==="raw")return'<div class="dt-bar"><span>'+count(item.events.length,"event")+'</span>'+copyButton(jsonText(item.events),"raw events")+'</div>'+jsonBlock(item.events.map(event=>({type:event.type,timestamp:event.timestamp,data:event.data})),item.key+":raw");
+  if(pane==="timing")return timingPane(item,run);
   const fresh=item.messages.slice(item.newFrom);const calls=(item.response||[]).flatMap(message=>message.tool_calls||[]);
   return kv([
     ["Request",'<span class="mono">'+esc(item.id)+'</span> '+copyButton(item.id,"request id")],
     ["Model",esc(item.model||"—")],
     ["Status",itemStatus(item)+(item.error?' <span class="muted">'+esc(item.error)+'</span>':"")],
     ["Started",esc(offsetFrom(base,isoAt(item.startAt)))+' <span class="muted">'+esc(fmtTime(isoAt(item.startAt)))+'</span>'],
-    ["Duration",esc(durationText(item.durationMs))],
+    ["Duration",esc(durationText(item.durationMs))+(Number.isFinite(item.ttftMs)?' <span class="muted">· first token after '+esc(durationText(item.ttftMs))+'</span>':"")],
     ["Tokens",esc(fmtTokens(item.tokensIn))+" in · "+esc(fmtTokens(item.tokensOut))+" out"+(item.cacheRead?" · "+esc(fmtTokens(item.cacheRead))+" read from cache":"")+(item.cacheWrite?" · "+esc(fmtTokens(item.cacheWrite))+" written to cache":"")],
     item.stopReason?["Stop reason",esc(item.stopReason)]:null,
     ["Initiator",item.initiator.key?itemLink(item.initiator.key,item.initiator.label):esc(item.initiator.label)],
@@ -176,13 +220,14 @@ function toolDetail(item,run,pane){
     return kv([["Status",itemStatus(item)],item.result.message?["Message",esc(item.result.message)]:null,["Size",esc(fmtBytes(jsonSize(item.result.data)))]])+(typeof item.result.data==="string"&&!/^\s*[\[{]/.test(item.result.data)?'<pre class="dt-pre">'+esc(item.result.data)+'</pre>':jsonBlock(item.result.data,item.key+":result"));
   }
   if(pane==="raw")return'<div class="dt-bar"><span>'+count(item.events.length,"event")+'</span>'+copyButton(jsonText(item.events),"raw events")+'</div>'+jsonBlock(item.events.map(event=>({type:event.type,timestamp:event.timestamp,data:event.data})),item.key+":raw");
+  if(pane==="timing")return timingPane(item,run);
   if(item.kind==="subagent")return kv([["Subagent",esc(item.name)],["Status",itemStatus(item)],["Duration",esc(durationText(item.durationMs))],item.message?["Result",esc(item.message)]:null])+'<div class="dt-section">Prompt</div><pre class="dt-pre">'+esc(item.prompt||"")+'</pre>';
   return kv([
     item.id?["Call",'<span class="mono">'+esc(item.id)+'</span> '+copyButton(item.id,"call id")]:null,
     ["Tool",esc(item.name)+(item.via==="repl"?' <span class="muted">· '+esc(item.fn||"")+'() from the REPL</span>':"")],
     ["Status",itemStatus(item)],
     Number.isFinite(item.startAt)?["Started",esc(offsetFrom(base,isoAt(item.startAt)))]:null,
-    ["Duration",esc(durationText(item.durationMs))],
+    ["Duration",esc(durationText(item.durationMs))+(item.queuedMs>0?' <span class="muted">· queued '+esc(durationText(item.queuedMs))+' first</span>':"")],
     ["Called by",item.initiator.key?itemLink(item.initiator.key,item.initiator.label):esc(item.initiator.label)],
     item.approval?["Approval",'<span class="st '+(item.approval.status==="approved"?"ok":item.approval.status==="pending"?"warn":"err")+'">'+esc(item.approval.status)+'</span> <span class="muted">requested '+esc(fmtTime(item.approval.requestedAt))+(item.approval.settledAt?", settled "+esc(fmtTime(item.approval.settledAt)):"")+'</span>']:null,
     item.result?["Result",esc(fmtBytes(jsonSize(item.result.data)))+" · "+'<button type="button" class="net-link" data-net-pane="result">view</button>']:null,
@@ -196,6 +241,15 @@ function netDetail(item,trace,run,view){
     +(item.kind==="model"&&item.request?'<span class="nd-actions">'+'<button type="button" class="button" data-copy="'+attr(requestJson(item))+'" title="The system prompt, messages, context and tools of this request as JSON">'+icon("copy")+'<span>Copy request</span></button></span>':"")
     +'</div><div class="nd-title"><b>'+esc(item.name)+'</b><span>'+esc(itemType(item))+(item.model?" · "+esc(item.model):"")+'</span></div><div class="nd-body" data-scroll-key="nd:'+attr(item.key+":"+pane)+'">'+body+'</div></aside>';
 }
+function netRows(visible,trace,selectedKey){
+  // A run with more than one turn (a resume, an event wake) shows where each began.
+  const divide=(trace.turns||[]).length>1;let shown=0;
+  return visible.map(item=>{
+    let head="";
+    if(divide&&item.turn&&item.turn!==shown){shown=item.turn;const turn=trace.turns[item.turn-1];if(turn)head=turnRow(turn)}
+    return head+netRow(item,trace,selectedKey);
+  }).join("");
+}
 function runNetwork(run,trace,view){
   const term=state.network.filter.trim().toLowerCase();
   const visible=trace.items.filter(item=>netMatches(item,state.network.kind,term));
@@ -206,7 +260,7 @@ function runNetwork(run,trace,view){
     +'<div class="dt-chips" role="group" aria-label="Request type">'+kinds.map(kind=>'<button type="button" class="dt-chip'+(state.network.kind===kind[0]?" active":"")+'" data-net-kind="'+kind[0]+'">'+kind[1]+'</button>').join("")+'</div></div>';
   html+='<div class="net-split'+(selected?" has-detail":"")+'"><div class="net-list" data-scroll-key="net-list">';
   if(!trace.items.length)html+=empty("No requests recorded","Model requests and tool calls appear here as the run makes them. Runs recorded before request tracing, or with observability.modelRequests off, list only tool calls and responses.");
-  else html+='<table class="net-table">'+(selected?"":'<colgroup><col class="w-name"><col class="w-type"><col class="w-status"><col class="w-init"><col class="w-size"><col class="w-time"><col class="w-wf"></colgroup>')+'<thead><tr><th class="c-name">Name</th><th class="c-type">Type</th><th class="c-status">Status</th><th class="c-init">Initiator</th><th class="c-size" title="Tokens in → out for model requests, result size for tools">Size</th><th class="c-time">Time</th><th class="c-wf">Waterfall</th></tr></thead><tbody>'+visible.map(item=>netRow(item,trace,view.item)).join("")+'</tbody></table>'+(visible.length?"":empty("Nothing matches","Clear the filter to see every request."));
+  else html+='<table class="net-table">'+(selected?"":'<colgroup><col class="w-name"><col class="w-type"><col class="w-status"><col class="w-init"><col class="w-size"><col class="w-time"><col class="w-wf"></colgroup>')+'<thead><tr><th class="c-name">Name</th><th class="c-type">Type</th><th class="c-status">Status</th><th class="c-init">Initiator</th><th class="c-size" title="Tokens in → out for model requests, result size for tools">Size</th><th class="c-time">Time</th><th class="c-wf">Waterfall</th></tr></thead><tbody>'+netRows(visible,trace,view.item)+'</tbody></table>'+(visible.length?"":empty("Nothing matches","Clear the filter to see every request."));
   html+='</div>'+(selected?netDetail(selected,trace,run,view):"")+'</div>';
   html+='<div class="net-foot"><span>'+(visible.length===trace.items.length?"":visible.length+" / ")+count(t.requests,"model request")+'</span><span>'+count(t.tools,"tool call")+'</span><span>'+esc(fmtTokens(t.tokensIn))+' in · '+esc(fmtTokens(t.tokensOut))+' out'+(t.cacheRead?" · "+esc(fmtTokens(t.cacheRead))+" cached":"")+'</span><span>model '+esc(durationText(t.modelMs))+' · tools '+esc(durationText(t.toolMs))+'</span>'+(t.errors?'<span class="st err">'+count(t.errors,"error")+'</span>':"")+'<span class="net-foot-right">finished in '+esc(durationText(runDurationMs(run)))+'</span></div>';
   return html;
@@ -217,7 +271,8 @@ const CONSOLE_LEVELS={default:["error","warn","info"],all:["error","warn","info"
 function revealKey(row){
   const type=String(row.type||"").replace(/^agent\./,"");const data=row.data||{};
   if(type==="model_request"||type==="model_request_end")return"m:"+data.request_id;
-  if(type==="tool_use")return data.id?"t:"+data.id:"";
+  if(type==="tool_use"||type==="tool_use_start")return data.id?"t:"+data.id:"";
+  if(type==="text_delta")return data.request_id?"m:"+data.request_id:"";
   if(type==="tool_use_result")return(data.id||data.call_id)?"t:"+(data.id||data.call_id):"";
   return"";
 }
@@ -303,10 +358,11 @@ function renderRun(id){
     +'<div><label>Agent instance</label><strong>'+(run.agentId?'<a class="link mono" href="/instances/'+attr(run.agentId)+'" data-link>'+esc(short(run.agentId))+'</a>':"Not recorded")+'</strong></div>'
     +'</div>';
   const errors=rows.filter(row=>row.level==="error").length;const warnings=rows.filter(row=>row.level==="warn").length;
-  const badge={network:trace.items.length?'<span class="dt-badge">'+trace.items.length+'</span>':"",console:(errors?'<span class="dt-badge err">'+errors+'</span>':"")+(warnings?'<span class="dt-badge warn">'+warnings+'</span>':"")};
+  const crossings=buildQueues(events,run,trace).length;
+  const badge={queues:crossings?'<span class="dt-badge">'+crossings+'</span>':"",network:trace.items.length?'<span class="dt-badge">'+trace.items.length+'</span>':"",console:(errors?'<span class="dt-badge err">'+errors+'</span>':"")+(warnings?'<span class="dt-badge warn">'+warnings+'</span>':"")};
   html+='<section class="devtools"><div class="dt-tabs" role="tablist" aria-label="Run views">'+RUN_TABS.map(tab=>'<button type="button" role="tab" class="dt-tab'+(view.tab===tab[0]?" active":"")+'" aria-selected="'+(view.tab===tab[0])+'" data-run-tab="'+tab[0]+'">'+icon(tab[2])+esc(tab[1])+(badge[tab[0]]||"")+'</button>').join("")
-    +(isLiveRun(run)?'<span class="dt-live"><i class="pulse-dot"></i>Live</span>':"")+'<span class="dt-hint">1–4 views · j / k requests · / filter · Esc close</span></div><div class="dt-body dt-'+view.tab+'">'
-    +(view.tab==="summary"?runSummary(run,events,trace):view.tab==="console"?runConsole(run,rows):view.tab==="context"?runContext(run,trace,events,view):runNetwork(run,trace,view))+'</div></section>';
+    +(isLiveRun(run)?'<span class="dt-live"><i class="pulse-dot"></i>Live</span>':"")+'<span class="dt-hint">1–7 views · j / k requests · / filter · Esc close</span></div><div class="dt-body dt-'+view.tab+'">'
+    +(view.tab==="summary"?runSummary(run,events,trace):view.tab==="console"?runConsole(run,rows):view.tab==="context"?runContext(run,trace,events,view):view.tab==="composition"?compositionView(run,trace,events,view):view.tab==="queues"?queuesView(run,trace,events,view):view.tab==="chain"?chainView(run,events):runNetwork(run,trace,view))+'</div></section>';
   $("content").innerHTML=html;
   bindRun(id,run,trace,events);
 }
@@ -332,12 +388,13 @@ function bindRun(id,run,trace,events){
   if(rerun)rerun.onclick=()=>openRunDrawer(state.instances.find(x=>x.id===run.agentId)?.definitionId,run.agentId,typeof run.input?.message?.text==="string"?run.input.message.text:typeof run.input?.message==="string"?run.input.message:"");
   const exportButton=document.querySelector("[data-export-trace]");
   if(exportButton)exportButton.onclick=()=>{const blob=new Blob([JSON.stringify({run,events},null,2)+"\n"],{type:"application/json"});const url=URL.createObjectURL(blob);const link=document.createElement("a");link.href=url;link.download="run-"+run.id+".json";document.body.appendChild(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);toast("Trace exported")};
+  bindRunFoundry(id);
   dataLinks();
 }
 /* Keys on the run page: 1-4 switch views, j/k walk the requests, Esc closes the open one. */
 function runKeys(e){
   const current=route();if(current.section!=="runs"||!current.id)return false;
-  const index=["1","2","3","4"].indexOf(e.key);
+  const index=["1","2","3","4","5","6","7"].indexOf(e.key);
   if(index>=0){setRunView({tab:RUN_TABS[index][0]});rerenderRun(current.id);return true}
   const view=runView();
   if(view.tab==="network"&&(e.key==="j"||e.key==="k"||e.key==="ArrowDown"||e.key==="ArrowUp")){
@@ -347,6 +404,7 @@ function runKeys(e){
     e.preventDefault();selectRunItem(current.id,next.dataset.netItem);return true;
   }
   if(e.key==="Escape"&&view.item){setRunView({item:"",pane:""});rerenderRun(current.id);return true}
+  if(e.key==="Escape"&&view.tab==="queues"&&view.queue){setRunView({queue:""});rerenderRun(current.id);return true}
   return false;
 }
 `;

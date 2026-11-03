@@ -1,6 +1,8 @@
 import { PHOSPHOR_ICON_PATHS } from "./dashboard-icons.js";
 import { DASHBOARD_RUN_SCRIPT } from "./dashboard-run.js";
 import { DASHBOARD_TRACE_SCRIPT } from "./dashboard-trace.js";
+import { DASHBOARD_FOUNDRY_SCRIPT } from "./dashboard-foundry.js";
+import { DASHBOARD_RUN_FOUNDRY_SCRIPT } from "./dashboard-run-foundry.js";
 
 const ICON_PATHS_JSON = JSON.stringify(PHOSPHOR_ICON_PATHS);
 
@@ -81,7 +83,9 @@ async function copyValue(button){
 }
 
 ${DASHBOARD_TRACE_SCRIPT}
+${DASHBOARD_FOUNDRY_SCRIPT}
 ${DASHBOARD_RUN_SCRIPT}
+${DASHBOARD_RUN_FOUNDRY_SCRIPT}
 /* ---- View state. Live updates repaint the page, so the parts a person is
        actively using -- scroll, focus, caret, expanded rows -- survive it. ---- */
 function captureView(){

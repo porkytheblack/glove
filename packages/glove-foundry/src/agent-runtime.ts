@@ -73,6 +73,7 @@ import {
   type FoundrySubscriberSelection,
   type FoundrySurfaceContext,
 } from "./surfaces.js";
+import { assemblyRecorder, FOUNDRY_ASSEMBLY_COMPOSED_EVENT } from "./assembly-trace.js";
 import {
   FOUNDRY_CORE_COMMAND_EVENT,
   createFoundryCoreTools,
@@ -565,6 +566,9 @@ async function executeDefinition(
         : {}),
     }).build();
     base.addSubscriber(subscriber);
+    // Which step folded which tool, for the inspector's Composition view.
+    const assembly = assemblyRecorder(base);
+    assembly.mark("glove", "Glove built-ins");
 
     const [tools, hooks, skills, subagents, delegates, memory, inboxItems, layers, subscribers, calls, playbooks, schedules, mesh, workingEnvironment, repl] =
       await Promise.all([
@@ -666,6 +670,7 @@ async function executeDefinition(
       playbooks: desiredPlaybooks,
       applications: registry.capabilities.applications,
     })) base.fold(tool);
+    assembly.mark("foundry-core", "Foundry core tools");
     const applicationTransmissionTools = createInstalledApplicationTransmissionTools(
       assemblyContext,
       registry.capabilities.applications,
@@ -673,6 +678,7 @@ async function executeDefinition(
       desiredPlaybooks,
     );
     for (const tool of applicationTransmissionTools) base.fold(tool);
+    assembly.mark("transmissions", "App transmissions");
     if (applicationTransmissionTools.length > 0) {
       controls.emit({
         type: "foundry.application.transmission-tools.mounted",
@@ -685,6 +691,7 @@ async function executeDefinition(
     for (const hook of hooks) base.defineHook(hook.name, hook.handler);
     for (const skill of skills) base.defineSkill(skill);
     for (const subagent of subagents) base.defineSubAgent(subagent);
+    assembly.mark("definition", "Definition tools, skills and subagents");
 
     // Delegation: hand work to sibling agents, and hear back.
     const mailboxDirectory = process.env[FOUNDRY_MAILBOX_DIRECTORY_ENV];
@@ -870,7 +877,9 @@ async function executeDefinition(
     const pendingReply: PendingMeshReply = {};
     const ownThread = assemblyContext.thread;
     const hostedMesh = hostedMeshOptions(definition.mesh);
-    if (hostedMesh && (hostedMesh.mount?.(assemblyContext) ?? true)) {
+    if (ownDelegation || normalizedDelegates.length || durableNames.length) assembly.mark("delegation", "Delegation");
+    const meshHosted = Boolean(hostedMesh && (hostedMesh.mount?.(assemblyContext) ?? true));
+    if (hostedMesh && meshHosted) {
       for (const tool of createMeshTools({
         definitionId: id,
         agentId: request.agentId,
@@ -885,6 +894,7 @@ async function executeDefinition(
         type: "foundry.mesh.mounted",
         data: { open: assemblyContext.threads.length, thread: ownThread?.id ?? null },
       });
+      assembly.mark("mesh", "Hosted mesh");
     }
     if (hostedMesh || assemblyContext.threads.length > 0 || ownThread) {
       base.addContextProvider(() => [
@@ -909,6 +919,7 @@ async function executeDefinition(
       apps: () => installedApps,
     });
     cleanups.push(workbench.dispose);
+    assembly.mark("workbench", "Working environment");
 
     const callByName = new Map<string, FoundryCall>();
     const invoke = async (name: string, callInput: unknown): Promise<unknown> => {
@@ -946,6 +957,7 @@ async function executeDefinition(
       contextProviders: await resolveOptional("contextProviders", definition.contextProviders, []),
     });
     cleanups.push(async () => { try { await guidance.snapshot(); } finally { guidance.dispose(); } });
+    assembly.mark("guidance", "Goals, facts and forms");
     const callContext: FoundryExecutionContext<FoundryRequest> = {
       ...surfaceContext,
       ...guidance.handles,
@@ -991,12 +1003,14 @@ async function executeDefinition(
       }
     }
 
+    assembly.mark("calls", "Calls");
     disposeSurfaces = await mountFoundrySurfaces({
       registry: registry.native,
       layers,
       subscribers,
       context: surfaceContext,
     });
+    assembly.mark("surfaces", "Layers and subscribers");
     await Effect.runPromise(
       installRegistry({
         registry: registry.capabilities,
@@ -1026,7 +1040,14 @@ async function executeDefinition(
           messages,
           glove: base,
           store: base.store,
-          emit: controls.emit,
+          // Each installation's tools are folded just before it reports completing.
+          emit: (event) => {
+            if (event.type === "foundry.installation.completed") {
+              const installed = event.data as { kind?: string; id?: string };
+              assembly.mark("installation", installed.id ?? "installation", { keep: true, ...(installed.kind ? { kind: installed.kind } : {}), ...(installed.id ? { id: installed.id } : {}) });
+            }
+            controls.emit(event);
+          },
         },
         ...(definition.mcpAdapter ? { mcpAdapter: definition.mcpAdapter } : {}),
         ...(definition.accountSessions ? { accountSessions: definition.accountSessions } : {}),
@@ -1034,6 +1055,7 @@ async function executeDefinition(
         onCleanup: (cleanup) => { cleanups.push(cleanup); },
       }),
     );
+    assembly.mark("mcp", "MCP servers");
     await Effect.runPromise(
       mountAgentDefinitionMemory({
         registry: registry.capabilities,
@@ -1057,6 +1079,7 @@ async function executeDefinition(
         },
       }),
     );
+    assembly.mark("memory", "Memory");
     if (definition.inboxes) {
       await hydrateInbox(base.store, inboxItems, controls.emit);
     }
@@ -1080,17 +1103,21 @@ async function executeDefinition(
         },
       });
       cleanups.push(() => mesh.adapter.unregister());
+      assembly.mark("mesh", "Mesh transport");
     }
     if (definition.configure) {
       await resolveResolvable(definition.configure(base, callContext));
+      assembly.mark("configure", "configure()");
     }
     // Programmatic tool selection must see the complete live assembly: calls,
     // dynamic installations, memory, mesh, and configure-mounted surfaces.
     // Priming only after that selection also makes its capability catalog exact.
     await workbench.mountRepl();
+    assembly.mark("repl", "REPL");
     const glove = definition.build
       ? (await resolveResolvable(definition.build(base, assemblyContext))) ?? base
       : base;
+    if (glove !== base) assembly.mark("build", "build()", { glove });
     if (glove !== base) {
       // Wrappers can forward subscriber methods to base; remove before adding
       // to avoid duplicate notifications in that case.
@@ -1101,6 +1128,30 @@ async function executeDefinition(
     }
     cleanups.push(() => { glove.removeSubscriber(subscriber); glove.removeSubscriber(deliverySubscriber); });
     eventRecipient = glove;
+    controls.emit({
+      type: FOUNDRY_ASSEMBLY_COMPOSED_EVENT,
+      data: {
+        durationMs: assembly.elapsedMs(),
+        steps: assembly.steps,
+        tools: glove.tools.map((tool) => tool.name),
+        installations: effectiveInstallations.map((installation) => ({ kind: installation.kind, id: installation.id, ...(installation.accountId ? { accountId: installation.accountId } : {}) })),
+        apps: installedApps.map((app) => ({ id: app.id, description: app.description, ...(app.accountId ? { accountId: app.accountId } : {}), tools: app.tools })),
+        playbooks: desiredPlaybooks.map((playbook) => ({ id: playbook.id, ...(playbook.playbookName ? { name: playbook.playbookName } : {}) })),
+        schedules: desiredSchedules.map((schedule) => ({ name: schedule.name, timing: schedule.timing, enabled: schedule.enabled })),
+        delegates: normalizedDelegates.map((delegate) => ({ agent: delegate.agent, ...(delegate.description ? { description: delegate.description } : {}) })),
+        durableSubagents: durableNames,
+        openDelegations: assemblyContext.delegations.length,
+        ...(ownDelegation ? { delegation: { id: ownDelegation.id, from: ownDelegation.from.definitionId, task: ownDelegation.task } } : {}),
+        mesh: { hosted: meshHosted, transport: Boolean(mesh), threads: assemblyContext.threads.length, ...(ownThread ? { thread: ownThread.id } : {}) },
+        hooks: hooks.map((hook) => hook.name),
+        skills: skills.map((skill) => skill.name),
+        subagents: subagents.map((subagent) => subagent.name),
+        calls: calls.map((call) => ({ name: call.name, exposed: call.exposeToAgent ?? true })),
+        workingEnvironment: Boolean(workbench.workingEnvironment),
+        repl: Boolean(workbench.repl),
+        events: { initial: initialDeliveries.length, buffered: bufferedDeliveries.length },
+      },
+    });
     await forwardDeliveries(bufferedDeliveries.splice(0));
     const runtimeContext = { ...callContext, glove };
     let initialEventsPending = initialDeliveries.length > 0;

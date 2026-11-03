@@ -10,6 +10,7 @@
  */
 export const DASHBOARD_TRACE_SCRIPT = String.raw`
 function traceTime(iso){const t=Date.parse(iso);return Number.isFinite(t)?t:NaN}
+function tracePlural(n,word){return n+" "+word+(n===1?"":"s")}
 function traceType(event){return String(event.type||"").replace(/^agent\./,"")}
 function tracePreview(value,limit){
   let text;
@@ -20,9 +21,15 @@ function tracePreview(value,limit){
 }
 function buildRunTrace(events,run){
   const ordered=[...(events||[])].sort((a,b)=>(a.sequence??0)-(b.sequence??0));
-  const prompts={},toolSets={},requests={},calls={},items=[],pendingByName={};
+  const prompts={},toolSets={},requests={},calls={},items=[],pendingByName={},turns=[];
   const totals={requests:0,tools:0,tokensIn:0,tokensOut:0,cacheRead:0,cacheWrite:0,modelMs:0,toolMs:0,errors:0};
-  let open=null,previous=null,first=NaN,last=NaN;
+  let first=NaN,last=NaN;
+  // One frame per agent: the run's own, then one per subagent running inside it.
+  const frames=[{open:null,previous:null,subagent:null}];
+  const frame=()=>frames[frames.length-1];
+  let turn=null;
+  const place=(item)=>{const f=frame();item.depth=frames.length-1;if(f.subagent)item.parent=f.subagent.key;if(turn)item.turn=turn.index;return item};
+  const requestFor=(data)=>(data.request_id&&requests[data.request_id])||frame().open;
   const runStart=run?traceTime(run.startedAt||run.createdAt):NaN;
   const runEnd=run&&run.completedAt?traceTime(run.completedAt):NaN;
   const runningTool=()=>{for(let i=items.length-1;i>=0;i--){const item=items[i];if(item.kind==="tool"&&item.status==="pending"&&!item.via)return item}return null};
@@ -42,15 +49,18 @@ function buildRunTrace(events,run){
       let newFrom=messages.length-added.length;
       // A run's first request carries the conversation so far; what's new starts at the run's own message.
       if(!base)for(let i=messages.length-1;i>=0;i--){const m=messages[i];if(m&&m.sender==="user"&&!m.framework_context&&!(m.tool_results||[]).length&&!m.is_compaction){newFrom=i;break}}
-      const initiator=data.purpose==="compaction"?{label:"compaction"}:previous&&previous.calls.length?{label:"after "+[...new Set(previous.calls.map(id=>calls[id]&&calls[id].name).filter(Boolean))].join(", "),key:previous.key}:previous?{label:"continues #"+previous.index,key:previous.key}:{label:"run input"};
+      const f=frame();const previous=f.previous;
+      const initiator=data.purpose==="compaction"?{label:"compaction"}:previous&&previous.calls.length?{label:"after "+[...new Set(previous.calls.map(id=>calls[id]&&calls[id].name).filter(Boolean))].join(", "),key:previous.key}:previous?{label:"continues #"+previous.index,key:previous.key}:f.subagent?{label:"subagent "+f.subagent.name,key:f.subagent.key}:turn&&turn.trigger!=="request"?{label:turn.trigger==="events"?"event wake":"resumed",key:"turn:"+turn.index}:{label:"run input"};
       const item={kind:"model",key:"m:"+data.request_id,id:data.request_id,index:++totals.requests,name:"#"+(totals.requests)+" "+(data.purpose==="compaction"?"compaction":"request"),model:data.model||"",purpose:data.purpose||"turn",status:"pending",startAt:at,endAt:NaN,durationMs:NaN,sequence:event.sequence,request:data,end:null,promptHash:data.system_prompt&&data.system_prompt.hash,promptChars:data.system_prompt&&data.system_prompt.chars,toolsHash:data.tools&&data.tools.hash,toolNames:(data.tools&&data.tools.names)||[],messages,newFrom,context:data.context||[],response:[],calls:[],initiator,events:[event]};
-      requests[data.request_id]=item;items.push(item);open=item;previous=item;continue;
+      place(item);requests[data.request_id]=item;items.push(item);f.open=item;f.previous=item;continue;
     }
     if(type==="model_request_end"){
       const item=requests[data.request_id];if(!item)continue;
       item.end=data;item.events.push(event);item.status=data.status||"success";item.endAt=at;
       item.durationMs=Number.isFinite(data.duration_ms)?data.duration_ms:at-item.startAt;
       if(Number.isFinite(data.duration_ms)&&Number.isFinite(at))item.startAt=at-data.duration_ms;
+      // Time to first token: waiting on the model, then streaming its answer.
+      if(Number.isFinite(item.firstTokenAt))item.ttftMs=Math.max(0,Math.min(item.durationMs,item.firstTokenAt-item.startAt));
       item.tokensIn=data.tokens_in;item.tokensOut=data.tokens_out;item.cacheRead=data.cache_read_input_tokens;item.cacheWrite=data.cache_creation_input_tokens;
       item.response=data.response||[];item.error=data.error;
       totals.tokensIn+=data.tokens_in||0;totals.tokensOut+=data.tokens_out||0;totals.cacheRead+=data.cache_read_input_tokens||0;totals.cacheWrite+=data.cache_creation_input_tokens||0;
@@ -60,24 +70,40 @@ function buildRunTrace(events,run){
         if(!call.id)continue;
         item.calls.push(call.id);calls[call.id]=calls[call.id]||{name:call.tool_name,request:item};
         // Adapters that don't stream tool_use: the call starts when the response arrives.
-        if(!calls[call.id].item)calls[call.id].item=addTool({kind:"tool",key:"t:"+call.id,id:call.id,name:call.tool_name,input:call.input_args,status:"pending",startAt:at,endAt:NaN,durationMs:NaN,sequence:event.sequence,request:item.key,initiator:{label:"#"+item.index+" "+(item.purpose==="compaction"?"compaction":"request"),key:item.key},events:[]});
+        if(!calls[call.id].item)calls[call.id].item=addTool(place({kind:"tool",key:"t:"+call.id,id:call.id,name:call.tool_name,input:call.input_args,status:"pending",startAt:at,askedAt:at,endAt:NaN,durationMs:NaN,sequence:event.sequence,request:item.key,initiator:{label:"#"+item.index+" "+(item.purpose==="compaction"?"compaction":"request"),key:item.key},events:[]}));
       }
-      if(open===item)open=null;continue;
+      for(const f of frames)if(f.open===item)f.open=null;
+      continue;
+    }
+    if(type==="text_delta"){
+      const target=requestFor(data);
+      if(target){if(!Number.isFinite(target.firstTokenAt))target.firstTokenAt=at;target.streamed=(target.streamed||"")+String(data.text||"")}
+      continue;
     }
     if(type==="model_response_complete"||type==="model_response"){
-      const target=open||previous;
-      if(target&&(target===open||!target.stopReason)){target.stopReason=data.stop_reason;target.events.push(event);continue}
+      const f=frame();const target=(data.request_id&&requests[data.request_id])||f.open||f.previous;
+      if(target&&(target===f.open||target.id===data.request_id||!target.stopReason)){target.stopReason=data.stop_reason;target.events.push(event);continue}
       if(!target){
         // A runtime without request events: the response is all there is.
         const item={kind:"model",key:"m:"+(event.id||event.sequence),id:String(event.id||event.sequence),index:++totals.requests,name:"#"+totals.requests+" response",model:"",purpose:"turn",status:"success",startAt:at,endAt:at,durationMs:NaN,sequence:event.sequence,request:null,end:null,messages:[],newFrom:0,context:[],response:[{sender:"agent",text:data.text||"",tool_calls:data.tool_calls}],calls:[],toolNames:[],initiator:{label:"run"},stopReason:data.stop_reason,tokensIn:data.tokens_in,tokensOut:data.tokens_out,events:[event],legacy:true};
-        totals.tokensIn+=data.tokens_in||0;totals.tokensOut+=data.tokens_out||0;items.push(item);
+        totals.tokensIn+=data.tokens_in||0;totals.tokensOut+=data.tokens_out||0;items.push(place(item));
       }
       continue;
     }
     if(type==="tool_use"){
-      const request=open||previous;
-      const item=addTool({kind:"tool",key:"t:"+(data.id||event.id||event.sequence),id:data.id,name:data.name||"tool",input:data.input,status:"pending",startAt:at,endAt:NaN,durationMs:NaN,sequence:event.sequence,request:request?request.key:null,initiator:request?{label:"#"+request.index+" "+(request.purpose==="compaction"?"compaction":"request"),key:request.key}:{label:"model"},events:[event]});
+      const request=requestFor(data)||frame().previous;
+      if(request&&!Number.isFinite(request.firstTokenAt))request.firstTokenAt=at;
+      const item=addTool(place({kind:"tool",key:"t:"+(data.id||event.id||event.sequence),id:data.id,name:data.name||"tool",input:data.input,status:"pending",startAt:at,askedAt:at,endAt:NaN,durationMs:NaN,sequence:event.sequence,request:request?request.key:null,initiator:request?{label:"#"+request.index+" "+(request.purpose==="compaction"?"compaction":"request"),key:request.key}:{label:"model"},events:[event]}));
       if(data.id){calls[data.id]=calls[data.id]||{name:item.name,request};calls[data.id].item=item}
+      continue;
+    }
+    if(type==="tool_use_start"){
+      // The call starts running now: after the calls ahead of it, its permission check and validation.
+      const name=data.name||"tool";
+      let item=data.id&&calls[data.id]&&calls[data.id].item;
+      if(!item)item=(pendingByName[name]||[]).find(candidate=>candidate.status==="pending"&&!candidate.via&&!Number.isFinite(candidate.runAt));
+      if(!item){item=addTool(place({kind:"tool",key:"t:"+(data.id||event.id||event.sequence),id:data.id,name,input:data.input,status:"pending",startAt:at,askedAt:at,endAt:NaN,durationMs:NaN,sequence:event.sequence,request:null,initiator:{label:"model"},events:[]}));if(data.id){calls[data.id]=calls[data.id]||{name};calls[data.id].item=item}}
+      item.runAt=at;item.waitedMs=Number.isFinite(data.waited_ms)?data.waited_ms:undefined;item.events.push(event);
       continue;
     }
     if(type==="tool_use_result"){
@@ -85,13 +111,27 @@ function buildRunTrace(events,run){
       let item=id&&calls[id]&&calls[id].item;
       const queue=pendingByName[name]||[];
       if(!item)item=queue.find(candidate=>candidate.status==="pending"&&!candidate.via);
-      if(!item)item=addTool({kind:"tool",key:"t:"+(id||event.id||event.sequence),id,name,input:undefined,status:"pending",startAt:at,endAt:NaN,durationMs:NaN,sequence:event.sequence,request:null,initiator:{label:"model"},events:[]});
+      if(!item)item=addTool(place({kind:"tool",key:"t:"+(id||event.id||event.sequence),id,name,input:undefined,status:"pending",startAt:at,endAt:NaN,durationMs:NaN,sequence:event.sequence,request:null,initiator:{label:"model"},events:[]}));
       const index=queue.indexOf(item);if(index>=0)queue.splice(index,1);
       item.events.push(event);item.result=data.result||{};item.status=(data.result&&data.result.status)||"success";item.endAt=at;
+      if(item.status==="error"&&/^Permission denied for tool/.test(String(item.result.message||"")))item.status="denied";
       item.durationMs=Number.isFinite(data.duration_ms)?data.duration_ms:at-item.startAt;
       if(Number.isFinite(data.duration_ms)&&Number.isFinite(at))item.startAt=at-data.duration_ms;
+      // Asked for, then queued behind the calls ahead of it, then checked, then run.
+      if(Number.isFinite(item.askedAt))item.queuedMs=Math.max(0,item.startAt-item.askedAt);
+      if(Number.isFinite(item.runAt))item.runMs=Math.max(0,at-item.runAt);
       if(Number.isFinite(item.durationMs))totals.toolMs+=item.durationMs;
-      if(item.status==="error")totals.errors++;
+      if(item.status==="error"||item.status==="denied")totals.errors++;
+      continue;
+    }
+    if(type==="turn_start"){
+      // A subagent's turns sit inside its parent's; only the run's own are listed.
+      if(frames.length===1){turn={kind:"turn",key:"turn:"+(turns.length+1),index:turns.length+1,id:data.turn_id,trigger:data.trigger||"request",status:"pending",startAt:at,endAt:NaN,durationMs:NaN,events:[event]};turns.push(turn)}
+      continue;
+    }
+    if(type==="turn_end"){
+      const ended=turns.find(candidate=>candidate.id===data.turn_id);
+      if(ended){ended.status=data.status||"success";ended.endAt=at;ended.durationMs=Number.isFinite(data.duration_ms)?data.duration_ms:at-ended.startAt;if(Number.isFinite(data.duration_ms))ended.startAt=at-data.duration_ms;ended.error=data.error;ended.events.push(event)}
       continue;
     }
     if(/^foundry\.approval\./.test(type)){
@@ -102,20 +142,31 @@ function buildRunTrace(events,run){
     }
     if(/^foundry\.repl\.programmatic-tool\./.test(type)){
       const name=data.tool||"tool";
-      if(type==="foundry.repl.programmatic-tool.started"){const parent=runningTool();addTool({kind:"tool",via:"repl",key:"p:"+(event.id||event.sequence),name,fn:data.function,status:"pending",startAt:at,endAt:NaN,durationMs:NaN,sequence:event.sequence,request:parent?parent.request:null,initiator:parent?{label:parent.name+" (REPL)",key:parent.key}:{label:"REPL"},events:[event]});continue}
+      if(type==="foundry.repl.programmatic-tool.started"){const parent=runningTool();addTool(place({kind:"tool",via:"repl",key:"p:"+(event.id||event.sequence),name,fn:data.function,status:"pending",startAt:at,endAt:NaN,durationMs:NaN,sequence:event.sequence,request:parent?parent.request:null,initiator:parent?{label:parent.name+" (REPL)",key:parent.key}:{label:"REPL"},events:[event]}));continue}
       const item=[...items].reverse().find(candidate=>candidate.via==="repl"&&candidate.name===name&&candidate.status==="pending");
       if(item){item.events.push(event);item.endAt=at;item.durationMs=data.durationMs;item.status=type.endsWith("completed")?"success":type.endsWith("failed")?"error":"denied";if(Number.isFinite(data.durationMs)&&Number.isFinite(at))item.startAt=at-data.durationMs;if(item.status!=="success")totals.errors++}
       else if(!type.endsWith("completed")){totals.tools++;totals.errors++;items.push({kind:"tool",via:"repl",key:"p:"+(event.id||event.sequence),name,fn:data.function,status:type.split(".").pop(),startAt:at,endAt:at,durationMs:0,sequence:event.sequence,initiator:{label:"REPL"},result:{status:"error",message:data.reason},events:[event]})}
       continue;
     }
-    if(type==="subagent_invoked"){items.push({kind:"subagent",key:"s:"+(event.id||event.sequence),name:data.name,prompt:data.prompt,status:"pending",startAt:at,endAt:NaN,durationMs:NaN,sequence:event.sequence,initiator:{label:"subagent"},events:[event]});continue}
-    if(type==="subagent_completed"){const item=[...items].reverse().find(candidate=>candidate.kind==="subagent"&&candidate.name===data.name&&candidate.status==="pending");if(item){item.status=data.status||"success";item.endAt=at;item.durationMs=at-item.startAt;item.message=data.message;item.events.push(event)}continue}
+    if(type==="subagent_invoked"){
+      const call=data.call_id&&calls[data.call_id]&&calls[data.call_id].item;
+      const item=place({kind:"subagent",key:"s:"+(data.call_id||event.id||event.sequence),call:call?call.key:undefined,name:data.name,prompt:data.prompt,status:"pending",startAt:at,endAt:NaN,durationMs:NaN,sequence:event.sequence,initiator:call?{label:call.name,key:call.key}:{label:"subagent"},events:[event]});
+      items.push(item);frames.push({open:null,previous:null,subagent:item});continue;
+    }
+    if(type==="subagent_completed"){
+      const index=frames.findLastIndex(candidate=>candidate.subagent&&(data.call_id?candidate.subagent.key==="s:"+data.call_id:candidate.subagent.name===data.name));
+      const item=index>0?frames[index].subagent:[...items].reverse().find(candidate=>candidate.kind==="subagent"&&candidate.name===data.name&&candidate.status==="pending");
+      if(index>0)frames.splice(index);
+      if(item){item.status=data.status||"success";item.endAt=at;item.durationMs=at-item.startAt;item.message=data.message;item.events.push(event)}
+      continue;
+    }
   }
   const start=Number.isFinite(runStart)?Math.min(runStart,Number.isFinite(first)?first:runStart):first;
   const live=run&&(run.status==="running"||run.status==="pending");
   const end=live?Math.max(Date.now(),Number.isFinite(last)?last:0):Number.isFinite(runEnd)?Math.max(runEnd,Number.isFinite(last)?last:runEnd):last;
   for(const item of items){if(item.kind==="model"){item.systemPrompt=prompts[item.promptHash];item.tools=toolSets[item.toolsHash]}}
-  return{items,prompts,toolSets,totals,start,end};
+  for(const item of turns)if(item.status==="pending"&&!live&&Number.isFinite(end)){item.endAt=end;item.durationMs=end-item.startAt}
+  return{items,turns,prompts,toolSets,totals,start,end};
 }
 
 /* Console levels follow DevTools: errors, warnings, info, and verbose detail hidden by default. */
@@ -139,6 +190,25 @@ function describeEvent(event){
   if(type==="model_response_complete"||type==="model_response")return level("verbose","Response"+(data.stop_reason?" ("+data.stop_reason+")":"")+": "+tracePreview(data.text||"",120));
   if(type==="text_delta")return level("verbose","Streamed text: "+tracePreview(data.text,160));
   if(type==="tool_use")return level("info","Tool call "+data.name+"("+tracePreview(data.input,100)+")");
+  if(type==="tool_use_start")return level("verbose",data.name+" started"+(data.waited_ms>=1000?" after "+data.waited_ms+"ms of permission checks":""),"tool");
+  if(type==="turn_start")return level("info",data.trigger==="events"?"Turn started: events woke the agent":data.trigger==="resume"?"Turn resumed at its tool step":"Turn started","run");
+  if(type==="turn_end"){
+    const time=Number.isFinite(data.duration_ms)?" after "+data.duration_ms+"ms":"";
+    if(data.status==="error")return level("error","Turn failed"+time+(data.error?": "+tracePreview(data.error,140):""),"run");
+    if(data.status==="aborted")return level("warn","Turn aborted"+time,"run");
+    if(data.status==="suspended")return level("warn","Turn suspended"+time+": a tool call is waiting for a decision","run");
+    return level("info","Turn finished"+time,"run");
+  }
+  if(type==="inbox_injected")return level("info","Inbox: "+(data.ids||[]).length+" resolved item"+((data.ids||[]).length===1?"":"s")+" joined the conversation "+(data.phase==="loop"?"between tool steps":"before the request")+((data.tags||[]).length?" ("+data.tags.join(", ")+")":""),"inbox");
+  if(type==="event_received"){
+    const what=(data.kind?data.kind+" from ":"")+data.source;const preview=data.preview?": "+tracePreview(data.preview,120):"";
+    if(data.disposition==="dropped")return level("warn","Event dropped: "+what+preview,"queue");
+    if(data.disposition==="duplicate")return level("verbose","Duplicate event ignored: "+what,"queue");
+    return level("info","Event "+({queued:"queued",woke:"woke the agent",deferred:"deferred"}[data.disposition]||data.disposition)+": "+what+preview,"queue");
+  }
+  if(type==="event_injected")return level("info",tracePlural((data.ids||[]).length,"event")+" joined the conversation "+({loop:"between tool steps",request:"before the request",wake:"as the turn's message"}[data.phase]||""),"queue");
+  if(type==="event_dropped")return level("warn","Event "+data.id+" dropped ("+data.reason+")","queue");
+  if(type==="event_wake_failed")return level("error","A turn for "+tracePlural((data.ids||[]).length,"event")+" failed: "+tracePreview(data.message,140),"queue");
   if(type==="tool_use_result"){
     const status=data.result&&data.result.status;const name=data.name||data.tool_name;const time=Number.isFinite(data.duration_ms)?" in "+data.duration_ms+"ms":"";
     if(status==="error")return level("error",name+" failed"+time+": "+tracePreview(data.result.message||data.result.data,140));
@@ -164,13 +234,18 @@ function describeEvent(event){
   return level("verbose",type);
 }
 function buildConsole(events){
-  const rows=[];let stream=null;
+  // A streamed reply is one line: chunks of one request join, wherever they arrive.
+  const rows=[];let stream=null;const streams={};
   for(const event of [...(events||[])].sort((a,b)=>(a.sequence??0)-(b.sequence??0))){
     if(traceType(event)==="text_delta"){
-      if(!stream){stream={key:"c:"+(event.id||event.sequence),level:"verbose",source:"model",timestamp:event.timestamp,type:"text_delta",text:"",chunks:0,events:[]};rows.push(stream)}
-      stream.text+=String((event.data&&event.data.text)||"");stream.chunks++;stream.events.push(event);
-      stream.message="Streamed text ("+stream.chunks+" chunk"+(stream.chunks===1?"":"s")+"): "+tracePreview(stream.text,160);
-      stream.data={text:stream.text,chunks:stream.chunks};
+      const request=event.data&&event.data.request_id;
+      const current=request?streams[request]:stream;
+      const row=current||{key:"c:"+(event.id||event.sequence),level:"verbose",source:"model",timestamp:event.timestamp,type:"text_delta",text:"",chunks:0,events:[]};
+      if(!current){rows.push(row);if(request)streams[request]=row}
+      stream=row;
+      row.text+=String((event.data&&event.data.text)||"");row.chunks++;row.events.push(event);
+      row.message="Streamed text ("+row.chunks+" chunk"+(row.chunks===1?"":"s")+"): "+tracePreview(row.text,160);
+      row.data={text:row.text,chunks:row.chunks,...(request?{request_id:request}:{})};
       continue;
     }
     stream=null;
