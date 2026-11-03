@@ -82,6 +82,35 @@ export default function ObservabilityPage() {
         </p>
       </div>
 
+      <h2 id="try">Try it without an API key</h2>
+      <p>
+        Two examples run offline on scripted models, so every run view has something to show.
+        From the repository root, build their packages, then install again so pnpm links the{" "}
+        <code>glove</code> command (it can only link it once <code>glove-foundry</code> is built):
+      </p>
+      <CodeBlock filename="terminal" language="bash" code={`pnpm install
+pnpm --filter "glove-foundry-layered-assistant^..." --filter "glove-foundry-example^..." build
+pnpm install`} />
+      <p>
+        <strong>A delegation across four runs.</strong> Start the{" "}
+        <a href="https://github.com/porkytheblack/glove/tree/main/examples/foundry-layered-assistant">layered assistant</a>,
+        open <code>http://127.0.0.1:4142</code>, then <strong>Chat</strong>, Maya’s chat, and send{" "}
+        <code>Write me a slugify function, please.</code> The assistant delegates to a coder, the
+        coder asks which language, the assistant answers, and the coder reports back. The
+        assistant’s first run shows it in <strong>Call chain</strong> and <strong>Queues</strong>;
+        the coder’s run shows the task, its question and the answer in <strong>Queues</strong>.
+      </p>
+      <CodeBlock filename="terminal" language="bash" code={`pnpm --filter glove-foundry-layered-assistant dev`} />
+      <p>
+        <strong>Apps, MCP, a working environment, schedules and playbooks.</strong> Start the{" "}
+        <a href="https://github.com/porkytheblack/glove/tree/main/examples/foundry-agent">reference app</a>,
+        open <code>http://127.0.0.1:4242</code> and start a <code>release-planner</code> run with{" "}
+        <strong>New run</strong>. <strong>Composition</strong> lists every tool under the step or
+        installation that added it. The waterfall and Timing panes need a model with real
+        latency: set the example’s key, or run your own app.
+      </p>
+      <CodeBlock filename="terminal" language="bash" code={`pnpm --filter glove-foundry-example dev`} />
+
       <h2 id="runs">Following a run</h2>
       <p>
         Open <strong>Runs</strong>, then a run. A strip across the top gives its status, duration,
@@ -230,6 +259,37 @@ export default function ObservabilityPage() {
         exact input. <strong>Export trace</strong> downloads the run and every event as JSON;{" "}
         <strong>Run again</strong> reopens the run drawer with the same instance and message. The
         inspector shows what was sent, called and returned, never a model’s hidden reasoning.
+      </p>
+
+      <h3 id="testing">Testing with it</h3>
+      <p>
+        Everything the views show is the run’s recorded events, so a test can assert on the same
+        events: <code>runtime.observability.list(&#123; runId &#125;)</code>, or{" "}
+        <code>GET /api/runs/:id/events</code> over HTTP. Agent events are prefixed{" "}
+        <code>agent.</code>; the runtime’s own (<code>delegation.started</code>,{" "}
+        <code>core.command.accepted</code>, <code>run.steered</code>) aren’t.
+      </p>
+      <CodeBlock filename="release.test.ts" language="typescript" code={`const run = await runtime.send("maya", "maya-chat", "Write me a slugify function, please.");
+await runtime.waitForRun(run.id, { timeoutMs: 60_000 });
+const events = runtime.observability.list({ runId: run.id });
+const of = (type: string) => events.filter((event) => event.type === \`agent.\${type}\`).map((event) => event.data as any);
+
+// What Foundry assembled, and which step added each tool.
+const [composed] = of("foundry.assembly.composed");
+const attributed = new Set(composed.steps.flatMap((step: { tools: string[] }) => step.tools));
+assert.deepEqual(composed.tools.filter((name: string) => !attributed.has(name)), []);
+
+// How the turn ended, and the delegation it started.
+assert.equal(of("turn_end").at(-1).status, "success");
+const started = events.find((event) => event.type === "delegation.started");
+assert.equal((started?.data as { to: string }).to, "coder");`} />
+      <p>
+        The same Glove events (<code>turn_start</code>, <code>turn_end</code>,{" "}
+        <code>tool_use_start</code>, and the <code>request_id</code> on streamed events) reach any
+        subscriber, with or without Foundry: the{" "}
+        <a href="https://github.com/porkytheblack/glove/blob/main/packages/glove-foundry/docs/inspector.md#testing-with-it">inspector handbook</a>{" "}
+        has a subscriber that logs each request’s time to first token and each tool call’s wait,
+        and how to run the inspector’s own tests.
       </p>
 
       <h3 id="model-requests">What each model request records</h3>

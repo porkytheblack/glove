@@ -10,6 +10,48 @@ The development server includes a runtime inspector. Most pages follow Foundry's
 - **Call chain** shows the runs this one came from and the runs it started.
 - **Summary** gives the outcome.
 
+## Running it
+
+The inspector is part of the Foundry server. Start your app with:
+
+```bash
+pnpm glove foundry dev
+```
+
+It prints the inspector's address (the port is `server.port` in `foundry.config.ts`). Open **Chat** to send a message, or **New run** from any page; each opens or links to its run. On a run, `1`–`7` switch between the views.
+
+### Try it without an API key
+
+Two examples run offline on scripted models, so every view has something to show. From the repository root, build the examples' packages, then install again so pnpm links the `glove` command (it can only link it once `glove-foundry` is built):
+
+```bash
+pnpm install
+pnpm --filter "glove-foundry-layered-assistant^..." --filter "glove-foundry-example^..." build
+pnpm install
+```
+
+**A delegation across four runs** ([layered assistant](../../../examples/foundry-layered-assistant)):
+
+```bash
+pnpm --filter glove-foundry-layered-assistant dev
+```
+
+Open http://127.0.0.1:4142, then **Chat**, Maya's chat, and send `Write me a slugify function, please.` Without `ANTHROPIC_API_KEY` each agent runs a scripted model. The assistant delegates to a coder, the coder asks which language, the assistant answers, and the coder reports back: four runs. Open **Runs** and look at:
+
+- the assistant's first run: **Call chain** (delegated, asked, replied, reported back) and **Queues** (the delegation it sent, and the coder's run it started);
+- the coder's run: **Queues** (the task that started it, its question, and the answer handed to it while it ran);
+- any run: **Composition** (the delegates and the tools each step added).
+
+**Apps, MCP, a working environment, schedules and playbooks** ([reference app](../../../examples/foundry-agent)):
+
+```bash
+pnpm --filter glove-foundry-example dev
+```
+
+Open http://127.0.0.1:4242 and start a run of `release-planner` with **New run**. Without `OPENROUTER_API_KEY` it runs a deterministic model. **Composition** lists 47 tools under the steps and installations that added them, plus the playbooks and schedules it loaded.
+
+For the waterfall and Timing panes you need a model with real latency: set the example's key, or run your own app.
+
 ## Navigation
 
 | Page | Question it answers |
@@ -275,6 +317,88 @@ Press `Command-K` or `Control-K` to search pages, definitions, instances, and re
 | `Command-Enter` | Submit the run drawer |
 
 Every truncated identifier in the inspector has a copy button, so the full run, instance, or conversation id is always retrievable.
+
+## Testing with it
+
+### Assert on what a run recorded
+
+Everything the views show comes from the run's recorded events, so a test can read the same events. This passes against the layered assistant, offline:
+
+```ts
+import assert from "node:assert/strict";
+
+const run = await runtime.send("maya", "maya-chat", "Write me a slugify function, please.");
+await runtime.waitForRun(run.id, { timeoutMs: 60_000 });
+const events = runtime.observability.list({ runId: run.id });
+const of = (type: string) => events.filter((event) => event.type === `agent.${type}`).map((event) => event.data as any);
+
+// What Foundry assembled, and which step added each tool.
+const [composed] = of("foundry.assembly.composed");
+const attributed = new Set(composed.steps.flatMap((step: { tools: string[] }) => step.tools));
+assert.deepEqual(composed.tools.filter((name: string) => !attributed.has(name)), []);
+assert.ok(composed.delegates.some((delegate: { agent: string }) => delegate.agent === "coder"));
+
+// How the turn ended, and the tool call that delegated.
+assert.equal(of("turn_end").at(-1).status, "success");
+assert.ok(of("tool_use_start").some((call) => call.name === "glove_foundry_delegate"));
+
+// The delegation it started, recorded by the runtime under this run.
+const started = events.find((event) => event.type === "delegation.started");
+assert.equal((started?.data as { to: string }).to, "coder");
+```
+
+Agent events are prefixed `agent.`. The runtime's own events about a run (`delegation.started`, `core.command.accepted`, `transmission.outbound.delivered`, `run.steered`) aren't. Over HTTP, the same list is `GET /api/runs/:id/events`.
+
+### Read the same events in your own subscriber
+
+The Glove events the inspector reads reach any subscriber, with or without Foundry. This one logs each turn, each request's time to first token, and how long each tool call waited before it ran:
+
+```ts
+import type { SubscriberAdapter } from "glove-core";
+
+const sentAt = new Map<string, number>();   // request_id → when it was sent
+const askedAt = new Map<string, number>();  // call id → when the model asked for it
+
+export const timings: SubscriberAdapter = {
+  modelRequests: true, // also receive model_request and model_request_end
+  async record(type, data: any) {
+    const now = Date.now();
+    if (type === "turn_start") console.log(`turn (${data.trigger}) started`);
+    if (type === "turn_end") console.log(`turn ${data.status} after ${data.duration_ms}ms`);
+    if (type === "model_request") sentAt.set(data.request_id, now);
+    if ((type === "text_delta" || type === "tool_use") && sentAt.has(data.request_id)) {
+      console.log(`first token after ${now - sentAt.get(data.request_id)!}ms`);
+      sentAt.delete(data.request_id);
+    }
+    if (type === "tool_use") askedAt.set(data.id, now);
+    if (type === "tool_use_start") console.log(`${data.name} started ${now - (askedAt.get(data.id) ?? now)}ms after the model asked`);
+    if (type === "tool_use_result") console.log(`${data.name} ${data.result.status} after ${data.duration_ms}ms`);
+  },
+};
+```
+
+Add it with `glove.addSubscriber(timings)`, or list it in a Foundry definition's `subscribers`.
+
+### Test the inspector itself
+
+The views are built by plain functions over `/api/runs/:id/events`: `buildRunTrace` and `buildConsole` in `src/dashboard-trace.ts`, and `buildComposition`, `buildQueues` and `buildRunChain` in `src/dashboard-foundry.ts`. Their tests evaluate the same source the browser runs:
+
+```ts
+import { DASHBOARD_TRACE_SCRIPT } from "../src/dashboard-trace.js";
+import { DASHBOARD_FOUNDRY_SCRIPT } from "../src/dashboard-foundry.js";
+
+const kit = new Function(`${DASHBOARD_TRACE_SCRIPT}\n${DASHBOARD_FOUNDRY_SCRIPT}; return { buildRunTrace, buildQueues };`)();
+const rows = kit.buildQueues(events, run, kit.buildRunTrace(events, run));
+```
+
+Run them, then the integration test that checks a real run's assembly is fully attributed:
+
+```bash
+pnpm --filter glove-foundry exec node --test --import tsx tests/dashboard-trace.test.ts tests/dashboard-foundry.test.ts
+pnpm --filter glove-foundry exec node --test --import tsx tests/integration.test.ts
+```
+
+`pnpm --filter glove-core test` covers the events themselves (`tests/observability-events.test.ts`).
 
 ## Operator API used by the inspector
 
