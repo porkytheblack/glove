@@ -1,5 +1,13 @@
 # glove-voice-livekit
 
+## 0.1.13
+
+### Patch Changes
+
+- Updated dependencies []:
+  - glove-voice-s2s@0.4.7
+  - glove-voice-avatar@0.1.13
+
 ## 0.1.12
 
 ### Patch Changes

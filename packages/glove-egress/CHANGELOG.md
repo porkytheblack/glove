@@ -1,5 +1,12 @@
 # glove-egress
 
+## 0.2.11
+
+### Patch Changes
+
+- Updated dependencies []:
+  - glove-scratchpad@3.0.7
+
 ## 0.2.10
 
 ### Patch Changes
