@@ -1,5 +1,12 @@
 # glove-foundry-web-kit
 
+## 1.0.2
+
+### Patch Changes
+
+- Updated dependencies [[`752d987`](https://github.com/porkytheblack/glove/commit/752d987f0f65a26ef74c6846666b40699fbe0af4)]:
+  - glove-foundry@0.9.0
+
 ## 1.0.1
 
 ### Patch Changes

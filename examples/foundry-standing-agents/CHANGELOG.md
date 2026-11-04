@@ -1,5 +1,18 @@
 # glove-foundry-standing-agents
 
+## 1.0.2
+
+### Patch Changes
+
+- Updated dependencies [[`f72b9b4`](https://github.com/porkytheblack/glove/commit/f72b9b4ac749ca4f9098940a2c96c7878d1bdc60), [`752d987`](https://github.com/porkytheblack/glove/commit/752d987f0f65a26ef74c6846666b40699fbe0af4)]:
+  - glove-core@4.8.0
+  - glove-foundry@0.9.0
+  - glove-js@0.5.7
+  - glove-memory@2.3.4
+  - glove-voice-s2s@0.4.7
+  - glove-working-environment@0.7.0
+  - glove-foundry-web-kit@1.0.2
+
 ## 1.0.1
 
 ### Patch Changes

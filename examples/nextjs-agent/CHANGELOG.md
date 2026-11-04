@@ -1,5 +1,14 @@
 # glove-nextjs-agent
 
+## 1.0.12
+
+### Patch Changes
+
+- Updated dependencies [[`f72b9b4`](https://github.com/porkytheblack/glove/commit/f72b9b4ac749ca4f9098940a2c96c7878d1bdc60)]:
+  - glove-core@4.8.0
+  - glove-next@3.2.5
+  - glove-react@4.0.11
+
 ## 1.0.11
 
 ### Patch Changes

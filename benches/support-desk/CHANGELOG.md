@@ -1,5 +1,16 @@
 # support-desk-bench
 
+## 1.0.12
+
+### Patch Changes
+
+- Updated dependencies [[`f72b9b4`](https://github.com/porkytheblack/glove/commit/f72b9b4ac749ca4f9098940a2c96c7878d1bdc60)]:
+  - glove-core@4.8.0
+  - glove-js@0.5.7
+  - glove-mcp@1.2.7
+  - glove-scratchpad@3.0.7
+  - glove-egress@0.2.11
+
 ## 1.0.11
 
 ### Patch Changes

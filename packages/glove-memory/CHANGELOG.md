@@ -1,5 +1,13 @@
 # glove-memory
 
+## 2.3.4
+
+### Patch Changes
+
+- Updated dependencies [[`f72b9b4`](https://github.com/porkytheblack/glove/commit/f72b9b4ac749ca4f9098940a2c96c7878d1bdc60)]:
+  - glove-core@4.8.0
+  - glove-facts@0.1.9
+
 ## 2.3.3
 
 ### Patch Changes
