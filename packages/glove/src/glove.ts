@@ -5,7 +5,7 @@
 // how do you achieve undos? include something in the do, that can be undone
 
 import z from "zod";
-import { AbortError, Agent, AgentFrameworkHooks, ContentPart, Context, Executor, HandOverFunction, Message, ModelAdapter, ModelPromptResult, NotifySubscribersFunction, Observer, PromptMachine, StoreAdapter, SubscriberAdapter, Tool, ToolResultData } from "./core";
+import { AbortError, Agent, AgentFrameworkHooks, ContentPart, Context, Executor, HandOverFunction, isTurnSuspended, Message, ModelAdapter, ModelPromptResult, NotifySubscribersFunction, Observer, PromptMachine, StoreAdapter, SubscriberAdapter, Tool, ToolResultData, TurnTrigger } from "./core";
 import {
   AgentEvent,
   defaultEventFormatter,
@@ -319,6 +319,22 @@ function lastSavedContext(history: ReadonlyArray<Message>, key: string): Message
   return undefined
 }
 
+let turnCount = 0
+function newTurnId(): string {
+  return globalThis.crypto?.randomUUID?.() ?? `turn_${Date.now().toString(36)}_${(turnCount++).toString(36)}`
+}
+
+const EVENT_PREVIEW_LIMIT = 280
+
+/** The start of an event's text, with media named, for `event_received`. */
+function eventPreview(content: AgentEvent["content"]): string {
+  const text = typeof content === "string"
+    ? content
+    : content.map((part) => part.type === "text" ? part.text ?? "" : `[${part.type}${part.name ? `: ${part.name}` : ""}]`).join(" ")
+  const flat = text.replace(/\s+/g, " ").trim()
+  return flat.length > EVENT_PREVIEW_LIMIT ? `${flat.slice(0, EVENT_PREVIEW_LIMIT - 1)}…` : flat
+}
+
 function isExpired(event: AgentEvent, now = Date.now()): boolean {
   if (!event.expiresAt) return false
   const at = Date.parse(event.expiresAt)
@@ -593,6 +609,7 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
     const report = async (disposition: EventDisposition) => {
       await this.notifyExtensionEvent("event_received", {
         id: received.id, source: received.source, ...(received.kind ? { kind: received.kind } : {}), disposition,
+        preview: eventPreview(received.content),
       })
       return disposition
     }
@@ -738,14 +755,16 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
       for (const id of ids) this.wakingEventIds.add(id)
       let saved = false
       try {
-        await this.prepareTurn(signal)
-        signal?.throwIfAborted()
-        const message = this.eventFormatter(events, "wake")
-        return await this.agent.ask(message, this.handOver, signal, async () => {
-          saved = true
-          this.rememberConsumed(ids)
-          await this.notifyExtensionEvent("event_injected", { ids, phase: "wake" })
-        })
+        return await this.reportTurn("events", async () => {
+          await this.prepareTurn(signal)
+          signal?.throwIfAborted()
+          const message = this.eventFormatter(events, "wake")
+          return await this.agent.ask(message, this.handOver, signal, async () => {
+            saved = true
+            this.rememberConsumed(ids)
+            await this.notifyExtensionEvent("event_injected", { ids, phase: "wake" })
+          })
+        }, signal)
       } catch (error) {
         if (!saved) {
           for (const event of events) {
@@ -1090,17 +1109,42 @@ export class Glove implements IGloveBuilder, IGloveRunnable {
     if (!this.built) throw new Error("Call build before resumeToolCalls");
     return this.runTurn(async () => {
       if (!(await this.agent.pendingToolCalls()).length) return undefined
-      await this.prepareTurn(signal)
-      return this.agent.resumeToolCalls(this.handOver, signal)
+      return this.reportTurn("resume", async () => {
+        await this.prepareTurn(signal)
+        return this.agent.resumeToolCalls(this.handOver, signal)
+      }, signal)
     }, signal)
   }
 
   async processRequest(request: string | ContentPart[], signal?: AbortSignal) {
     if (!this.built) throw new Error("Call build before processRequest");
-    return this.runTurn(async () => {
+    return this.runTurn(() => this.reportTurn("request", async () => {
       await this.prepareTurn(signal)
       return this.runRequest(request, signal)
-    }, signal)
+    }, signal), signal)
+  }
+
+  /** Bracket a turn with `turn_start` and `turn_end` for subscribers. */
+  private async reportTurn<T>(trigger: TurnTrigger, run: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+    const turn_id = newTurnId()
+    const started = Date.now()
+    await this.notifyExtensionEvent("turn_start", { turn_id, trigger })
+    let result: T
+    try {
+      result = await run()
+    } catch (error) {
+      const status = isTurnSuspended(error) ? "suspended"
+        : signal?.aborted || (error instanceof Error && error.name === "AbortError") ? "aborted"
+        : "error"
+      // The turn's own error is the one to surface, not a subscriber's.
+      await this.notifyExtensionEvent("turn_end", {
+        turn_id, trigger, status, duration_ms: Date.now() - started,
+        ...(status === "error" ? { error: error instanceof Error ? error.message : String(error) } : {}),
+      }).catch(() => undefined)
+      throw error
+    }
+    await this.notifyExtensionEvent("turn_end", { turn_id, trigger, status: "success", duration_ms: Date.now() - started })
+    return result
   }
 
   private async runRequest(request: string | ContentPart[], signal?: AbortSignal): Promise<ModelPromptResult | Message> {

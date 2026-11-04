@@ -111,6 +111,7 @@ export class MemoryObservabilityAdapter
 function categoryForAgentEvent(type: string): FoundryEventCategory {
   if (type === "foundry.guidance.state") return "memory";
   if (type.startsWith("tool_")) return "tool";
+  if (type.startsWith("turn_")) return "run";
   if (type.startsWith("foundry.installation")) return "application";
   if (
     type.startsWith("foundry.layer") ||

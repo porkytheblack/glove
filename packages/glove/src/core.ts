@@ -20,14 +20,23 @@ import { splitAtLastCompaction, abortablePromise } from "./utils";
  * - `model_request` — What the model is about to receive: system prompt, messages, tools
  * - `model_request_end` — How that request ended: duration, outcome, response, tokens
  *
- * **Model events** (emitted by ModelAdapter during prompt execution):
+ * **Turn events** (emitted by Glove around each turn, inside the turn queue):
+ * - `turn_start` — A turn began: a request, queued events waking the agent, or a resumed tool step
+ * - `turn_end` — It ended: `success`, `error`, `aborted`, or `suspended` at a deferred permission
+ *
+ * **Model events** (emitted by ModelAdapter during prompt execution, each
+ * tagged with the `request_id` of the request it belongs to):
  * - `text_delta` — Streaming text chunk from the model
  * - `tool_use` — Model is invoking a tool
  * - `model_response` — Complete model response (sync/non-streaming adapters)
  * - `model_response_complete` — Final model response after streaming completes
  *
  * **Executor events** (emitted during tool execution):
+ * - `tool_use_start` — A tool began running, after its permission check and input validation
  * - `tool_use_result` — Result of a tool execution (success, error, or aborted)
+ *
+ * **Context events** (emitted when something outside the loop joins history):
+ * - `inbox_injected` — Resolved inbox items were saved to history for the model to read
  *
  * **Observer events** (emitted during context compaction):
  * - `compaction_start` — Context compaction has begun
@@ -83,10 +92,36 @@ export type SubscriberEvent =
       cache_read_input_tokens?: number;
       cache_creation_input_tokens?: number;
     }
-  | { type: "text_delta"; text: string }
-  | { type: "tool_use"; id: string; name: string; input: unknown }
-  | { type: "model_response"; text: string; tool_calls?: ToolCall[]; stop_reason?: string; tokens_in?: number; tokens_out?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number }
-  | { type: "model_response_complete"; text: string; tool_calls?: ToolCall[]; stop_reason?: string; tokens_in?: number; tokens_out?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number }
+  /**
+   * A turn began. `trigger` is what started it: `request` (`processRequest`),
+   * `events` (queued events waking the agent) or `resume` (`resumeToolCalls`).
+   * A subagent's turns arrive between its `subagent_invoked` and
+   * `subagent_completed`, so turns can nest.
+   */
+  | { type: "turn_start"; turn_id: string; trigger: TurnTrigger }
+  /**
+   * The turn with this `turn_id` ended. `suspended` means it stopped at a
+   * deferred permission and `resumeToolCalls` can carry it on.
+   */
+  | { type: "turn_end"; turn_id: string; trigger: TurnTrigger; status: "success" | "error" | "aborted" | "suspended"; duration_ms: number; error?: string }
+  /**
+   * Streamed events carry the `request_id` of the model request they belong
+   * to (the one `model_request` announced), so a consumer can tell which
+   * request a chunk came from and when its first token arrived.
+   */
+  | { type: "text_delta"; text: string; request_id?: string }
+  | { type: "tool_use"; id: string; name: string; input: unknown; request_id?: string }
+  | { type: "model_response"; text: string; tool_calls?: ToolCall[]; stop_reason?: string; tokens_in?: number; tokens_out?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number; request_id?: string }
+  | { type: "model_response_complete"; text: string; tool_calls?: ToolCall[]; stop_reason?: string; tokens_in?: number; tokens_out?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number; request_id?: string }
+  /**
+   * A tool began running. `tool_use` fires when the model asks for a call,
+   * often while it is still streaming; this fires when the call actually
+   * starts, after the calls ahead of it in the step. `waited_ms` is the time
+   * this call spent on its permission check (including waiting on a person)
+   * and input validation. Calls that never run (denied, invalid, unknown,
+   * aborted) get a `tool_use_result` without one.
+   */
+  | { type: "tool_use_start"; id?: string; name: string; input: unknown; waited_ms: number }
   /**
    * `id` and `name` are ALIASES of `call_id` and `tool_name`, carrying
    * identical values, and they are the pair to prefer.
@@ -118,8 +153,14 @@ export type SubscriberEvent =
   | { type: "token_consumption"; consumption: TokenConsumptionCounter }
   | { type: "hook_invoked"; name: string }
   | { type: "skill_invoked"; name: string; source: "user" | "agent"; args?: string }
-  | { type: "subagent_invoked"; name: string; prompt: string }
-  | { type: "subagent_completed"; name: string; status: "success" | "error"; message?: string }
+  /** `call_id` is the `glove_invoke_subagent` call that ran the subagent. */
+  | { type: "subagent_invoked"; name: string; prompt: string; call_id?: string }
+  | { type: "subagent_completed"; name: string; status: "success" | "error"; message?: string; call_id?: string }
+  /**
+   * Resolved inbox items were saved to history for the model to read: before
+   * a request's message (`request`) or at a tool-step boundary (`loop`).
+   */
+  | { type: "inbox_injected"; ids: string[]; tags: string[]; phase: "request" | "loop" }
   /**
    * **Spontaneous events** (emitted by Glove's event queue):
    * - `event_received` — `emitEvent` accepted, deferred, woke for or dropped an event
@@ -129,10 +170,14 @@ export type SubscriberEvent =
    * - `event_dropped` — an event was discarded by the policy or because it expired
    * - `event_wake_failed` — a turn started for events failed
    */
-  | { type: "event_received"; id: string; source: string; kind?: string; disposition: "queued" | "woke" | "deferred" | "dropped" | "duplicate" }
+  /** `preview` is the start of the event's text, with media named, for display. */
+  | { type: "event_received"; id: string; source: string; kind?: string; disposition: "queued" | "woke" | "deferred" | "dropped" | "duplicate"; preview?: string }
   | { type: "event_injected"; ids: string[]; phase: "loop" | "request" | "wake" }
   | { type: "event_dropped"; id: string; reason: "policy" | "expired" }
   | { type: "event_wake_failed"; ids: string[]; message: string };
+
+/** What started a turn: a request, queued events waking the agent, or a resumed tool step. */
+export type TurnTrigger = "request" | "events" | "resume";
 
 /** Extract a single event by its type field. */
 export type SubscriberEventOf<T extends SubscriberEvent["type"]> =
@@ -789,13 +834,17 @@ export class PromptMachine {
   async run(messages: Array<Message>, tools?: Array<Tool<unknown>>, signal?: AbortSignal) {
     const prunedMessages = this.enableToolResultSummary ? this.summarizeOlderToolResults(messages) : messages
     const request = { messages: prunedMessages, tools };
+    const request_id = newRequestId();
+    // What the adapter streams says which request it belongs to: a subagent's
+    // requests run while its parent's tool call waits, on the same subscribers.
+    const stream: NotifySubscribersFunction = (event_name, event_data) =>
+      this.notifySubscribers(event_name, STREAMED_EVENTS.has(event_name) ? { ...event_data, request_id } as typeof event_data : event_data);
     const observers = this.subscribers.filter((s) => s.modelRequests);
-    if (!observers.length) return await this.model.prompt(request, this.notifySubscribers, signal);
+    if (!observers.length) return await this.model.prompt(request, stream, signal);
 
     const notify: NotifySubscribersFunction = async (event_name, event_data) => {
       await Promise.all(observers.map((s) => s.record(event_name, event_data)));
     };
-    const request_id = newRequestId();
     const model = this.model.name;
     await notify("model_request", {
       request_id,
@@ -808,7 +857,7 @@ export class PromptMachine {
     const started = Date.now();
     let result: ModelPromptResult;
     try {
-      result = await this.model.prompt(request, this.notifySubscribers, signal);
+      result = await this.model.prompt(request, stream, signal);
     } catch (error) {
       const aborted = signal?.aborted || (error instanceof Error && error.name === "AbortError");
       // The model call's own error is the one to surface, not a subscriber's.
@@ -846,6 +895,9 @@ function requestTool(tool: Tool<unknown>): ModelRequestTool {
   }
   return described;
 }
+
+/** Events an adapter emits during a request, tagged with its `request_id`. */
+const STREAMED_EVENTS: ReadonlySet<string> = new Set(["text_delta", "tool_use", "model_response", "model_response_complete"]);
 
 let requestCount = 0;
 function newRequestId(): string {
@@ -973,6 +1025,7 @@ export class Executor {
       name: args.name,
       status,
       message,
+      ...(call.id ? { call_id: call.id } : {}),
     });
   }
 
@@ -1110,9 +1163,19 @@ export class Executor {
           this.notifySubscribers("subagent_invoked", {
             name: args.name,
             prompt: args.prompt ?? "",
+            ...(call.id ? { call_id: call.id } : {}),
           });
         }
       }
+
+      // The call runs now: after the calls ahead of it, its permission check
+      // and validation. `tool_use` marked when the model asked for it.
+      await this.notifySubscribers("tool_use_start", {
+        ...(call.id ? { id: call.id } : {}),
+        name: call.tool_name,
+        input: validatedInput,
+        waited_ms: Date.now() - startedAt,
+      });
 
       let toolRunEffect = Effect.tryPromise({
         try: async () => {
@@ -1447,7 +1510,7 @@ export class Agent {
   async ask(message: Message, handOver?: HandOverFunction, signal?: AbortSignal, onMessageSaved?: () => Promise<void>) {
 
     // Inbox: inject resolved items (persisted) and build transient blocking reminder
-    await this.injectResolvedInboxItems();
+    await this.injectResolvedInboxItems("request");
     if (this.framework?.beforeRequest) {
       const preamble = await this.framework.beforeRequest(await this.context.getMessages(), signal);
       // Save before honouring an abort: drained events have left the queue,
@@ -1498,7 +1561,7 @@ export class Agent {
   async resumeToolCalls(handOver?: HandOverFunction, signal?: AbortSignal): Promise<ModelPromptResult | undefined> {
     const pending = await this.pendingToolCalls();
     if (!pending.length) return undefined;
-    await this.injectResolvedInboxItems();
+    await this.injectResolvedInboxItems("request");
     const pendingBlockingMessage = await this.buildPendingBlockingMessage();
     const frozen = this.framework?.frozenContext ? await this.framework.frozenContext(signal) : [];
     if (signal?.aborted) throw new AbortError();
@@ -1625,7 +1688,7 @@ export class Agent {
 
       // Things that happened while the tools ran join the loop now, once:
       // inbox items resolved mid-request and spontaneous events.
-      if (await this.injectResolvedInboxItems()) {
+      if (await this.injectResolvedInboxItems("loop")) {
         pendingBlockingMessage = await this.buildPendingBlockingMessage();
       }
       const events = this.framework?.drainEvents ? await this.framework.drainEvents(signal) : [];
@@ -1635,7 +1698,7 @@ export class Agent {
     }
   }
 
-  private async injectResolvedInboxItems(): Promise<boolean> {
+  private async injectResolvedInboxItems(phase: "request" | "loop"): Promise<boolean> {
     const resolved = await this.context.getResolvedInboxItems();
     if (resolved.length === 0) return false;
 
@@ -1653,6 +1716,11 @@ export class Agent {
     for (const item of resolved) {
       await this.context.updateInboxItem(item.id, { status: "consumed" });
     }
+    await this.observer.notifySubscribers("inbox_injected", {
+      ids: resolved.map((item) => item.id),
+      tags: resolved.map((item) => item.tag),
+      phase,
+    });
     return true;
   }
 

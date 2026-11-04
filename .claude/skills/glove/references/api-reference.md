@@ -317,18 +317,24 @@ type SubscriberEvent =
   // Only to subscribers that set modelRequests: true
   | { type: "model_request"; request_id: string; model: string; purpose: "turn" | "compaction"; system_prompt: string; messages: ReadonlyArray<Message>; tools: ReadonlyArray<ModelRequestTool> }
   | { type: "model_request_end"; request_id: string; model: string; duration_ms: number; status: "success" | "error" | "aborted"; error?: string; messages?: ReadonlyArray<Message>; tokens_in?: number; tokens_out?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number }
-  | { type: "text_delta"; text: string }
-  | { type: "tool_use"; id: string; name: string; input: unknown }
-  | { type: "model_response"; text: string; tool_calls?: ToolCall[]; stop_reason?: string; tokens_in?: number; tokens_out?: number }
-  | { type: "model_response_complete"; text: string; tool_calls?: ToolCall[]; stop_reason?: string; tokens_in?: number; tokens_out?: number }
-  | { type: "tool_use_result"; tool_name: string; call_id?: string; result: ToolResultData }
+  // Turns (glove-core >= 4.8): requests, event wakes and resumed tool steps
+  | { type: "turn_start"; turn_id: string; trigger: "request" | "events" | "resume" }
+  | { type: "turn_end"; turn_id: string; trigger: "request" | "events" | "resume"; status: "success" | "error" | "aborted" | "suspended"; duration_ms: number; error?: string }
+  // Streamed events carry the request_id of their model request (>= 4.8)
+  | { type: "text_delta"; text: string; request_id?: string }
+  | { type: "tool_use"; id: string; name: string; input: unknown; request_id?: string }
+  | { type: "model_response"; text: string; tool_calls?: ToolCall[]; stop_reason?: string; tokens_in?: number; tokens_out?: number; request_id?: string }
+  | { type: "model_response_complete"; text: string; tool_calls?: ToolCall[]; stop_reason?: string; tokens_in?: number; tokens_out?: number; request_id?: string }
+  | { type: "tool_use_start"; id?: string; name: string; input: unknown; waited_ms: number }
+  | { type: "tool_use_result"; tool_name: string; call_id?: string; result: ToolResultData; id?: string; name?: string; duration_ms?: number }
   | { type: "compaction_start"; current_token_consumption: number }
   | { type: "compaction_end"; current_token_consumption: number; summary_message: Message }
   | { type: "token_consumption"; consumption: TokenConsumptionCounter }
   | { type: "hook_invoked"; name: string }
   | { type: "skill_invoked"; name: string; source: "user" | "agent"; args?: string }
-  | { type: "subagent_invoked"; name: string; prompt: string }
-  | { type: "subagent_completed"; name: string; status: "success" | "error"; message?: string };
+  | { type: "subagent_invoked"; name: string; prompt: string; call_id?: string }
+  | { type: "subagent_completed"; name: string; status: "success" | "error"; message?: string; call_id?: string }
+  | { type: "inbox_injected"; ids: string[]; tags: string[]; phase: "request" | "loop" };
 
 // Mapped type: extracts data shape (minus "type") for each event
 type SubscriberEventDataMap = { [E in SubscriberEvent as E["type"]]: Omit<E, "type"> };
@@ -353,20 +359,24 @@ interface SubscriberAdapter {
 |-------|-----------|------|-------------|
 | `model_request` | Core (PromptMachine) | `{ request_id, model, purpose, system_prompt, messages, tools }` | A model call is about to be sent, exactly as the adapter gets it (runtime context at the tail). Only to subscribers with `modelRequests: true`; the arrays are shared, don't mutate them |
 | `model_request_end` | Core (PromptMachine) | `{ request_id, model, duration_ms, status, error?, messages?, tokens_in?, tokens_out?, cache_* }` | That call ended: success, error or aborted, with the response |
-| `text_delta` | Adapter (streaming) | `{ text: string }` | Incremental text fragment |
-| `tool_use` | Adapter (streaming) | `{ id, name, input }` | Tool call assembled |
+| `turn_start` | Core (Glove) | `{ turn_id, trigger }` | A turn began: `request` (`processRequest`), `events` (an event wake) or `resume` (`resumeToolCalls`). A subagent's turns arrive inside its parent's |
+| `turn_end` | Core (Glove) | `{ turn_id, trigger, status, duration_ms, error? }` | It ended: `success`, `error`, `aborted`, or `suspended` at a deferred permission |
+| `text_delta` | Adapter (streaming) | `{ text: string, request_id? }` | Incremental text fragment. Core adds `request_id` |
+| `tool_use` | Adapter (streaming) | `{ id, name, input, request_id? }` | The model asked for a call (often mid-stream, before it runs). Core adds `request_id` |
 | `model_response` | Adapter (non-streaming) | `{ text, tool_calls?, stop_reason?, tokens_in?, tokens_out? }` | Complete non-streaming response |
 | `model_response_complete` | Adapter (streaming) | `{ text, tool_calls?, stop_reason?, tokens_in?, tokens_out? }` | Final aggregated streaming response |
-| `tool_use_result` | Core (Executor) | `{ tool_name, call_id?, result }` | Tool execution finished |
+| `tool_use_start` | Core (Executor) | `{ id?, name, input, waited_ms }` | The call started running, after the calls ahead of it, its permission check and validation. `waited_ms` covers the permission check (including a person deciding) and validation. Calls that never run get no start |
+| `tool_use_result` | Core (Executor) | `{ tool_name, call_id?, result, id?, name?, duration_ms? }` | Tool execution finished |
 | `compaction_start` | Core (Observer) | `{ current_token_consumption }` | Compaction begun |
 | `compaction_end` | Core (Observer) | `{ current_token_consumption, summary_message }` | Compaction finished |
 | `token_consumption` | Core (Observer) | `{ consumption: { tokens_in, tokens_out } }` | Token counter update — fires after each model turn alongside `store.addTokens` |
 | `hook_invoked` | Core (Glove) | `{ name }` | A `/name` hook handler is about to run |
 | `skill_invoked` | Core (Glove or skill dispatch tool) | `{ name, source: "user" | "agent", args? }` | A skill handler is about to run. `source: "user"` fires from `Glove.processRequest`; `source: "agent"` fires from inside `glove_invoke_skill` |
-| `subagent_invoked` | Core (Executor, not the dispatcher) | `{ name, prompt }` | Open bracket — fires before a `glove_invoke_subagent` call runs |
-| `subagent_completed` | Core (Executor, not the dispatcher) | `{ name, status: "success" | "error", message? }` | Close bracket — fires after the dispatcher resolves OR on abort/error. **Guaranteed 1:1 with `subagent_invoked`** |
+| `subagent_invoked` | Core (Executor, not the dispatcher) | `{ name, prompt, call_id? }` | Open bracket — fires before a `glove_invoke_subagent` call runs |
+| `subagent_completed` | Core (Executor, not the dispatcher) | `{ name, status: "success" | "error", message?, call_id? }` | Close bracket — fires after the dispatcher resolves OR on abort/error. **Guaranteed 1:1 with `subagent_invoked`** |
 | `runtime_context` | Core (Glove) | `{ messages, delivery? }` | Resolved context snapshots (media replaced by placeholders). `delivery: "history"` carries what was saved this request |
-| `event_received` | Core (Glove) | `{ id, source, kind?, disposition }` | `emitEvent` queued, woke for, deferred, dropped or de-duplicated an event |
+| `event_received` | Core (Glove) | `{ id, source, kind?, disposition, preview? }` | `emitEvent` queued, woke for, deferred, dropped or de-duplicated an event. `preview` is the start of its text, media named |
+| `inbox_injected` | Core (Agent) | `{ ids, tags, phase: "request" \| "loop" }` | Resolved inbox items saved to history: before a request's message or at a tool-step boundary |
 | `event_injected` | Core (Glove) | `{ ids, phase: "loop" \| "request" \| "wake" }` | Events saved to history: at a tool-step boundary, before a request's message, or as the message of a turn of their own |
 | `event_dropped` | Core (Glove) | `{ id, reason: "policy" \| "expired" }` | Discarded by the policy or because `expiresAt` passed |
 | `event_wake_failed` | Core (Glove) | `{ ids, message }` | A turn started for events failed |
@@ -375,7 +385,8 @@ interface SubscriberAdapter {
 - Non-streaming: emit `model_response` once per prompt call
 - Streaming: emit `text_delta` per chunk, `tool_use` per tool call, `model_response_complete` once at end
 - Use `?? undefined` to coerce null `stop_reason` from provider SDKs
-- Never emit `model_request`, `model_request_end`, `tool_use_result`, `compaction_start`, `compaction_end`, `token_consumption`, `hook_invoked`, `skill_invoked`, `subagent_invoked`, or `subagent_completed` — those are framework-only
+- Never emit `model_request`, `model_request_end`, `turn_start`, `turn_end`, `tool_use_start`, `tool_use_result`, `inbox_injected`, `compaction_start`, `compaction_end`, `token_consumption`, `hook_invoked`, `skill_invoked`, `subagent_invoked`, or `subagent_completed` — those are framework-only
+- Don't set `request_id` yourself: core tags what the adapter streams with the request it belongs to
 
 #### Subagent bracket symmetry
 

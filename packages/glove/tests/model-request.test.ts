@@ -55,7 +55,7 @@ test("a failed model call ends its request with the error and still throws it", 
   const end = seen.find(e => e.type === "model_request_end")!;
   assert.equal(end.data.status, "error");
   assert.equal(end.data.error, "provider overloaded");
-  assert.equal(end.data.request_id, seen[0].data.request_id);
+  assert.equal(end.data.request_id, seen.find(e => e.type === "model_request")!.data.request_id);
 });
 
 test("an aborted model call ends as aborted", async () => {

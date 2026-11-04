@@ -4,7 +4,7 @@ import { CodeBlock } from "@/components/code-block";
 export const metadata = {
   title: "Inspector & WebChat",
   description:
-    "The built-in Foundry inspector: pages and URLs, WebChat, runs opened like DevTools (Network, Console, Context), shortcuts, the event envelope, custom subscribers, event export and branding.",
+    "The built-in Foundry inspector: pages and URLs, WebChat, runs opened like DevTools (Network, Console, Context, Composition, Queues, Call chain), shortcuts, the event envelope, custom subscribers, event export and branding.",
 };
 
 export default function ObservabilityPage() {
@@ -82,12 +82,42 @@ export default function ObservabilityPage() {
         </p>
       </div>
 
+      <h2 id="try">Try it without an API key</h2>
+      <p>
+        Two examples run offline on scripted models, so every run view has something to show.
+        From the repository root, build their packages, then install again so pnpm links the{" "}
+        <code>glove</code> command (it can only link it once <code>glove-foundry</code> is built):
+      </p>
+      <CodeBlock filename="terminal" language="bash" code={`pnpm install
+pnpm --filter "glove-foundry-layered-assistant^..." --filter "glove-foundry-example^..." build
+pnpm install`} />
+      <p>
+        <strong>A delegation across four runs.</strong> Start the{" "}
+        <a href="https://github.com/porkytheblack/glove/tree/main/examples/foundry-layered-assistant">layered assistant</a>,
+        open <code>http://127.0.0.1:4142</code>, then <strong>Chat</strong>, Maya’s chat, and send{" "}
+        <code>Write me a slugify function, please.</code> The assistant delegates to a coder, the
+        coder asks which language, the assistant answers, and the coder reports back. The
+        assistant’s first run shows it in <strong>Call chain</strong> and <strong>Queues</strong>;
+        the coder’s run shows the task, its question and the answer in <strong>Queues</strong>.
+      </p>
+      <CodeBlock filename="terminal" language="bash" code={`pnpm --filter glove-foundry-layered-assistant dev`} />
+      <p>
+        <strong>Apps, MCP, a working environment, schedules and playbooks.</strong> Start the{" "}
+        <a href="https://github.com/porkytheblack/glove/tree/main/examples/foundry-agent">reference app</a>,
+        open <code>http://127.0.0.1:4242</code> and start a <code>release-planner</code> run with{" "}
+        <strong>New run</strong>. <strong>Composition</strong> lists every tool under the step or
+        installation that added it. The waterfall and Timing panes need a model with real
+        latency: set the example’s key, or run your own app.
+      </p>
+      <CodeBlock filename="terminal" language="bash" code={`pnpm --filter glove-foundry-example dev`} />
+
       <h2 id="runs">Following a run</h2>
       <p>
         Open <strong>Runs</strong>, then a run. A strip across the top gives its status, duration,
-        number of model requests and tool calls, tokens and agent instance. Below it are four
-        views, switched with <code>1</code>–<code>4</code>: <strong>Summary</strong>,{" "}
-        <strong>Network</strong>, <strong>Console</strong> and <strong>Context</strong>. The view,
+        number of model requests and tool calls, tokens and agent instance. Below it are seven
+        views, switched with <code>1</code>–<code>7</code>: <strong>Summary</strong>,{" "}
+        <strong>Network</strong>, <strong>Console</strong>, <strong>Context</strong>,{" "}
+        <strong>Composition</strong>, <strong>Queues</strong> and <strong>Call chain</strong>. The view,
         the open request and its pane are all in the URL, so a link opens someone else on the same
         step. The screenshots are runs of the{" "}
         <Link href="/foundry/docs/rebuilds/meta-muse">Meta Muse rebuild</Link> on Claude Sonnet 5.5
@@ -107,7 +137,8 @@ export default function ObservabilityPage() {
       </figure>
       <ul>
         <li><strong>Initiator</strong> says what led to a row: a request follows <code>run input</code> or the tools of the previous request (<code>after execute_browser</code>), and a tool call comes from the request whose response asked for it. Click it to jump there.</li>
-        <li><strong>Size</strong> is tokens in → out for a model request and the size of the result for a tool call. <strong>Time</strong> and the <strong>Waterfall</strong> show how long each step took and when.</li>
+        <li><strong>Size</strong> is tokens in → out for a model request and the size of the result for a tool call. <strong>Time</strong> and the <strong>Waterfall</strong> show how long each step took and when. A request’s bar is light until its first token and solid while it streams; a tool call’s is light while its permission is checked and solid while it runs, after a thin line for the time it waited behind the calls ahead of it.</li>
+        <li>A subagent’s own requests and tool calls sit indented under it. A run with more than one turn (resumed after an approval, or woken by events) shows where each turn began and how it ended.</li>
         <li>Filter by text (name, input, result or reply) and by <strong>Model</strong>, <strong>Tools</strong> or <strong>Errors</strong>. The footer totals requests, tool calls, tokens and cache reads, and time spent in the model and in tools.</li>
       </ul>
       <p>
@@ -123,6 +154,7 @@ export default function ObservabilityPage() {
           <tr><td>Context</td><td>The runtime context at the end of the request: memory, goals, forms, or any context provider. Each entry is marked new, changed or the same as the last request</td></tr>
           <tr><td>Tools</td><td>Each tool the model was offered, with its description and input schema</td></tr>
           <tr><td>Response</td><td>What the model sent back, or the error that ended the request</td></tr>
+          <tr><td>Timing</td><td>Like DevTools’ Timing tab: waiting for the first token, then streaming, with the text it streamed</td></tr>
           <tr><td>Raw</td><td>The recorded events</td></tr>
         </tbody>
       </table>
@@ -141,8 +173,13 @@ export default function ObservabilityPage() {
       <p>
         A tool call has <strong>Overview</strong> (call id, duration, the request that made it, and
         its approval), <strong>Input</strong>, <strong>Result</strong> (JSON held in a string opens as
-        a tree) and <strong>Raw</strong>.
+        a tree), <strong>Timing</strong> (when the model asked for it, how long it was queued, checked
+        or waiting for approval, and how long it ran) and <strong>Raw</strong>.
       </p>
+      <figure>
+        <img src="/foundry/inspector/network-timing.webp" width={2160} height={1500} alt="A tool call's Timing pane: find_trains queued 661ms behind get_weather, then ran for 389ms. A researcher subagent's requests and tool call sit indented under it." />
+        <figcaption>The model asked for two tools in one step. <code>find_trains</code> waited behind <code>get_weather</code>, then ran. Below, the researcher subagent’s own requests and search sit under it.</figcaption>
+      </figure>
       <figure>
         <img src="/foundry/inspector/tool-call.webp" width={2160} height={1500} alt="A tool call, gmail_send, open beside the list: called by the first request, approved by Rosa, with the email as a tree." />
         <figcaption>An email to Leo that waited for Rosa: the request that called it, when she approved it, and exactly what it sent.</figcaption>
@@ -157,7 +194,9 @@ export default function ObservabilityPage() {
         The run as a log, one line per event, at DevTools’ levels: errors and warnings are coloured
         (a failed tool call, a failed or retried run, stderr, an approval being waited on), and{" "}
         <strong>Default levels</strong> hides verbose detail such as assembly and streamed text.
-        A streamed reply is one line, not one per chunk. Filter by text and by source; click a
+        A streamed reply is one line per request, not one per chunk, and lines mark each turn
+        starting and ending, events arriving and joining the conversation, and resolved inbox
+        items. Filter by text and by source; click a
         line for its data as a tree, to copy it, or <strong>Open in Network</strong>. A live run’s
         console stays at the bottom unless you scroll up.
       </p>
@@ -174,6 +213,44 @@ export default function ObservabilityPage() {
         <li><strong>Memory</strong>: goals, facts and forms, and the memory events the run recorded.</li>
       </ul>
 
+      <h3 id="composition">Composition</h3>
+      <figure>
+        <img src="/foundry/inspector/composition.webp" width={2160} height={1500} alt="The Composition view: each tool the agent had, grouped under the assembly step that added it: Glove built-ins, Foundry core tools, app transmissions, the definition's tools, the working environment, calls." />
+        <figcaption>What Foundry assembled the agent from, like DevTools’ Sources panel. Every tool sits under the step that folded it, with how often the run called it.</figcaption>
+      </figure>
+      <ul>
+        <li><strong>Timeline</strong>: each definition field resolving, then each assembly step (core tools, app transmissions, the definition’s tools, delegation, mesh, working environment, guidance, calls, layers and subscribers, each installation, MCP servers, memory, <code>configure()</code>, the REPL, <code>build()</code>) with its time.</li>
+        <li><strong>Tools by origin</strong> and <strong>Apps and installations</strong>: which step or installation gave the agent each tool. Click a tool for its calls in Network.</li>
+        <li><strong>Playbooks</strong>, <strong>Schedules</strong> (with the instance’s activations, next and last runs), <strong>Delegates and workers</strong>, <strong>Mesh</strong>, memory, layers, subscribers, hooks, skills, subagents and calls.</li>
+      </ul>
+
+      <h3 id="queues">Queues</h3>
+      <figure>
+        <img src="/foundry/inspector/queues.webp" width={2160} height={1500} alt="The Queues view of a worker's run: the delegated task that started it, its question to the delegator, and the answer handed to it while it ran." />
+        <figcaption>A coder’s run: the task that started it, the question it asked, and the answer that reached it while it was still running.</figcaption>
+      </figure>
+      <p>
+        Everything that crossed the run’s boundary, like a WebSocket’s Messages pane. Inbound: what
+        started the run, transmission follow-ups, delegation updates, agent and mesh messages,
+        approval decisions, deliveries handed to it live, and resolved inbox items. Outbound:
+        transmissions, delegations, questions and replies, messages, spawns, schedules, sleeps,
+        inbox items and approvals. Each row’s status follows it (queued, deferred, woke the agent,
+        dropped, joined the conversation; or sent, accepted, delivered, scheduled, started), and{" "}
+        <strong>Reached</strong> is the model request that first saw an inbound row, or the run an
+        outbound one started.
+      </p>
+
+      <h3 id="call-chain">Call chain</h3>
+      <figure>
+        <img src="/foundry/inspector/call-chain.webp" width={2160} height={1500} alt="The Call chain view: an assistant run delegated to a coder, the coder asked a question, the assistant's next run replied, and the coder reported back." />
+        <figcaption>One layered exchange across four runs: delegated, asked, replied, reported back.</figcaption>
+      </figure>
+      <p>
+        The runs this one came from and the runs it started, like DevTools’ initiator chain across
+        runs: delegations and their questions, replies and results, spawns, schedules and sleeps,
+        and steering. Each run links to its own chain.
+      </p>
+
       <h3 id="summary">Summary</h3>
       <p>
         The run’s phases (accepted, assembled, agent work, outcome), its output and input, the
@@ -182,6 +259,37 @@ export default function ObservabilityPage() {
         exact input. <strong>Export trace</strong> downloads the run and every event as JSON;{" "}
         <strong>Run again</strong> reopens the run drawer with the same instance and message. The
         inspector shows what was sent, called and returned, never a model’s hidden reasoning.
+      </p>
+
+      <h3 id="testing">Testing with it</h3>
+      <p>
+        Everything the views show is the run’s recorded events, so a test can assert on the same
+        events: <code>runtime.observability.list(&#123; runId &#125;)</code>, or{" "}
+        <code>GET /api/runs/:id/events</code> over HTTP. Agent events are prefixed{" "}
+        <code>agent.</code>; the runtime’s own (<code>delegation.started</code>,{" "}
+        <code>core.command.accepted</code>, <code>run.steered</code>) aren’t.
+      </p>
+      <CodeBlock filename="release.test.ts" language="typescript" code={`const run = await runtime.send("maya", "maya-chat", "Write me a slugify function, please.");
+await runtime.waitForRun(run.id, { timeoutMs: 60_000 });
+const events = runtime.observability.list({ runId: run.id });
+const of = (type: string) => events.filter((event) => event.type === \`agent.\${type}\`).map((event) => event.data as any);
+
+// What Foundry assembled, and which step added each tool.
+const [composed] = of("foundry.assembly.composed");
+const attributed = new Set(composed.steps.flatMap((step: { tools: string[] }) => step.tools));
+assert.deepEqual(composed.tools.filter((name: string) => !attributed.has(name)), []);
+
+// How the turn ended, and the delegation it started.
+assert.equal(of("turn_end").at(-1).status, "success");
+const started = events.find((event) => event.type === "delegation.started");
+assert.equal((started?.data as { to: string }).to, "coder");`} />
+      <p>
+        The same Glove events (<code>turn_start</code>, <code>turn_end</code>,{" "}
+        <code>tool_use_start</code>, and the <code>request_id</code> on streamed events) reach any
+        subscriber, with or without Foundry: the{" "}
+        <a href="https://github.com/porkytheblack/glove/blob/main/packages/glove-foundry/docs/inspector.md#testing-with-it">inspector handbook</a>{" "}
+        has a subscriber that logs each request’s time to first token and each tool call’s wait,
+        and how to run the inspector’s own tests.
       </p>
 
       <h3 id="model-requests">What each model request records</h3>
@@ -238,7 +346,7 @@ export default function ObservabilityPage() {
         <tbody>
           <tr><td><code>⌘K</code> / <code>Ctrl+K</code></td><td>Search pages, definitions, instances and retained runs</td></tr>
           <tr><td><code>j</code> / <code>k</code></td><td>Move down / up the current list; on a run’s Network view, open the next / previous request</td></tr>
-          <tr><td><code>1</code>–<code>4</code></td><td>On a run: Summary, Network, Console, Context</td></tr>
+          <tr><td><code>1</code>–<code>7</code></td><td>On a run: Summary, Network, Console, Context, Composition, Queues, Call chain</td></tr>
           <tr><td><code>Enter</code> or <code>o</code></td><td>Open the highlighted row</td></tr>
           <tr><td><code>/</code></td><td>Focus the filter (runs, Network, Console), or open search elsewhere</td></tr>
           <tr><td><code>c</code></td><td>Start a run (on Chat: a new conversation)</td></tr>

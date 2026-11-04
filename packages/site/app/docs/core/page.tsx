@@ -1225,22 +1225,29 @@ const result = await agent.resumeToolCalls(); // runs send_email, then the model
   | { type: "model_request_end"; request_id: string; model: string; duration_ms: number;
       status: "success" | "error" | "aborted"; error?: string;
       messages?: ReadonlyArray<Message>; tokens_in?: number; tokens_out?: number }
-  | { type: "text_delta"; text: string }
-  | { type: "tool_use"; id: string; name: string; input: unknown }
+  | { type: "turn_start"; turn_id: string; trigger: "request" | "events" | "resume" }
+  | { type: "turn_end"; turn_id: string; trigger: "request" | "events" | "resume";
+      status: "success" | "error" | "aborted" | "suspended"; duration_ms: number; error?: string }
+  // Streamed events carry the request_id of the model request they belong to
+  | { type: "text_delta"; text: string; request_id?: string }
+  | { type: "tool_use"; id: string; name: string; input: unknown; request_id?: string }
   | { type: "model_response"; text: string; tool_calls?: ToolCall[];
-      stop_reason?: string; tokens_in?: number; tokens_out?: number }
+      stop_reason?: string; tokens_in?: number; tokens_out?: number; request_id?: string }
   | { type: "model_response_complete"; text: string; tool_calls?: ToolCall[];
-      stop_reason?: string; tokens_in?: number; tokens_out?: number }
+      stop_reason?: string; tokens_in?: number; tokens_out?: number; request_id?: string }
+  | { type: "tool_use_start"; id?: string; name: string; input: unknown; waited_ms: number }
   | { type: "tool_use_result"; tool_name: string; call_id?: string;
-      result: ToolResultData }
+      result: ToolResultData; id?: string; name?: string; duration_ms?: number }
   | { type: "compaction_start"; current_token_consumption: number }
   | { type: "compaction_end"; current_token_consumption: number;
       summary_message: Message; consumption: TokenConsumptionCounter }
   | { type: "token_consumption"; consumption: TokenConsumptionCounter }
   | { type: "hook_invoked"; name: string }
   | { type: "skill_invoked"; name: string; source: "user" | "agent"; args?: string }
-  | { type: "subagent_invoked"; name: string; prompt: string }
-  | { type: "subagent_completed"; name: string; status: "success" | "error"; message?: string };`}
+  | { type: "subagent_invoked"; name: string; prompt: string; call_id?: string }
+  | { type: "subagent_completed"; name: string; status: "success" | "error";
+      message?: string; call_id?: string }
+  | { type: "inbox_injected"; ids: string[]; tags: string[]; phase: "request" | "loop" };`}
         language="typescript"
       />
 
@@ -1260,14 +1267,24 @@ const result = await agent.resumeToolCalls(); // runs send_email, then the model
             "The call with that request_id ended: duration, success, error or aborted, the response messages and tokens. Delivered like model_request.",
           ],
           [
+            "turn_start",
+            "Glove",
+            'A turn began. trigger is "request" (processRequest), "events" (queued events woke the agent) or "resume" (resumeToolCalls). A subagent\'s turns arrive inside its parent\'s.',
+          ],
+          [
+            "turn_end",
+            "Glove",
+            'The turn with that turn_id ended: status "success", "error", "aborted", or "suspended" at a deferred permission, with its duration.',
+          ],
+          [
             "text_delta",
             "Model adapter (streaming)",
-            "Incremental text fragment from the model. Use to render streaming text in the UI.",
+            "Incremental text fragment from the model. Use to render streaming text in the UI. Core adds the request_id of the model request it came from.",
           ],
           [
             "tool_use",
             "Model adapter (streaming)",
-            "The model is invoking a tool. Contains the tool id, name, and parsed input.",
+            "The model asked for a tool call, often while still streaming and before the call runs. Contains the tool id, name, parsed input and request_id.",
           ],
           [
             "model_response",
@@ -1278,6 +1295,11 @@ const result = await agent.resumeToolCalls(); // runs send_email, then the model
             "model_response_complete",
             "Model adapter (streaming)",
             "Final aggregated response after streaming finishes. Same shape as model_response.",
+          ],
+          [
+            "tool_use_start",
+            "Executor",
+            "A tool call started running, after the calls ahead of it in the step, its permission check and input validation. waited_ms is the time the permission check (including a person deciding) and validation took. Calls that never run (denied, invalid, unknown, aborted) get a tool_use_result without one.",
           ],
           [
             "tool_use_result",
@@ -1317,7 +1339,12 @@ const result = await agent.resumeToolCalls(); // runs send_email, then the model
           [
             "subagent_completed",
             "Executor",
-            "Closes the subagent_invoked bracket with a 1:1 guarantee — fired even on abort or factory failure.",
+            "Closes the subagent_invoked bracket with a 1:1 guarantee — fired even on abort or factory failure. Both brackets carry the call_id of the glove_invoke_subagent call.",
+          ],
+          [
+            "inbox_injected",
+            "Agent",
+            'Resolved inbox items were saved to history for the model to read: ids, tags, and phase ("request" before a request\'s message, "loop" at a tool-step boundary).',
           ],
         ]}
       />

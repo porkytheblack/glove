@@ -102,7 +102,7 @@ test("a tool call runs through the Executor: result sent, renderData stripped, p
   const output = adapter.results[0].output as any;
   assert.deepEqual(output.data, { id: "42", state: "shipped" });
   assert.equal("renderData" in output, false, "client-only data never reaches the provider");
-  assert.deepEqual(events.map((e) => e.type).filter((t) => t.startsWith("tool")), ["tool_use", "tool_use_result"]);
+  assert.deepEqual(events.map((e) => e.type).filter((t) => t.startsWith("tool")), ["tool_use", "tool_use_start", "tool_use_result"]);
   assert.equal(events.find((e) => e.type === "tool_use_result")!.data.id, "c1");
 
   const messages = await store.getMessages();

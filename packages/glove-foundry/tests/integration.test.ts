@@ -387,6 +387,17 @@ test("Foundry serves a typed run and a complete observable trace", async () => {
       ),
     );
     assert.ok(events.some((event) => event.type === "agent.test.lazy-tools"));
+    const composed = events.find((event) => event.type === "agent.foundry.assembly.composed") as
+      | { data: { steps: Array<{ step: string; tools: string[] }>; tools: string[] } }
+      | undefined;
+    assert.ok(composed, "the run records what it was assembled from");
+    const attributed = new Set(composed.data.steps.flatMap((step) => step.tools));
+    assert.ok(composed.data.tools.length > 0);
+    assert.deepEqual(composed.data.tools.filter((name) => !attributed.has(name)), [], "every tool is listed under the step that added it");
+    assert.ok(composed.data.steps.some((step) => step.step === "foundry-core" && step.tools.length > 0));
+    const types = events.map((event) => event.type);
+    assert.ok(types.indexOf("agent.foundry.assembly.composed") < types.indexOf("agent.turn_start"), "assembly is recorded before the first turn");
+    assert.ok(types.includes("agent.turn_end"));
 
     const streamAbort = new AbortController();
     const streamResponse = await fetch(
