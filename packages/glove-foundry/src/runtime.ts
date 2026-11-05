@@ -17,9 +17,18 @@ import type { Message, TokenConsumptionCounter } from "glove-core";
 import type { Run } from "station-signal";
 import { FoundryExecutionBackend } from "./execution-backend.js";
 import {
-  nextCronOccurrence,
-  type Schedule,
-} from "station-schedules";
+  activationScheduleRevision,
+  compareOccurrences,
+  firstScheduledTime,
+  matchesOccurrenceFilter,
+  planScheduleOccurrence,
+  prunableOccurrences,
+  scheduleOccurrenceId,
+  TERMINAL_OCCURRENCE_STATUSES,
+  type FoundryScheduleOccurrence,
+  type FoundryScheduleOccurrenceFilter,
+  type ScheduleOccurrencePlan,
+} from "./schedule-occurrences.js";
 import {
   EMPTY_FOUNDRY_APPLICATION,
   type FoundryApplication,
@@ -365,7 +374,6 @@ export class FoundryRuntime {
   private readonly execution: ResolvedExecutionConfig;
   private readonly observer: FoundryObserver;
   private readonly signalRunner: FoundryExecutionBackend;
-  private readonly scheduleAdapter: FoundryExecutionBackend["schedules"];
   private readonly services: EffectManagedRuntime.ManagedRuntime<
     AccountDirectory | TopologyStore | EventStore | GrantResolver,
     unknown
@@ -376,6 +384,14 @@ export class FoundryRuntime {
   private readonly activationTransitions = Effect.unsafeMakeSemaphore(1);
   private readonly activationDispatches = new Map<string, object>();
   private readonly activationTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  /** Occurrences when the data adapter does not store them. */
+  private readonly memoryOccurrences = new Map<string, FoundryScheduleOccurrence>();
+  /** Occurrences this process handed (or is handing) to a run. */
+  private readonly occurrencesInHand = new Set<string>();
+  /** Run id to the occurrence it delivers. */
+  private readonly occurrenceRuns = new Map<string, string>();
+  /** How recent runs settled, for an occurrence recorded after its run already finished. */
+  private readonly recentlySettledRuns = new Map<string, "completed" | "failed" | "cancelled">();
   /** Whether each run's child process still holds its conversation, from FOUNDRY_RUN_PROCESS_EVENT. */
   private readonly runProcesses = new Map<string, "acquired" | "released">();
   private readonly approvalDirectory = join(
@@ -628,7 +644,6 @@ export class FoundryRuntime {
         ...(options.config?.observability?.modelRequests === false ? { [FOUNDRY_MODEL_REQUESTS_ENV]: "off" } : {}),
       },
     });
-    this.scheduleAdapter = this.signalRunner.schedules;
 
     const topologyLayer = memoryTopologyStore;
     const defaultServices = Layer.mergeAll(
@@ -991,7 +1006,7 @@ export class FoundryRuntime {
         await this.withActivationTransition(async () => {
           for (const activation of await Effect.runPromise(this.data.listActivations(current.workspaceId))) {
             if (activation.agentId !== current.id || ["cancelled", "completed"].includes(activation.status)) continue;
-            await this.disarmActivation(activation);
+            await this.disarmActivation(activation, "paused");
             await Effect.runPromise(this.data.putActivation({ ...activation, status: "paused", updatedAt: new Date().toISOString() }));
           }
         });
@@ -2308,7 +2323,7 @@ export class FoundryRuntime {
     const [execution, environment, activations] = await Promise.all([
       this.signalRunner.getAdapter().ping(),
       this.signalRunner.ping(),
-      this.scheduleAdapter.ping(),
+      this.signalRunner.ping(),
     ]);
     return {
       ok: execution && environment && activations,
@@ -3921,6 +3936,17 @@ export class FoundryRuntime {
     readonly error?: string;
   }): Promise<void> {
     void this.settleApprovalsOf(event.run.id).catch((cause) => this.reportApprovalFailure(event.run.id, cause));
+    this.recentlySettledRuns.set(event.run.id, event.status);
+    if (this.recentlySettledRuns.size > 1_000) this.recentlySettledRuns.delete(this.recentlySettledRuns.keys().next().value!);
+    void this.settleOccurrence(event.run.id, event.status).catch((cause) => {
+      this.observability.append({
+        type: "activation.persistence.error",
+        category: "activation",
+        agent: event.route,
+        runId: event.run.id,
+        data: { error: cause instanceof Error ? cause.message : String(cause) },
+      });
+    });
     this.releaseConversationRun(event.run.id);
     // The conversation's next run starts once this one's process has let go.
     void this.waitForRunProcessRelease(this.toFoundryRun(event.run), event.route)
@@ -4322,21 +4348,25 @@ export class FoundryRuntime {
     }
   }
 
-  private backendScheduleId(activationId: string): string {
-    return `activation/${activationId.replaceAll("_", "-")}`;
-  }
-
-  private async disarmActivation(activation: FoundryActivationRecord): Promise<void> {
+  private async disarmActivation(
+    activation: FoundryActivationRecord,
+    reason: "paused" | "cancelled" | "superseded",
+  ): Promise<void> {
     this.activationDispatches.delete(activation.id);
     const timer = this.activationTimers.get(activation.id);
     if (timer) {
       clearTimeout(timer);
       this.activationTimers.delete(activation.id);
     }
-    if (activation.timing.kind === "every" || activation.timing.kind === "cron") {
-      await this.scheduleAdapter.delete(this.backendScheduleId(activation.id));
-    } else if (activation.lastRunId) {
+    // A one-shot's run is the activation's only work, so it stops with it.
+    // A recurring schedule's run already in progress finishes.
+    if (activation.timing.kind === "at" && activation.lastRunId) {
       await this.signalRunner.cancel(activation.lastRunId);
+    }
+    // Claimed but not yet handed to a run: it never fires now.
+    const now = new Date().toISOString();
+    for (const occurrence of await this.listScheduleOccurrences({ activationId: activation.id, status: "pending" })) {
+      await this.putOccurrence({ ...occurrence, status: "cancelled", reason, updatedAt: now, settledAt: now });
     }
     this.materializedActivations.delete(activation.id);
   }
@@ -4353,7 +4383,7 @@ export class FoundryRuntime {
       );
     const desiredIds = new Set(command.schedules.map((item) => item.id));
     for (const stale of current.filter((item) => !desiredIds.has(item.id))) {
-      await this.disarmActivation(stale);
+      await this.disarmActivation(stale, "cancelled");
       await Effect.runPromise(this.data.putActivation({
         ...stale,
         status: "cancelled",
@@ -4365,7 +4395,7 @@ export class FoundryRuntime {
       if (existing) this.assertActivationOwnership(existing, command);
       if (!desired.enabled) {
         if (existing && existing.status !== "cancelled") {
-          await this.disarmActivation(existing);
+          await this.disarmActivation(existing, "cancelled");
           await Effect.runPromise(this.data.putActivation({
             ...existing,
             status: "cancelled",
@@ -4376,7 +4406,7 @@ export class FoundryRuntime {
       }
       const unchanged = existing?.definitionRevision === desired.revision;
       if (unchanged || existing?.status === "cancelled") continue;
-      if (existing) await this.disarmActivation(existing);
+      if (existing) await this.disarmActivation(existing, "superseded");
       const now = new Date().toISOString();
       const activation: FoundryActivationRecord = {
         id: desired.id,
@@ -4408,9 +4438,12 @@ export class FoundryRuntime {
     const existing = await Effect.runPromise(this.data.getActivation(command.activationId));
     if (!existing) throw new Error(`Scheduled activation "${command.activationId}" was not found.`);
     this.assertActivationOwnership(existing, command);
-    await this.disarmActivation(existing);
+    await this.disarmActivation(existing, "superseded");
+    // An update arms the schedule again from now, as a new one would be;
+    // only a restart resumes from the stored cursor.
+    const { nextOccurrenceAt: _cursor, scheduleRevision: _revision, ...unarmed } = existing;
     const updated: FoundryActivationRecord = {
-      ...existing,
+      ...unarmed,
       ...command.patch,
       status: existing.status === "paused" ? "paused" : "pending",
       createdByRunId: parentRunId,
@@ -4439,7 +4472,7 @@ export class FoundryRuntime {
       throw new Error(`Scheduled activation "${command.activationId}" cannot be paused from status "${existing.status}".`);
     }
     if (existing.status !== "paused") {
-      await this.disarmActivation(existing);
+      await this.disarmActivation(existing, "paused");
       await Effect.runPromise(this.data.putActivation({
         ...existing,
         status: "paused",
@@ -4465,8 +4498,11 @@ export class FoundryRuntime {
     if (existing.status !== "paused") {
       throw new Error(`Scheduled activation "${command.activationId}" is not paused.`);
     }
+    // Occurrences that fell inside the pause were deliberately not delivered:
+    // resuming starts the schedule again from now.
+    const { nextOccurrenceAt: _paused, scheduleRevision: _revision, ...unpaused } = existing;
     const resumed: FoundryActivationRecord = {
-      ...existing,
+      ...unpaused,
       status: "pending",
       createdByRunId: parentRunId,
       lastRunId: undefined,
@@ -4490,7 +4526,7 @@ export class FoundryRuntime {
     const existing = await Effect.runPromise(this.data.getActivation(command.activationId));
     if (!existing) throw new Error(`Scheduled activation "${command.activationId}" was not found.`);
     this.assertActivationOwnership(existing, command);
-    await this.disarmActivation(existing);
+    await this.disarmActivation(existing, "cancelled");
     await Effect.runPromise(this.data.putActivation({
       ...existing,
       status: "cancelled",
@@ -4507,11 +4543,49 @@ export class FoundryRuntime {
 
   private reconstructActivations(): Promise<void> {
     return this.withActivationTransition(async () => {
+      // Occurrences a previous process claimed and did not finish come first,
+      // under the identity they were claimed with.
+      await this.replayScheduleOccurrences();
       for (const activation of await Effect.runPromise(this.data.listActivations())) {
         if (activation.status === "paused" || activation.status === "completed" || activation.status === "cancelled") continue;
         await this.materializeActivation(activation);
       }
     });
+  }
+
+  /** List occurrences of schedules and sleeps: what came due, when it was meant for, and what became of it. */
+  async listScheduleOccurrences(
+    filter: FoundryScheduleOccurrenceFilter = {},
+  ): Promise<ReadonlyArray<FoundryScheduleOccurrence>> {
+    if (this.durableOccurrences()) return Effect.runPromise(this.data.listScheduleOccurrences!(filter));
+    return [...this.memoryOccurrences.values()]
+      .filter((item) => matchesOccurrenceFilter(item, filter))
+      .sort(compareOccurrences)
+      .map((item) => structuredClone(item));
+  }
+
+  private durableOccurrences(): boolean {
+    return Boolean(this.data.claimScheduleOccurrence && this.data.putScheduleOccurrence
+      && this.data.getScheduleOccurrence && this.data.listScheduleOccurrences);
+  }
+
+  private async claimOccurrence(occurrence: FoundryScheduleOccurrence): Promise<boolean> {
+    if (this.durableOccurrences()) return Effect.runPromise(this.data.claimScheduleOccurrence!(occurrence));
+    if (this.memoryOccurrences.has(occurrence.id)) return false;
+    this.memoryOccurrences.set(occurrence.id, structuredClone(occurrence));
+    return true;
+  }
+
+  private async putOccurrence(occurrence: FoundryScheduleOccurrence): Promise<void> {
+    if (this.durableOccurrences()) return Effect.runPromise(this.data.putScheduleOccurrence!(occurrence));
+    this.memoryOccurrences.set(occurrence.id, structuredClone(occurrence));
+    for (const id of prunableOccurrences(this.memoryOccurrences.values(), occurrence.activationId)) this.memoryOccurrences.delete(id);
+  }
+
+  private async getOccurrence(id: string): Promise<FoundryScheduleOccurrence | null> {
+    if (this.durableOccurrences()) return Effect.runPromise(this.data.getScheduleOccurrence!(id));
+    const occurrence = this.memoryOccurrences.get(id);
+    return occurrence ? structuredClone(occurrence) : null;
   }
 
   private async materializeActivation(activation: FoundryActivationRecord): Promise<void> {
@@ -4547,154 +4621,305 @@ export class FoundryRuntime {
       ) {
         throw new Error(`Activation "${activation.id}" has an invalid wake time.`);
       }
-      const request: FoundryRequest = {
-        agentId: activation.agentId,
-        conversationId: activation.conversationId,
-        workspaceId: activation.workspaceId,
-        message: activation.message,
-        ...(activation.payload !== undefined ? { payload: activation.payload } : {}),
-        source: { kind: "activation", id: activation.id },
+      const revision = activationScheduleRevision(activation);
+      const now = new Date();
+      // The same configuration resumes from its stored cursor; a new or
+      // changed one starts from now. A one-shot that already fired has no
+      // cursor and waits for its occurrence to settle.
+      const resumes = activation.scheduleRevision === revision;
+      const cursor = resumes
+        ? activation.nextOccurrenceAt
+        : firstScheduledTime(activation.timing, now).toISOString();
+      const { nextOccurrenceAt: _previous, ...rest } = activation;
+      const active: FoundryActivationRecord = {
+        ...rest,
+        status: "active",
+        ...(activation.timing.kind === "at" && !resumes ? { lastRunId: undefined } : {}),
+        scheduleRevision: revision,
+        ...(cursor ? { nextOccurrenceAt: cursor } : {}),
+        updatedAt: now.toISOString(),
       };
-      if (activation.timing.kind === "every" || activation.timing.kind === "cron") {
-        const now = new Date();
-        const schedule: Schedule = {
-          id: this.backendScheduleId(activation.id),
-          kind: "signal",
-          target: discovered.executionName,
-          ...(activation.timing.kind === "every"
-            ? { interval: `${activation.timing.intervalMs}ms` }
-            : { cron: activation.timing.expression, timezone: activation.timing.timezone }),
-          // Station checks overlap per signal, and a signal is a whole
-          // definition: "skip" would drop one agent's run because another
-          // agent of the same definition is busy. Runs overlap like messages
-          // do, and the conversation gate still runs one at a time per conversation.
-          overlapPolicy: "allow",
-          misfirePolicy: "fire-once",
-          misfireGraceMs: 60_000,
-          input: await this.executionEnvelope(request),
-          enabled: true,
-          nextRunAt: activation.timing.kind === "every"
-            ? new Date(now.getTime() + activation.timing.intervalMs)
-            : nextCronOccurrence(
-                activation.timing.expression,
-                activation.timing.timezone,
-                now,
-              ),
-          createdAt: now,
-          updatedAt: now,
-          createdBy: `core:${activation.createdByRunId}`,
-        };
-        await this.scheduleAdapter.add(schedule);
-        await Effect.runPromise(this.data.putActivation({
-          ...activation,
-          status: "active",
-          updatedAt: now.toISOString(),
-        }));
-        this.observability.append({
-          type: "scheduled-action.created",
-          category: "activation",
-          agent: activation.definitionId,
-          runId: activation.createdByRunId,
-          data: { commandId: activation.id, recurring: true, nextRunAt: schedule.nextRunAt },
-        });
+      if (!cursor) {
+        await this.settleFiredOneShot(active);
         return;
       }
-      await this.armOneShotActivation(activation, request);
+      await Effect.runPromise(this.data.putActivation(active));
+      this.observability.append({
+        type: "scheduled-action.created",
+        category: "activation",
+        agent: activation.definitionId,
+        runId: activation.createdByRunId,
+        data: { commandId: activation.id, recurring: activation.timing.kind !== "at", nextRunAt: cursor },
+      });
+      // Dispatch acquires the transition lock after materialization releases it, even when overdue.
+      this.armActivation(active);
     } catch (cause) {
       this.materializedActivations.delete(activation.id);
       throw cause;
     }
   }
 
-  private async armOneShotActivation(
-    activation: FoundryActivationRecord,
-    request: FoundryRequest,
-  ): Promise<void> {
-    if (activation.timing.kind !== "at") {
-      throw new Error(`Activation "${activation.id}" is not a one-shot activation.`);
-    }
-    const target = new Date(activation.timing.at).getTime();
-    const active: FoundryActivationRecord = {
+  /** A one-shot that fired before a restart: finish it if its occurrence has settled. */
+  private async settleFiredOneShot(activation: FoundryActivationRecord): Promise<void> {
+    const occurrences = (await this.listScheduleOccurrences({ activationId: activation.id }))
+      .filter((item) => item.revision === activation.scheduleRevision);
+    const latest = occurrences.at(-1);
+    if (latest && !TERMINAL_OCCURRENCE_STATUSES.has(latest.status)) return;
+    await Effect.runPromise(this.data.putActivation({
       ...activation,
-      status: "active",
-      lastRunId: undefined,
-      updatedAt: new Date().toISOString(),
-    };
-    await Effect.runPromise(this.data.putActivation(active));
+      status: latest && latest.status !== "cancelled" && latest.status !== "skipped" ? "completed" : "cancelled",
+    }));
+  }
 
+  /** Wait for the activation's cursor, then fire; repeat while it has one. */
+  private armActivation(activation: FoundryActivationRecord): void {
+    const id = activation.id;
+    const revision = activation.scheduleRevision!;
+    let dueAt = activation.nextOccurrenceAt;
+    let failures = 0;
     const generation = {};
-    this.activationDispatches.set(activation.id, generation);
-    const dispatch = (): Promise<void> => this.withActivationTransition(async () => {
+    this.activationDispatches.set(id, generation);
+    const arm = (): void => {
+      if (this.activationDispatches.get(id) !== generation || !dueAt || this.stopping || this.disposed) {
+        if (this.activationDispatches.get(id) === generation) this.activationDispatches.delete(id);
+        return;
+      }
+      const remaining = Date.parse(dueAt) - Date.now();
+      if (remaining > 0) {
+        this.activationTimers.set(id, setTimeout(arm, Math.min(remaining, 2_147_483_647)));
+        return;
+      }
+      this.activationTimers.delete(id);
+      void this.fireActivation(id, revision, generation).then((next) => {
+        failures = 0;
+        dueAt = next;
+        arm();
+      }, (cause) => {
+        // The cursor has not moved past an occurrence it failed to store, so
+        // trying again later keeps the obligation.
+        failures++;
+        this.observability.append({
+          type: "activation.dispatch.error",
+          category: "activation",
+          agent: activation.definitionId,
+          runId: activation.createdByRunId,
+          data: { activationId: id, error: cause instanceof Error ? cause.message : String(cause) },
+        });
+        if (this.activationDispatches.get(id) !== generation) return;
+        this.activationTimers.set(id, setTimeout(arm, Math.min(1_000 * 2 ** Math.min(failures - 1, 8), 300_000)));
+      });
+    };
+    arm();
+  }
+
+  /**
+   * Take the occurrence at the activation's cursor: store it, then move the
+   * cursor past it, then hand it to a run. Returns the new cursor.
+   */
+  private fireActivation(id: string, revision: string, generation: object): Promise<string | undefined> {
+    return this.withActivationTransition(async () => {
       // A timer may already be waiting for the lock when an update or pause disarms it.
-      if (this.activationDispatches.get(activation.id) !== generation) return;
-      this.activationDispatches.delete(activation.id);
-      this.activationTimers.delete(activation.id);
-      if (this.disposed || !this.started) return;
-      const current = await Effect.runPromise(this.data.getActivation(activation.id));
-      if (!current || current.status === "paused" || current.status === "cancelled" || current.status === "completed") return;
-      const runId = await this.enqueueCoreRequest(activation.definitionId, request);
-      const running: FoundryActivationRecord = {
-        ...current,
-        status: "active",
-        lastRunId: runId,
-        updatedAt: new Date().toISOString(),
+      if (this.activationDispatches.get(id) !== generation || this.stopping || this.disposed) return undefined;
+      const current = await Effect.runPromise(this.data.getActivation(id));
+      if (!current || current.status !== "active" || current.scheduleRevision !== revision || !current.nextOccurrenceAt) {
+        return undefined;
+      }
+      const scheduledFor = new Date(current.nextOccurrenceAt);
+      const now = new Date();
+      const plan = planScheduleOccurrence(current.timing, scheduledFor, now);
+      const occurrence = this.newOccurrence(current, scheduledFor, plan, now);
+      const fresh = await this.claimOccurrence(occurrence);
+      const { nextOccurrenceAt: _fired, ...rest } = current;
+      const advanced: FoundryActivationRecord = {
+        ...rest,
+        ...(plan.next ? { nextOccurrenceAt: plan.next.toISOString() } : {}),
+        updatedAt: now.toISOString(),
       };
-      await Effect.runPromise(this.data.putActivation(running));
+      await Effect.runPromise(this.data.putActivation(advanced));
+      // Not fresh: a previous process claimed it and crashed before moving the
+      // cursor. Deliver it unless it is already in hand or finished.
+      const stored = fresh ? occurrence : await this.getOccurrence(occurrence.id);
+      if (stored?.status === "pending" || (stored?.status === "accepted" && !fresh)) {
+        await this.deliverOccurrence(stored, advanced);
+      } else if (stored?.status === "skipped" && fresh) {
+        this.observability.append({
+          type: "scheduled-action.skipped",
+          category: "activation",
+          agent: current.definitionId,
+          runId: current.createdByRunId,
+          data: { activationId: id, occurrenceId: stored.id, scheduledFor: stored.scheduledFor, reason: stored.reason },
+        });
+      } else if (stored && TERMINAL_OCCURRENCE_STATUSES.has(stored.status) && !plan.next) {
+        await this.settleFiredOneShot(advanced);
+      }
+      return plan.next?.toISOString();
+    });
+  }
+
+  private newOccurrence(
+    activation: FoundryActivationRecord,
+    scheduledFor: Date,
+    plan: ScheduleOccurrencePlan,
+    now: Date,
+  ): FoundryScheduleOccurrence {
+    const at = scheduledFor.toISOString();
+    const timestamp = now.toISOString();
+    const id = scheduleOccurrenceId(activation.id, activation.scheduleRevision!, at);
+    return {
+      id,
+      activationId: activation.id,
+      revision: activation.scheduleRevision!,
+      scheduledFor: at,
+      definitionId: activation.definitionId,
+      agentId: activation.agentId,
+      conversationId: activation.conversationId,
+      workspaceId: activation.workspaceId,
+      request: {
+        agentId: activation.agentId,
+        conversationId: activation.conversationId,
+        workspaceId: activation.workspaceId,
+        message: activation.message,
+        ...(activation.payload !== undefined ? { payload: activation.payload } : {}),
+        source: { kind: "activation", id: activation.id, occurrenceId: id, scheduledFor: at },
+      },
+      status: plan.deliver ? "pending" : "skipped",
+      ...(plan.deliver ? {} : { reason: "misfire", settledAt: timestamp }),
+      attempts: 0,
+      ...(plan.coalesced ? { coalesced: plan.coalesced } : {}),
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+  }
+
+  /**
+   * Hand an occurrence to its conversation. Runs under the activation lock,
+   * so a pause or cancel never sees it half handed over.
+   */
+  private async deliverOccurrence(
+    occurrence: FoundryScheduleOccurrence,
+    activation: FoundryActivationRecord,
+  ): Promise<void> {
+    if (this.occurrencesInHand.has(occurrence.id)) return;
+    this.occurrencesInHand.add(occurrence.id);
+    try {
+      // Grants and worker state are checked when it fires, not when it was scheduled.
+      const agent = await Effect.runPromise(this.data.getAgent(occurrence.agentId));
+      let inactive = !agent;
+      if (agent?.durableSubagent) {
+        try { await this.assertDurableActive(agent); } catch { inactive = true; }
+      }
+      if (inactive) {
+        const now = new Date().toISOString();
+        await this.putOccurrence({ ...occurrence, status: "cancelled", reason: "agent-inactive", updatedAt: now, settledAt: now });
+        this.occurrencesInHand.delete(occurrence.id);
+        return;
+      }
+      const runId = await this.enqueueCoreRequest(occurrence.definitionId, occurrence.request);
+      this.occurrenceRuns.set(runId, occurrence.id);
+      const latest = (await this.getOccurrence(occurrence.id)) ?? occurrence;
+      const now = new Date().toISOString();
+      await this.putOccurrence({
+        ...latest,
+        status: "accepted",
+        runId,
+        runIds: [...(latest.runIds ?? []), runId],
+        attempts: latest.attempts + 1,
+        acceptedAt: now,
+        updatedAt: now,
+      });
+      const current = await Effect.runPromise(this.data.getActivation(activation.id));
+      if (current && current.status !== "cancelled" && current.status !== "completed") {
+        await Effect.runPromise(this.data.putActivation({ ...current, lastRunId: runId, updatedAt: now }));
+      }
       this.observability.append({
         type: "core.command.accepted",
         category: "system",
-        agent: activation.definitionId,
+        agent: occurrence.definitionId,
         runId: activation.createdByRunId,
-        data: { commandId: activation.id, childRunId: runId, type: activation.kind },
+        data: {
+          commandId: activation.id, childRunId: runId, type: activation.kind,
+          occurrenceId: occurrence.id, scheduledFor: occurrence.scheduledFor, attempt: latest.attempts + 1,
+        },
       });
-      void this.waitForRun(runId).then((run) => this.withActivationTransition(async () => {
-        if (!run || (run.status !== "completed" && run.status !== "failed" && run.status !== "cancelled")) return;
-        const latest = await Effect.runPromise(this.data.getActivation(activation.id));
-        if (!latest || latest.status !== "active" || latest.lastRunId !== runId) return;
+      // The run may have finished before it was recorded as handling this occurrence.
+      const settled = this.recentlySettledRuns.get(runId);
+      if (settled) await this.settleOccurrence(runId, settled, { locked: true });
+    } catch (cause) {
+      this.occurrencesInHand.delete(occurrence.id);
+      throw cause;
+    }
+  }
+
+  /** The run handling an occurrence settled. A run stopped by shutdown did not: the next start delivers it again. */
+  private async settleOccurrence(
+    runId: string,
+    status: "completed" | "failed" | "cancelled",
+    options: { readonly locked?: boolean } = {},
+  ): Promise<void> {
+    const occurrenceId = this.occurrenceRuns.get(runId);
+    if (!occurrenceId || this.stopping) return;
+    const work = async (): Promise<void> => {
+      const occurrence = await this.getOccurrence(occurrenceId);
+      this.occurrenceRuns.delete(runId);
+      if (!occurrence || occurrence.runId !== runId || TERMINAL_OCCURRENCE_STATUSES.has(occurrence.status)) return;
+      const now = new Date().toISOString();
+      await this.putOccurrence({
+        ...occurrence,
+        status,
+        ...(status === "cancelled" ? { reason: "run-cancelled" } : {}),
+        updatedAt: now,
+        settledAt: now,
+      });
+      this.occurrencesInHand.delete(occurrenceId);
+      const activation = await Effect.runPromise(this.data.getActivation(occurrence.activationId));
+      if (
+        activation?.timing.kind === "at" && activation.status === "active" &&
+        activation.scheduleRevision === occurrence.revision && activation.lastRunId === runId
+      ) {
         await Effect.runPromise(this.data.putActivation({
-          ...latest,
-          status: run.status === "cancelled" ? "cancelled" : "completed",
-          updatedAt: new Date().toISOString(),
+          ...activation,
+          status: status === "cancelled" ? "cancelled" : "completed",
+          updatedAt: now,
         }));
-      })).catch((cause) => {
-        this.observability.append({
-          type: "activation.persistence.error",
-          category: "activation",
-          agent: activation.definitionId,
-          runId,
-          data: { error: cause instanceof Error ? cause.message : String(cause) },
-        });
-      });
-    });
-
-    const arm = (): void => {
-      const remaining = target - Date.now();
-      if (remaining <= 0) {
-        void dispatch().catch((cause) => {
-          this.materializedActivations.delete(activation.id);
-          this.observability.append({
-            type: "activation.dispatch.error",
-            category: "activation",
-            agent: activation.definitionId,
-            runId: activation.createdByRunId,
-            data: { error: cause instanceof Error ? cause.message : String(cause) },
-          });
-        });
-        return;
       }
-      const timer = setTimeout(arm, Math.min(remaining, 2_147_483_647));
-      this.activationTimers.set(activation.id, timer);
     };
+    await (options.locked ? work() : this.withActivationTransition(work));
+  }
 
-    this.observability.append({
-      type: "scheduled-action.created",
-      category: "activation",
-      agent: activation.definitionId,
-      runId: activation.createdByRunId,
-      data: { commandId: activation.id, recurring: false, nextRunAt: activation.timing.at },
-    });
-    // Dispatch acquires the transition lock after materialization releases it, even when overdue.
-    arm();
+  /**
+   * After a restart: hand over every occurrence a previous process claimed
+   * and no run finished, unless its activation has since been paused,
+   * cancelled or changed.
+   */
+  private async replayScheduleOccurrences(): Promise<void> {
+    for (const occurrence of await this.listScheduleOccurrences({ status: ["pending", "accepted"] })) {
+      if (this.occurrencesInHand.has(occurrence.id)) continue;
+      if (occurrence.runId && await this.signalRunner.getRun(occurrence.runId)) continue;
+      const activation = await Effect.runPromise(this.data.getActivation(occurrence.activationId));
+      const reason = !activation || activation.status === "cancelled" || activation.status === "completed"
+        ? "cancelled"
+        : activation.status === "paused"
+          ? "paused"
+          // Compare with the configuration as stored now, not the revision field,
+          // which is only rewritten when the activation is armed again.
+          : activationScheduleRevision(activation) !== occurrence.revision ? "superseded" : undefined;
+      if (reason) {
+        const now = new Date().toISOString();
+        await this.putOccurrence({ ...occurrence, status: "cancelled", reason, updatedAt: now, settledAt: now });
+        continue;
+      }
+      try {
+        await this.deliverOccurrence(occurrence, activation!);
+      } catch (cause) {
+        // Left pending: the next start, or the activation's own timer, tries again.
+        this.observability.append({
+          type: "activation.dispatch.error",
+          category: "activation",
+          agent: occurrence.definitionId,
+          data: { activationId: occurrence.activationId, occurrenceId: occurrence.id, error: cause instanceof Error ? cause.message : String(cause) },
+        });
+      }
+    }
   }
 
   private async deliverOutbound(

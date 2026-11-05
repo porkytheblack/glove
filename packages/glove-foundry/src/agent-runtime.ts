@@ -1290,6 +1290,8 @@ export function compileAgentDefinition(
       provider: z.string().optional(),
       eventId: z.string().optional(),
       threadKey: z.string().optional(),
+      occurrenceId: z.string().optional(),
+      scheduledFor: z.string().optional(),
     }).optional(),
   });
   const executionEnvelope = z.object({

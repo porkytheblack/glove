@@ -243,14 +243,14 @@ export const foundry = createFoundryClient({
       <h2 id="execution-daemon">The managed execution daemon</h2>
       <CodeBlock filename="process tree" language="text" code={`glove foundry start
 └─ Foundry control process   HTTP API, inspector, instances, approvals, schedules, events
-   └─ execution daemon       Station 3 on 127.0.0.1: run queue, recurring schedules
+   └─ execution daemon       Station 3 on 127.0.0.1: run queue
       ├─ job process         one per run: imports foundry.application.ts + the agent, runs one turn
       └─ job process`} />
       <ul>
         <li>The runtime forks the daemon at start. The daemon binds loopback only and generates fresh random credentials on every start; keys and backend configuration never enter agent manifests.</li>
         <li>Each run is a separate job process. Agent code, tools and adapters execute there, not in the control process.</li>
         <li>Stopping Foundry gracefully stops the daemon and its jobs. If the daemon loses its connection to the control process, it shuts down too.</li>
-        <li>The run queue and recurring schedules live in memory inside the daemon. Persisted activations are re-armed at startup; interrupted jobs are not restored.</li>
+        <li>The run queue lives in memory inside the daemon; interrupted jobs are not restored. Schedules are armed by the control process from persisted activations, and an occurrence that came due is stored before its run is queued, so a restart delivers it again rather than losing it (see <Link href="/foundry/docs/automation#occurrences">occurrences</Link>).</li>
       </ul>
       <div className="docs-note">
         <span className="docs-note-icon">!</span>

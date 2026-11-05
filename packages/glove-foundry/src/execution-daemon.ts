@@ -20,6 +20,8 @@ let client: StationClient | undefined;
 const queue = new MemoryAdapter();
 // Far enough out that Station never finds a parked run due on its own.
 const PARKED_UNTIL = new Date("9999-12-31T00:00:00.000Z");
+// Foundry's controller owns schedules (durably, through its data adapter);
+// Station's own scheduler stays empty.
 const schedules = new ScheduleMemoryAdapter();
 const definitions = new Map<string, AnySignal>();
 let stopping: Promise<void> | undefined;
@@ -134,8 +136,6 @@ process.on("message", (message: DaemonRequest) => {
         try { await client!.request("POST", `/runs/${encodeURIComponent(command.id)}/cancel`, {}); value = true; }
         catch (error) { if (error instanceof StationApiError && ["cannot_cancel", "not_found"].includes(error.code)) value = false; else throw error; }
         break;
-      case "schedule.add": await schedules.add(command.schedule); value = null; break;
-      case "schedule.delete": value = await schedules.delete(command.id); break;
       case "ping": value = Boolean(client && (await client.health()).ok); break;
       case "stop": await stop(); value = null; break;
     }

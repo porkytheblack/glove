@@ -173,6 +173,24 @@ The controller owns wake/defer deadlines and conversation admission. A live proc
 
 A successful execution result carries consumed-event receipts. The controller reconciles those receipts before replaying unfinished delivery on startup. A crash can repeat work between a side effect and acknowledgment, so delivery is at least once and effects should use event IDs for idempotency. Archival retains pending events; worker purge removes the owned journal and deduplication records. See [durable subagents](./durable-subagents.md) for authoring, policy, permissions and lifecycle details.
 
+## Schedule occurrences
+
+The controller owns every timer: one-shot schedules, sleeps and recurring schedules. Station's scheduler is not used, so no schedule state lives in the execution daemon. An activation persists `nextOccurrenceAt`, the scheduled time of the next occurrence it owes, together with `scheduleRevision`, a hash of the configuration that cursor belongs to (target, message, payload, timing). Status and timestamp writes never change the revision.
+
+When the cursor comes due, under the activation lock, the controller:
+
+1. builds the occurrence: id `occurrence_<sha256(activationId, revision, scheduledFor)>`, the request with `source.occurrenceId` and `source.scheduledFor`, status `pending` (or `skipped` under `misfire: "skip"`);
+2. claims it with `claimScheduleOccurrence`, an insert-if-absent;
+3. only then writes the activation with the cursor moved to the next occurrence (journal first: a crash before this step fires the same id again, and the claim deduplicates it);
+4. admits it to the conversation gate like any other message and records `accepted` with the run id;
+5. when that run settles, records `completed`, `failed` or `cancelled`.
+
+On startup the controller first hands over every `pending` or `accepted` occurrence whose activation is still active under the same revision (others become `cancelled` with reason `paused`, `cancelled` or `superseded`), then re-arms activations from their stored cursor. A crash after a run's side effect but before its outcome is stored delivers the occurrence again with the same id, so delivery is at least once and effects should key on `source.occurrenceId`. A run stopped by a clean shutdown is not an outcome either: the next start delivers its occurrence again.
+
+Pause, cancel and update cancel the activation's `pending` occurrences under the same lock that fires them, so a stale configuration never fires after it was replaced; an `accepted` recurring run finishes, and a one-shot's run is cancelled with it. Resume starts the cursor again from now.
+
+The bundled adapters keep every open occurrence and the latest 100 terminal ones per activation. A data adapter without the occurrence methods gets an in-memory journal: occurrences are visible while the process runs but a crash can lose one.
+
 ## Working environment and REPL boundary
 
 Foundry owns contextual selection, mounting, lifecycle, and observability. The native packages retain their own semantics:

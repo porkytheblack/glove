@@ -162,9 +162,17 @@ export {
   isFoundrySchedule,
   type DefineFoundryScheduleOptions,
   type FoundryScheduleDefinition,
+  type FoundryScheduleMisfirePolicy,
   type FoundryScheduleTiming,
   type FoundryScheduleTimingInput,
 } from "./schedule.js";
+export {
+  activationScheduleRevision,
+  scheduleOccurrenceId,
+  type FoundryScheduleOccurrence,
+  type FoundryScheduleOccurrenceFilter,
+  type FoundryScheduleOccurrenceStatus,
+} from "./schedule-occurrences.js";
 export {
   EMPTY_NATIVE_REGISTRY,
   FOUNDRY_LAYER_BRAND,

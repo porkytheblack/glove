@@ -2,6 +2,7 @@ import type { AgentEvent } from "glove-core";
 import type { FoundryEventTarget, FoundryEventPolicy, FoundryMessageOptions } from "./event-delivery.js";
 import type { AgentMessageReceipt } from "./durable-subagents.js";
 import type { FoundryRuntime } from "./runtime.js";
+import type { FoundryScheduleOccurrence, FoundryScheduleOccurrenceFilter } from "./schedule-occurrences.js";
 import type {
   AnyFoundryAgent,
   FoundryRouteMap,
@@ -400,6 +401,21 @@ export class FoundryClient<TRoutes extends FoundryRouteMap> {
     const query = workspaceId ? `?workspace=${encodeURIComponent(workspaceId)}` : "";
     return readResponse(
       await this.fetcher(`${this.baseUrl}/api/activations${query}`),
+    );
+  }
+
+  /** Occurrences of schedules and sleeps: when each was meant for, the run that took it and how it ended. */
+  async scheduleOccurrences(
+    filter: FoundryScheduleOccurrenceFilter = {},
+  ): Promise<ReadonlyArray<FoundryScheduleOccurrence>> {
+    const query = new URLSearchParams();
+    if (filter.activationId) query.set("activation", filter.activationId);
+    if (filter.workspaceId) query.set("workspace", filter.workspaceId);
+    if (filter.agentId) query.set("agent", filter.agentId);
+    for (const status of typeof filter.status === "string" ? [filter.status] : filter.status ?? []) query.append("status", status);
+    const suffix = query.size ? `?${query}` : "";
+    return readResponse(
+      await this.fetcher(`${this.baseUrl}/api/schedule-occurrences${suffix}`),
     );
   }
 

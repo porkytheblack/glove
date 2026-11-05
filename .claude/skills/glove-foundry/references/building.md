@@ -135,7 +135,8 @@ Schedules are agent-local definition values that reconcile into persisted activa
 - Agents create future or recurring work with Foundry's schedule tool.
 - Agents must be able to list, update, and cancel their own scheduled triggers.
 - Sleep suspends the logical run and wakes the same instance and conversation later with a resolution message.
-- Pending and recurring activations must reconstruct from a durable `FoundryDataAdapter` on restart.
+- Pending and recurring activations must reconstruct from a durable `FoundryDataAdapter` on restart, from their stored `nextOccurrenceAt`. A database adapter should implement the optional schedule occurrence methods (`claimScheduleOccurrence` as an atomic insert-if-absent, plus put/get/list) so a due occurrence survives a crash before its run finishes.
+- Scheduled runs are delivered at least once. Key side effects (reminders, payments) on `request.source.occurrenceId`, which stays the same across retries; read history with `client.scheduleOccurrences()`.
 
 Do not expose the private execution backend as the authoring model for schedules or sleep.
 

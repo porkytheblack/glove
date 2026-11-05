@@ -5,7 +5,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Run } from "station-signal";
-import type { Schedule } from "station-schedules";
 import type { FoundryObserver } from "./observability.js";
 import { executionEvents, type DaemonCommand, type DaemonInit, type DaemonResponse } from "./execution-protocol.js";
 
@@ -153,11 +152,6 @@ export class FoundryExecutionBackend {
   cancel(id: string): Promise<boolean> { return this.request({ method: "cancel", id }); }
   ping(): Promise<boolean> { return this.request({ method: "ping" }); }
   getAdapter() { return { ping: () => this.ping() }; }
-  readonly schedules = {
-    add: (schedule: Schedule): Promise<void> => this.request({ method: "schedule.add", schedule }),
-    delete: (id: string): Promise<boolean> => this.request({ method: "schedule.delete", id }),
-    ping: () => this.ping(),
-  };
   async waitForRun(id: string, options: { pollMs?: number; timeoutMs?: number } = {}): Promise<Run | null> {
     const deadline = Date.now() + (options.timeoutMs ?? 60000);
     do {

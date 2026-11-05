@@ -534,7 +534,7 @@ Schedules are composable agent-local primitives, never a root registry. A lazy `
 - `glove_foundry_schedules` lists, updates, or cancels triggers owned by the current instance.
 - `glove_foundry_sleep` suspends the current logical run until an absolute time or for a duration, then wakes the same instance and conversation with a resolution message.
 
-Both operations persist adapter-backed activation data before the execution backend is armed. Pending wake-ups and recurring work are reconstructed when the runtime starts; the bundled memory adapter is for development, while a durable `FoundryDataAdapter` supplies production persistence.
+Both operations persist adapter-backed activation data before Foundry arms them. When one comes due, Foundry stores a schedule occurrence (stable id, `scheduledFor`, run and outcome) before it moves the activation's `nextOccurrenceAt` past it, then hands it to a run; on restart it delivers unfinished occurrences and re-arms from the stored cursor, not the current time. Delivery is at least once; key side effects on `request.source.occurrenceId`. Read occurrences with `runtime.listScheduleOccurrences()` or `client.scheduleOccurrences()`. The bundled memory adapter is for development, while a durable `FoundryDataAdapter` (with the optional occurrence methods) supplies production persistence.
 
 Durations accept compact forms such as `30s`, `20m`, and `2h`, as well as Effect duration forms such as `20 minutes`. The execution backend remains private; agent projects see only these purpose-built tools and correlated activation events.
 

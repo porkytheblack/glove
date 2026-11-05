@@ -14,6 +14,14 @@ import {
 } from "./domain.js";
 import { TopologyStore } from "./services.js";
 import {
+  assertScheduleOccurrence,
+  compareOccurrences,
+  matchesOccurrenceFilter,
+  prunableOccurrences,
+  type FoundryScheduleOccurrence,
+  type FoundryScheduleOccurrenceFilter,
+} from "./schedule-occurrences.js";
+import {
   createAgentInstance,
   reconstructAgentInstance,
   type AgentInstance,
@@ -48,6 +56,7 @@ interface FileFoundryState {
   pendingInbound: FoundryPendingInbound[];
   approvals: FoundryApproval[];
   activations: FoundryActivationRecord[];
+  occurrences: FoundryScheduleOccurrence[];
   conversations: Conversation[];
   workspaceEntries: WorkspaceEntry[];
   workingEnvironments: PersistedWorkingEnvironment[];
@@ -81,6 +90,7 @@ function emptyState(environment: ReadonlyArray<EnvironmentValue>): FileFoundrySt
     pendingInbound: [],
     approvals: [],
     activations: [],
+    occurrences: [],
     conversations: [],
     workspaceEntries: [],
     workingEnvironments: [],
@@ -133,7 +143,7 @@ export class FileFoundryDataAdapter implements FoundryDataAdapter {
   private readonly lockFile: string;
   private readonly lockTimeoutMs: number;
   private readonly staleLockMs: number;
-  private readonly seeds: Omit<FileFoundryState, "events" | "version" | "inboundDeliveries" | "pendingInbound" | "approvals" | "workspaceEntries" | "workingEnvironments" | "inbox" | "tasks">;
+  private readonly seeds: Omit<FileFoundryState, "events" | "occurrences" | "version" | "inboundDeliveries" | "pendingInbound" | "approvals" | "workspaceEntries" | "workingEnvironments" | "inbox" | "tasks">;
   private initialized: Promise<void> | undefined;
   private queue: Promise<unknown> = Promise.resolve();
 
@@ -209,6 +219,7 @@ export class FileFoundryDataAdapter implements FoundryDataAdapter {
         pendingInbound: parsed.pendingInbound ?? [],
         approvals: parsed.approvals ?? [],
         activations: parsed.activations ?? [],
+        occurrences: parsed.occurrences ?? [],
         conversations: parsed.conversations ?? [],
         workspaceEntries: parsed.workspaceEntries ?? [],
         workingEnvironments: parsed.workingEnvironments ?? [],
@@ -332,6 +343,7 @@ export class FileFoundryDataAdapter implements FoundryDataAdapter {
       state.pendingInbound = state.pendingInbound.filter((item) => item.request.agentId !== agentId);
       state.approvals = state.approvals.filter((item) => item.agentId !== agentId);
       state.activations = state.activations.filter((item) => item.agentId !== agentId);
+      state.occurrences = state.occurrences.filter((item) => item.agentId !== agentId);
       state.conversations = state.conversations.filter((item) => item.agentId !== agentId);
       state.workingEnvironments = state.workingEnvironments.filter((item) => item.owner.agentId !== agentId);
       state.inbox = state.inbox.filter((item) => item.agentId !== agentId && !ids.has(item.conversationId ?? ""));
@@ -413,6 +425,31 @@ export class FileFoundryDataAdapter implements FoundryDataAdapter {
     });
   }); }
   listEvents() { return effect(async () => structuredClone((await this.snapshot()).events)); }
+
+  claimScheduleOccurrence(occurrence: FoundryScheduleOccurrence) { return effect(async () => {
+    assertScheduleOccurrence(occurrence);
+    await this.ensureInitialized();
+    return this.mutate((state) => {
+      if (state.occurrences.some((item) => item.id === occurrence.id)) return false;
+      state.occurrences.push(structuredClone(occurrence));
+      return true;
+    });
+  }); }
+  putScheduleOccurrence(occurrence: FoundryScheduleOccurrence) { return effect(async () => {
+    assertScheduleOccurrence(occurrence);
+    await this.ensureInitialized();
+    await this.mutate((state) => {
+      replaceById(state.occurrences, occurrence);
+      const drop = new Set(prunableOccurrences(state.occurrences, occurrence.activationId));
+      if (drop.size) state.occurrences = state.occurrences.filter((item) => !drop.has(item.id));
+    });
+  }); }
+  getScheduleOccurrence(id: string) { return effect(async () =>
+    structuredClone((await this.snapshot()).occurrences.find((item) => item.id === id) ?? null)); }
+  listScheduleOccurrences(filter?: FoundryScheduleOccurrenceFilter) { return effect(async () =>
+    structuredClone((await this.snapshot()).occurrences
+      .filter((item) => matchesOccurrenceFilter(item, filter))
+      .sort(compareOccurrences))); }
 
   putPendingInbound(record: FoundryPendingInbound) { return effect(async () => {
     await this.ensureInitialized();
