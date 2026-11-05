@@ -1,18 +1,27 @@
 import { createHash } from "node:crypto";
 import { Duration } from "effect";
+import { validateCron } from "station-schedules";
 
 export const FOUNDRY_SCHEDULE_BRAND = Symbol.for("glove-foundry-schedule");
+
+/**
+ * What a recurring schedule does about occurrences that passed while the
+ * runtime was not running. `fire-once` (default) delivers the earliest missed
+ * occurrence and folds the rest into it; `catch-up` delivers every one in
+ * order; `skip` drops an occurrence more than a minute late.
+ */
+export type FoundryScheduleMisfirePolicy = "fire-once" | "skip" | "catch-up";
 
 export type FoundryScheduleTimingInput =
   | { readonly kind: "at"; readonly at: string }
   | { readonly kind: "after"; readonly duration: string }
-  | { readonly kind: "every"; readonly interval: string }
-  | { readonly kind: "cron"; readonly expression: string; readonly timezone?: string };
+  | { readonly kind: "every"; readonly interval: string; readonly misfire?: FoundryScheduleMisfirePolicy }
+  | { readonly kind: "cron"; readonly expression: string; readonly timezone?: string; readonly misfire?: FoundryScheduleMisfirePolicy };
 
 export type FoundryScheduleTiming =
   | { readonly kind: "at"; readonly at: string }
-  | { readonly kind: "every"; readonly intervalMs: number }
-  | { readonly kind: "cron"; readonly expression: string; readonly timezone: string };
+  | { readonly kind: "every"; readonly intervalMs: number; readonly misfire?: FoundryScheduleMisfirePolicy }
+  | { readonly kind: "cron"; readonly expression: string; readonly timezone: string; readonly misfire?: FoundryScheduleMisfirePolicy };
 
 export interface DefineFoundryScheduleOptions {
   /** Stable semantic name within one agent definition. It is not a runtime id. */
@@ -42,6 +51,11 @@ export function durationMillis(value: string): number {
   return milliseconds;
 }
 
+function misfirePolicy(value: string): FoundryScheduleMisfirePolicy {
+  if (value === "fire-once" || value === "skip" || value === "catch-up") return value;
+  throw new Error(`Unknown misfire policy "${value}".`);
+}
+
 export function normalizeScheduleTiming(
   timing: FoundryScheduleTimingInput,
   now = Date.now(),
@@ -50,11 +64,19 @@ export function normalizeScheduleTiming(
     return Object.freeze({ kind: "at", at: new Date(now + durationMillis(timing.duration)).toISOString() });
   }
   if (timing.kind === "every") {
-    return Object.freeze({ kind: "every", intervalMs: durationMillis(timing.interval) });
+    return Object.freeze({
+      kind: "every", intervalMs: durationMillis(timing.interval),
+      ...(timing.misfire ? { misfire: misfirePolicy(timing.misfire) } : {}),
+    });
   }
   if (timing.kind === "cron") {
     if (!timing.expression.trim()) throw new Error("A cron expression is required.");
-    return Object.freeze({ kind: "cron", expression: timing.expression, timezone: timing.timezone ?? "UTC" });
+    const timezone = timing.timezone ?? "UTC";
+    validateCron(timing.expression, timezone);
+    return Object.freeze({
+      kind: "cron", expression: timing.expression, timezone,
+      ...(timing.misfire ? { misfire: misfirePolicy(timing.misfire) } : {}),
+    });
   }
   const at = new Date(timing.at);
   if (Number.isNaN(at.getTime())) throw new Error(`Invalid schedule date "${timing.at}".`);

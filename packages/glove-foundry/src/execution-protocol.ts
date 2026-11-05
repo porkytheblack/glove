@@ -1,5 +1,4 @@
 import type { SignalSubscriber } from "station-signal";
-import type { Schedule } from "station-schedules";
 export const executionEvents = ["onSignalDiscovered", "onRunDispatched", "onRunStarted", "onRunCompleted", "onRunTimeout", "onRunRetry", "onRunFailed", "onRunCancelled", "onRunSkipped", "onRunRescheduled", "onCompleteError", "onLogOutput"] as const satisfies readonly (keyof SignalSubscriber)[];
 export type ExecutionEvent = typeof executionEvents[number];
 export interface DaemonInit {
@@ -16,8 +15,6 @@ export type DaemonCommand =
   | { method: "get"; id: string }
   | { method: "list"; signalName?: string }
   | { method: "cancel"; id: string }
-  | { method: "schedule.add"; schedule: Schedule }
-  | { method: "schedule.delete"; id: string }
   | { method: "ping" }
   | { method: "stop" };
 export interface DaemonRequest { id: number; command: DaemonCommand }

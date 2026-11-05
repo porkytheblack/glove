@@ -19,6 +19,7 @@ import {
 } from "./domain.js";
 import type { EventFilter, FoundryEvent } from "./observability.js";
 import type { FoundryRun, FoundryRuntime } from "./runtime.js";
+import type { FoundryScheduleOccurrenceStatus } from "./schedule-occurrences.js";
 import type {
   AgentInstallation,
   AgentInstallationKind,
@@ -843,6 +844,20 @@ export class FoundryServer {
           await this.runtime.listPlaybookSubscriptions(
             url.searchParams.get("workspace") ?? undefined,
           ),
+        );
+        return;
+      }
+      if (url.pathname === "/api/schedule-occurrences" && method === "GET") {
+        const status = url.searchParams.getAll("status").filter(Boolean);
+        json(
+          response,
+          200,
+          await this.runtime.listScheduleOccurrences({
+            ...(url.searchParams.get("activation") ? { activationId: url.searchParams.get("activation")! } : {}),
+            ...(url.searchParams.get("workspace") ? { workspaceId: url.searchParams.get("workspace")! } : {}),
+            ...(url.searchParams.get("agent") ? { agentId: url.searchParams.get("agent")! } : {}),
+            ...(status.length ? { status: status as FoundryScheduleOccurrenceStatus[] } : {}),
+          }),
         );
         return;
       }

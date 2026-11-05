@@ -325,10 +325,27 @@ export default defineSchedule({
         <tbody>
           <tr><td><code>{"{ kind: \"at\", at }"}</code></td><td><code>{"{ kind: \"at\", at: \"2026-12-01T09:00:00Z\" }"}</code></td><td>one-shot at that instant</td></tr>
           <tr><td><code>{"{ kind: \"after\", duration }"}</code></td><td><code>{"{ kind: \"after\", duration: \"2h\" }"}</code></td><td>one-shot <code>at</code> = now + duration</td></tr>
-          <tr><td><code>{"{ kind: \"every\", interval }"}</code></td><td><code>{"{ kind: \"every\", interval: \"30m\" }"}</code></td><td><code>{"{ kind: \"every\", intervalMs }"}</code></td></tr>
-          <tr><td><code>{"{ kind: \"cron\", expression, timezone? }"}</code></td><td><code>{"{ kind: \"cron\", expression: \"0 9 * * 1-5\" }"}</code></td><td>five-field cron, minute resolution, IANA <code>timezone</code> (default <code>UTC</code>)</td></tr>
+          <tr><td><code>{"{ kind: \"every\", interval, misfire? }"}</code></td><td><code>{"{ kind: \"every\", interval: \"30m\" }"}</code></td><td><code>{"{ kind: \"every\", intervalMs }"}</code></td></tr>
+          <tr><td><code>{"{ kind: \"cron\", expression, timezone?, misfire? }"}</code></td><td><code>{"{ kind: \"cron\", expression: \"0 9 * * 1-5\" }"}</code></td><td>five-field cron, minute resolution, IANA <code>timezone</code> (default <code>UTC</code>)</td></tr>
         </tbody>
       </table>
+      <p>
+        <code>misfire</code> says what a recurring schedule does with occurrences that passed
+        while the runtime was not running:
+      </p>
+      <table>
+        <thead><tr><th><code>misfire</code></th><th>After downtime</th></tr></thead>
+        <tbody>
+          <tr><td><code>&quot;fire-once&quot;</code> (default)</td><td>Delivers the earliest missed occurrence, with its original <code>scheduledFor</code>. Later missed ones are folded into it (counted in <code>coalesced</code>). The next is the first one after now.</td></tr>
+          <tr><td><code>&quot;catch-up&quot;</code></td><td>Delivers every missed occurrence, in order, each with its own <code>scheduledFor</code>.</td></tr>
+          <tr><td><code>&quot;skip&quot;</code></td><td>Records an occurrence more than 60 s late as <code>skipped</code> (reason <code>misfire</code>) without running it. The next is the first one after now.</td></tr>
+        </tbody>
+      </table>
+      <p>
+        Cron times are local wall-clock times in <code>timezone</code>. On a daylight-saving
+        change, a local time that does not exist that day has no occurrence, and one that
+        happens twice has two, at different instants.
+      </p>
       <p>
         A schedule exists only if an agent’s <code>schedules</code> resolver returns it
         (see the <code>agent.ts</code> above). There is no schedule file convention and no
@@ -346,10 +363,41 @@ export default defineSchedule({
         One-shot activations go <code>pending</code> → <code>active</code> →{" "}
         <code>completed</code> (or <code>cancelled</code> if their run was cancelled); one
         that came due while the runtime was down fires as soon as it starts. Recurring
-        activations stay <code>active</code>, skip a tick while the previous scheduled run
-        is still going, and collapse ticks that are more than 60 s late into a single
-        firing. Every firing is
-        a normal run with <code>source: {"{ kind: \"activation\", id }"}</code>.
+        activations stay <code>active</code>. An occurrence that comes due while its
+        conversation is busy waits its turn, like any other message to that conversation.
+        Every firing is a normal run with{" "}
+        <code>source: {"{ kind: \"activation\", id, occurrenceId, scheduledFor }"}</code>.
+      </p>
+      <h3 id="occurrences">Occurrences</h3>
+      <p>
+        Each time an activation comes due, Foundry stores an <em>occurrence</em> before it
+        moves the activation on, then hands it to a run. The occurrence id is derived from the
+        activation, its schedule configuration and the scheduled instant, so it is the same
+        however many times a crash makes Foundry retry the handoff. Delivery is at least once:
+        a crash after a run finished but before its outcome was stored delivers the occurrence
+        again. Key side effects (sending a reminder, charging a card) on{" "}
+        <code>request.source.occurrenceId</code>, which every tool and resolver can read.
+      </p>
+      <table>
+        <thead><tr><th>Occurrence field</th><th>Value</th></tr></thead>
+        <tbody>
+          <tr><td><code>id</code></td><td>Stable across retries and restarts.</td></tr>
+          <tr><td><code>activationId</code>, <code>revision</code></td><td>The activation and the schedule configuration it was claimed under.</td></tr>
+          <tr><td><code>scheduledFor</code></td><td>The time the schedule meant, whenever the run actually started.</td></tr>
+          <tr><td><code>status</code></td><td><code>pending</code> (stored, not yet with a run) | <code>accepted</code> (a run has it) | <code>completed</code> | <code>failed</code> | <code>skipped</code> | <code>cancelled</code></td></tr>
+          <tr><td><code>reason?</code></td><td>For <code>skipped</code> and <code>cancelled</code>: <code>misfire</code>, <code>paused</code>, <code>cancelled</code>, <code>superseded</code> (the schedule changed), <code>agent-inactive</code> or <code>run-cancelled</code>.</td></tr>
+          <tr><td><code>runId?</code>, <code>runIds?</code>, <code>attempts</code></td><td>The run that has (or settled) it, every run it was handed to, and how many handoffs were recorded.</td></tr>
+          <tr><td><code>coalesced?</code></td><td>Missed occurrences folded into this one under <code>fire-once</code>.</td></tr>
+          <tr><td><code>request</code></td><td>Exactly what its run receives.</td></tr>
+        </tbody>
+      </table>
+      <p>
+        Read them with <code>GET /api/schedule-occurrences?activation=…&amp;workspace=…&amp;agent=…&amp;status=…</code>,{" "}
+        <code>client.scheduleOccurrences({"{ activationId }"})</code> or{" "}
+        <code>runtime.listScheduleOccurrences(filter)</code>. Pausing, cancelling or changing a
+        schedule cancels its occurrences that no run has yet; a run already going finishes
+        (for a one-shot, it is cancelled with the activation). Resuming a paused schedule
+        starts again from now: occurrences that fell inside the pause are not delivered.
       </p>
       <p>
         See every activation on the inspector’s <strong>Automations</strong> page (scheduled
@@ -369,6 +417,7 @@ export default defineSchedule({
           <tr><td><code>timing</code></td><td><code>{"{ kind: \"at\", at }"}</code> | <code>{"{ kind: \"every\", intervalMs }"}</code> | <code>{"{ kind: \"cron\", expression, timezone }"}</code></td></tr>
           <tr><td><code>origin</code></td><td><code>&quot;agent-definition&quot;</code> or <code>&quot;agent-tool&quot;</code>; plus <code>scheduleName</code> and <code>definitionRevision</code> for the former.</td></tr>
           <tr><td><code>status</code></td><td><code>pending</code> | <code>active</code> | <code>paused</code> | <code>completed</code> | <code>cancelled</code></td></tr>
+          <tr><td><code>nextOccurrenceAt?</code>, <code>scheduleRevision?</code></td><td>The next occurrence it owes, and the schedule configuration that cursor belongs to. Set by Foundry.</td></tr>
           <tr><td><code>createdByRunId</code>, <code>lastRunId?</code>, <code>createdAt</code>, <code>updatedAt</code></td><td>Provenance.</td></tr>
         </tbody>
       </table>
@@ -440,8 +489,10 @@ export default defineSchedule({
 
       <h2 id="durability">Durability</h2>
       <ul>
-        <li>Schedule and sleep activations are written through <code>FoundryDataAdapter.putActivation</code> before the execution backend is armed.</li>
-        <li>On start, Foundry reloads every activation and re-arms the <code>pending</code> and <code>active</code> ones. <code>paused</code>, <code>completed</code> and <code>cancelled</code> stay disarmed, so a paused schedule is still paused after a restart.</li>
+        <li>Schedule and sleep activations are written through <code>FoundryDataAdapter.putActivation</code> before they are armed. Foundry&apos;s controller arms them; the execution daemon keeps no schedule state.</li>
+        <li>When one comes due, the occurrence is stored first, then the activation&apos;s <code>nextOccurrenceAt</code> moves past it, then a run takes it. A crash at any point either leaves the cursor where it was or leaves a stored occurrence; neither loses it.</li>
+        <li>On start, Foundry first hands over every occurrence that is still <code>pending</code> or <code>accepted</code> (unless its activation was since paused, cancelled or changed), then re-arms the <code>pending</code> and <code>active</code> activations from their stored <code>nextOccurrenceAt</code>, not from the current time. <code>paused</code>, <code>completed</code> and <code>cancelled</code> stay disarmed, so a paused schedule is still paused after a restart.</li>
+        <li>Occurrences need <code>claimScheduleOccurrence</code>, <code>putScheduleOccurrence</code>, <code>getScheduleOccurrence</code> and <code>listScheduleOccurrences</code> on the data adapter. Both bundled adapters have them; without them occurrences live in memory and a crash can lose one that was due.</li>
         <li>Instances (with their playbooks and installations), subscriptions and inbound delivery claims live in the same adapter.</li>
         <li><code>MemoryFoundryDataAdapter</code>, the default when <code>defineApplication</code> has no <code>data</code>, loses all of it on restart. Use it for development only; use <code>FileFoundryDataAdapter({"{ file }"})</code> on one host or implement <code>FoundryDataAdapter</code> for a database. See <Link href="/foundry/docs/persistence">Persistence</Link>.</li>
         <li>Routes and bindings are not in the data adapter; they live in the topology store (see <Link href="/foundry/docs/applications#topology">topology</Link>).</li>

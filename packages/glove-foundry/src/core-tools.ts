@@ -50,8 +50,7 @@ export type FoundryCoreCommand =
       readonly payload?: unknown;
       readonly timing:
         | { readonly kind: "at"; readonly at: string }
-        | { readonly kind: "every"; readonly intervalMs: number }
-        | { readonly kind: "cron"; readonly expression: string; readonly timezone: string };
+        | FoundryScheduleTiming;
     }
   | {
       readonly id: string;
@@ -183,11 +182,14 @@ function afterDuration(value: string): string {
   return (normalizeScheduleTiming({ kind: "after", duration: value }) as { kind: "at"; at: string }).at;
 }
 
+const misfireSchema = z.enum(["fire-once", "skip", "catch-up"]).optional()
+  .describe("Occurrences missed while the runtime was down: fire-once (default) delivers one, catch-up delivers each, skip drops any more than a minute late");
+
 const timingInputSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("at"), at: z.string().datetime() }),
   z.object({ kind: z.literal("after"), duration: durationSchema("Delay before the one-time activation") }),
-  z.object({ kind: z.literal("every"), interval: durationSchema("Interval between recurring activations") }),
-  z.object({ kind: z.literal("cron"), expression: z.string().min(1), timezone: z.string().min(1).default("UTC") }),
+  z.object({ kind: z.literal("every"), interval: durationSchema("Interval between recurring activations"), misfire: misfireSchema }),
+  z.object({ kind: z.literal("cron"), expression: z.string().min(1), timezone: z.string().min(1).default("UTC"), misfire: misfireSchema }),
 ]);
 
 function toolSegment(value: string): string {

@@ -14,6 +14,12 @@ import {
   type PlaybookSubscription,
 } from "./subscription.js";
 import type { FoundryAgentDefinition } from "./definition.js";
+import {
+  assertScheduleOccurrence,
+  compareOccurrences,
+  matchesOccurrenceFilter,
+  prunableOccurrences,
+} from "./schedule-occurrences.js";
 import type { FoundryScheduleTiming } from "./schedule.js";
 
 export interface AgentInstance {
@@ -148,6 +154,18 @@ export interface FoundryActivationRecord {
   readonly status: "pending" | "active" | "paused" | "completed" | "cancelled";
   readonly createdByRunId: string;
   readonly lastRunId?: string;
+  /**
+   * The schedule configuration `nextOccurrenceAt` belongs to (see
+   * `activationScheduleRevision`). Set by Foundry; a changed configuration
+   * starts a new cursor and new occurrence identities.
+   */
+  readonly scheduleRevision?: string;
+  /**
+   * The scheduled time of the next occurrence this activation owes. Foundry
+   * moves it only after the occurrence at the old value is stored, so a
+   * restart resumes from here instead of from the current time.
+   */
+  readonly nextOccurrenceAt?: string;
   readonly createdAt: string;
   readonly updatedAt: string;
 }
@@ -190,6 +208,21 @@ export interface FoundryDataAdapter {
   putApproval?(approval: FoundryApproval): Effect.Effect<void, unknown, never>;
   getApproval?(id: string): Effect.Effect<FoundryApproval | null, unknown, never>;
   listApprovals?(): Effect.Effect<ReadonlyArray<FoundryApproval>, unknown, never>;
+  /**
+   * Schedule occurrences (optional). With these, every occurrence of a
+   * schedule or sleep is stored before the activation moves past it, survives
+   * a restart until a run settles it, and stays listable afterwards. Without
+   * them Foundry keeps occurrences in memory, and a crash between an
+   * occurrence coming due and its run finishing can lose it.
+   *
+   * `claimScheduleOccurrence` is an atomic insert-if-absent by `id`: it
+   * returns false, and changes nothing, when the id exists. Adapters may drop
+   * terminal occurrences older than the latest few per activation.
+   */
+  claimScheduleOccurrence?(occurrence: import("./schedule-occurrences.js").FoundryScheduleOccurrence): Effect.Effect<boolean, unknown, never>;
+  putScheduleOccurrence?(occurrence: import("./schedule-occurrences.js").FoundryScheduleOccurrence): Effect.Effect<void, unknown, never>;
+  getScheduleOccurrence?(id: string): Effect.Effect<import("./schedule-occurrences.js").FoundryScheduleOccurrence | null, unknown, never>;
+  listScheduleOccurrences?(filter?: import("./schedule-occurrences.js").FoundryScheduleOccurrenceFilter): Effect.Effect<ReadonlyArray<import("./schedule-occurrences.js").FoundryScheduleOccurrence>, unknown, never>;
   getActivation(id: string): Effect.Effect<FoundryActivationRecord | null, unknown, never>;
   putActivation(activation: FoundryActivationRecord): Effect.Effect<void, unknown, never>;
   listActivations(workspaceId?: string): Effect.Effect<ReadonlyArray<FoundryActivationRecord>, unknown, never>;
@@ -231,6 +264,10 @@ export interface FoundryRequest {
     readonly provider?: string;
     readonly eventId?: string;
     readonly threadKey?: string;
+    /** For an activation: the occurrence this run delivers. Stable across retries; use it to key side effects. */
+    readonly occurrenceId?: string;
+    /** For an activation: the time the schedule meant, whenever the run actually starts. */
+    readonly scheduledFor?: string;
   };
 }
 
@@ -368,6 +405,7 @@ export class MemoryFoundryDataAdapter implements FoundryDataAdapter {
   private readonly pendingInbound = new Map<string, FoundryPendingInbound>();
   private readonly approvals = new Map<string, FoundryApproval>();
   private readonly activations = new Map<string, FoundryActivationRecord>();
+  private readonly occurrences = new Map<string, import("./schedule-occurrences.js").FoundryScheduleOccurrence>();
   private readonly conversations = new Map<string, Conversation>();
   private readonly workspace = new Map<string, WorkspaceEntry>();
   private readonly workingEnvironments = new Map<string, EnvSnapshot>();
@@ -453,6 +491,7 @@ export class MemoryFoundryDataAdapter implements FoundryDataAdapter {
     for (const [id, item] of this.pendingInbound) if (item.request.agentId === agentId) this.pendingInbound.delete(id);
     for (const [id, item] of this.approvals) if (item.agentId === agentId) this.approvals.delete(id);
     for (const [id, item] of this.activations) if (item.agentId === agentId) this.activations.delete(id);
+    for (const [id, item] of this.occurrences) if (item.agentId === agentId) this.occurrences.delete(id);
     for (const id of conversationIds) this.conversations.delete(id);
     for (const [id, item] of this.inbox) if (item.agentId === agentId || conversationIds.has(item.conversationId ?? "")) this.inbox.delete(id);
     for (const [id, item] of this.tasks) if (item.agentId === agentId || conversationIds.has(item.conversationId ?? "")) this.tasks.delete(id);
@@ -514,6 +553,27 @@ export class MemoryFoundryDataAdapter implements FoundryDataAdapter {
     if (this.agents.get(record.target.agentId)?.durableSubagent?.status !== "purged") this.events.set(record.id, structuredClone(record));
   }); }
   listEvents() { return Effect.sync(() => [...this.events.values()].map((record) => structuredClone(record))); }
+
+  claimScheduleOccurrence(occurrence: import("./schedule-occurrences.js").FoundryScheduleOccurrence) { return Effect.sync(() => {
+    assertScheduleOccurrence(occurrence);
+    if (this.occurrences.has(occurrence.id)) return false;
+    this.occurrences.set(occurrence.id, structuredClone(occurrence));
+    return true;
+  }); }
+  putScheduleOccurrence(occurrence: import("./schedule-occurrences.js").FoundryScheduleOccurrence) { return Effect.sync(() => {
+    assertScheduleOccurrence(occurrence);
+    this.occurrences.set(occurrence.id, structuredClone(occurrence));
+    for (const id of prunableOccurrences(this.occurrences.values(), occurrence.activationId)) this.occurrences.delete(id);
+  }); }
+  getScheduleOccurrence(id: string) { return Effect.sync(() => {
+    const occurrence = this.occurrences.get(id);
+    return occurrence ? structuredClone(occurrence) : null;
+  }); }
+  listScheduleOccurrences(filter?: import("./schedule-occurrences.js").FoundryScheduleOccurrenceFilter) { return Effect.sync(() =>
+    [...this.occurrences.values()]
+      .filter((item) => matchesOccurrenceFilter(item, filter))
+      .sort(compareOccurrences)
+      .map((item) => structuredClone(item))); }
 
   putPendingInbound(record: FoundryPendingInbound) { return Effect.sync(() => {
     this.pendingInbound.set(record.id, structuredClone(record));
