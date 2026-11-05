@@ -197,10 +197,16 @@ export const foundrySections: FoundryNavSection[] = [
         summary: "The built-in inspector, WebChat, runs opened like DevTools (Network, Console, Context), keyboard shortcuts, the event envelope, and custom subscribers.",
       },
       {
+        label: "Durability",
+        href: "/foundry/docs/durability",
+        badge: "new",
+        summary: "What Foundry guarantees when a process dies, the journal-first and at-least-once model, what to make idempotent, and how to back it with PostgreSQL, Redis, MongoDB or DynamoDB.",
+      },
+      {
         label: "Persistence",
         href: "/foundry/docs/persistence",
         badge: "new",
-        summary: "The four things to persist separately — runtime data, transcripts, memory and the VFS — with file, SQLite and custom adapters.",
+        summary: "The four things to persist separately — runtime data, transcripts, memory and the VFS — on PostgreSQL or another database, or on files for one host.",
       },
       {
         label: "Next.js integration",
