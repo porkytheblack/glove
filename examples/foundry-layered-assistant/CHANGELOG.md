@@ -1,5 +1,12 @@
 # glove-foundry-layered-assistant
 
+## 1.0.7
+
+### Patch Changes
+
+- Updated dependencies [[`c39e68d`](https://github.com/porkytheblack/glove/commit/c39e68dcded0ae806de087213895c7e942418b9a)]:
+  - glove-foundry@0.10.1
+
 ## 1.0.6
 
 ### Patch Changes
