@@ -440,6 +440,8 @@ export class FoundryRuntime {
   });
   /** Pending inbound records each run is handling, so they are cleared when it settles. */
   private readonly eventTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  /** Events a run withheld because preparing them failed: attempts so far and the pending retry. */
+  private readonly eventRetries = new Map<string, { attempts: number; timer?: ReturnType<typeof setTimeout> }>();
   private readonly completedEventRuns = new Map<string, ReadonlySet<string>>();
   private readonly pendingInboundByRun = new Map<string, Set<string>>();
   /** Recently settled runs, for a record assigned to a run that already finished. */
@@ -767,6 +769,8 @@ export class FoundryRuntime {
       this.stopping = true;
       for (const timer of this.eventTimers.values()) clearTimeout(timer);
       this.eventTimers.clear();
+      for (const retry of this.eventRetries.values()) if (retry.timer) clearTimeout(retry.timer);
+      this.eventRetries.clear();
       for (const timer of this.activationTimers.values()) clearTimeout(timer);
       this.activationTimers.clear();
       this.activationDispatches.clear();
@@ -3156,6 +3160,38 @@ export class FoundryRuntime {
     }
   }
 
+  /**
+   * Deliver events again after a delay that doubles each time (1s up to 5
+   * minutes), when a run withheld them because preparing them failed. They
+   * stay pending meanwhile; a restart delivers them as usual.
+   */
+  private scheduleEventRetries(ids: ReadonlyArray<string>): void {
+    if (this.stopping) return;
+    for (const id of ids) {
+      const retry = this.eventRetries.get(id) ?? { attempts: 0 };
+      if (retry.timer) continue;
+      retry.attempts++;
+      const delay = Math.min(1_000 * 2 ** (retry.attempts - 1), 300_000);
+      retry.timer = setTimeout(() => {
+        retry.timer = undefined;
+        void this.retryEvent(id).catch((cause) => this.reportDeliveryFailure("event-retry", cause));
+      }, delay);
+      retry.timer.unref?.();
+      this.eventRetries.set(id, retry);
+    }
+  }
+
+  private async retryEvent(id: string): Promise<void> {
+    if (this.stopping || !this.data.listEvents) return;
+    const record = (await Effect.runPromise(this.data.listEvents())).find((item) => item.id === id);
+    if (!record || record.status !== "pending") { this.eventRetries.delete(id); return; }
+    const owner = await Effect.runPromise(this.data.getAgent(record.target.agentId));
+    if (!owner) { this.eventRetries.delete(id); return; }
+    try { await this.assertDurableActive(owner); } catch { return; }
+    await this.deliver({ ...record.target, definitionId: record.definitionId, workspaceId: record.workspaceId },
+      [{ ...record.delivery, durable: { id: record.id, event: record.event, policy: record.policy } }], true);
+  }
+
   private async finishEvents(runId: string, consumed: ReadonlyArray<string>): Promise<void> {
     if (!this.data.listEvents || !this.data.putEvent || this.stopping) return;
     const run = await this.getRun(runId);
@@ -3168,6 +3204,9 @@ export class FoundryRuntime {
       if (!owner) continue;
       try { await this.assertDurableActive(owner); } catch { continue; }
       await Effect.runPromise(this.data.putEvent({ ...record, status: record.event.expiresAt && Date.parse(record.event.expiresAt) <= Date.now() ? "expired" : "acknowledged", runId }));
+      const retry = this.eventRetries.get(record.id);
+      if (retry?.timer) clearTimeout(retry.timer);
+      this.eventRetries.delete(record.id);
       if ((record.delivery.kind === "transmission" || record.delivery.kind === "agent-message") && this.data.deletePendingInbound) {
         await Effect.runPromise(this.data.deletePendingInbound(record.delivery.pendingId));
       }
@@ -3958,6 +3997,7 @@ export class FoundryRuntime {
       if (event.status === "completed") {
         const result = parseJson(event.output) as FoundryResult | undefined;
         await this.finishEvents(event.run.id, result?.consumedEventIds ?? []);
+        if (result?.retryEventIds?.length) this.scheduleEventRetries(result.retryEventIds);
       }
       await this.finishPendingInbound(event.run.id).catch((cause) =>
         this.reportDeliveryFailure(this.toFoundryRun(event.run).conversationId ?? "settle", cause));

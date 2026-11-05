@@ -398,6 +398,18 @@ test("Gemini runtime text uses realtimeInput while silent seed context stays inc
   assert.equal(silent.clientContent.turns[0].parts[0].text, "silent context");
 });
 
+test("Gemini marks system-role runtime text, which it cannot send as a system turn", async () => {
+  const ctx = geminiContext();
+  await ctx.adapter.connect({});
+  await ctx.settle();
+
+  ctx.adapter.injectText("The 3pm meeting moved to 4pm.", { respond: true, role: "system" });
+  ctx.adapter.injectText("caller words", { respond: true });
+
+  const texts = (ctx.outbound() as any[]).filter((frame) => frame.realtimeInput?.text).map((frame) => frame.realtimeInput.text);
+  assert.deepEqual(texts, ["[system] The 3pm meeting moved to 4pm.", "caller words"]);
+});
+
 test("base64 audio round-trips without corrupting samples", async () => {
   const ctx = geminiContext();
   await ctx.adapter.connect({});

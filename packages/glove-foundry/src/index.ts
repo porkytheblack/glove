@@ -1,4 +1,21 @@
-export type { FoundryEventTarget, FoundryEventPolicy, FoundryMessageOptions, FoundryEventRecord } from "./event-delivery.js";
+export type {
+  FoundryEventTarget,
+  FoundryEventPolicy,
+  FoundryMessageOptions,
+  FoundryEventRecord,
+  FoundryHandledEvent,
+  FoundryEventPreparation,
+  FoundryEventPreparationContext,
+} from "./event-delivery.js";
+export {
+  eventReceiptStore,
+  eventTranscriptMessageId,
+  lateChatEffectId,
+  type EventReceiptStore,
+  type FoundryEventReceipt,
+  type FoundryEventReceiptFilter,
+  type FoundryEventReceiptStatus,
+} from "./event-receipts.js";
 export { defineFacts, defineGoals, defineForms, foundryGuidanceSubject,
   type FoundryFactsOptions, type FoundryGoalsOptions, type FoundryFormsOptions, type FoundryContextProvider,
   type FoundryGuidanceHandles, type FoundryGuidanceScope } from "./guidance.js";

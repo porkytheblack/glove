@@ -203,8 +203,16 @@ keep, how long does it run. Then give each agent only the access its job needs.
   slot name; `glove_foundry_message({ to, message })` sends without a task, and
   the worker answers with `to: "parent"`. Nothing is inherited unless `inherit`
   selects it. Read `packages/glove-foundry/docs/durable-subagents.md`.
+- Product events on a call: `voiceCall({ events: { accept, prepare?, afterCall?,
+  resolveUncertain? } })` tells addressed events at a pause, from facts read at
+  that pause, as `system` context, with durable delivery receipts (never told
+  twice; an uncertain dispatch is held, never replayed or sent to chat). Database
+  adapters add `claimEventReceipt`/`putEventReceipt`/`getEventReceipt`/
+  `listEventReceipts`. Elsewhere use `context.onEvent` (only `ack()` consumes) and
+  `defineAgent({ prepareEvent })` for fresh facts in text turns. Never use
+  `call.say` for notices: it is caller input.
 - Voice: `run: voiceCall({ room, greeting?, idleMs?, maxDurationMs?, openDelayMs?,
-  realtime?, announce?, offCall? })` from `glove-foundry/voice`. It hosts
+  realtime?, announce?, offCall?, events? })` from `glove-foundry/voice`. It hosts
   `RealtimeAgent` over the assembled agent, saves both sides to the store, speaks
   delegation updates and mesh messages at the next pause (8 s max hold), and keeps Foundry's
   bookkeeping tools and every `requiresPermission` tool off the call (the

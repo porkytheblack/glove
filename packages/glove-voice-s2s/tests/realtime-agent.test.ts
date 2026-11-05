@@ -20,14 +20,14 @@ class FakeAdapter extends EventEmitter<S2SEvents> implements S2SAdapter {
   connected = false;
   session?: S2SSessionConfig;
   results: Array<{ callId: string; output: unknown }> = [];
-  injected: Array<{ text: string; respond?: boolean }> = [];
+  injected: Array<{ text: string; respond?: boolean; role?: "user" | "system" }> = [];
   audioIn = 0;
 
   get isConnected() { return this.connected; }
   async connect(config?: S2SSessionConfig) { this.session = config; this.connected = true; }
   async disconnect() { this.connected = false; }
   sendAudio() { this.audioIn++; }
-  injectText(text: string, opts?: { respond?: boolean }) { this.injected.push({ text, ...opts }); }
+  injectText(text: string, opts?: { respond?: boolean; role?: "user" | "system" }) { this.injected.push({ text, ...opts }); }
   sendToolResult(callId: string, output: unknown) { this.results.push({ callId, output }); }
   updateSession(patch: Partial<S2SSessionConfig>) { this.session = { ...this.session, ...patch }; }
   interrupt() {}
@@ -369,4 +369,15 @@ test("context read failure after a committed tool preserves the successful resul
   assert.match(errors[0].message, /context unavailable/);
   assert.deepEqual(adapter.results, [{ callId: "committed", output: { status: "success", data: "committed" } }]);
   await rt.stop();
+});
+
+test("inject passes a system role through to the adapter", async () => {
+  const adapter = new FakeAdapter();
+  const agent = new RealtimeAgent({ agent: fakeAgent([]), adapter });
+  agent.inject("Product notice.", { respond: true, role: "system" });
+  agent.inject("Caller words.", { respond: true });
+  assert.deepEqual(adapter.injected, [
+    { text: "Product notice.", respond: true, role: "system" },
+    { text: "Caller words.", respond: true },
+  ]);
 });

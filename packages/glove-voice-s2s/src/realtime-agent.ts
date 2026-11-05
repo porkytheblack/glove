@@ -276,8 +276,12 @@ export class RealtimeAgent extends EventEmitter<RealtimeAgentEvents> {
    * async result takes when it finally lands and the caller is owed an answer.
    * `respond: false` is silent context: a correction, an overheard line, a
    * fact that should inform the next reply without triggering one.
+   *
+   * `role: "system"` marks it as framework or product context rather than
+   * something the caller said. Adapters whose provider has no system role for
+   * mid-call text send it as user text marked `[system]`.
    */
-  inject(text: string, opts?: { respond?: boolean }): void {
+  inject(text: string, opts?: { respond?: boolean; role?: "user" | "system" }): void {
     this.adapter.injectText(text, opts);
   }
 

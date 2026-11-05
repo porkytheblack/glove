@@ -213,6 +213,23 @@ export interface FoundryExecutionContext<TInput = unknown>
   readonly onMeshMessage: (
     handler: (messages: ReadonlyArray<FoundryMeshMessage>) => void | Promise<void>,
   ) => () => Promise<void>;
+  /**
+   * Take addressed events (agent messages and transmissions, not delegation,
+   * mesh or approval deliveries) inside this run, one at a time, with explicit
+   * acknowledgement. The handler gets the events that started the run and any
+   * that arrive while it is registered, optionally only those `match` accepts.
+   * Only `event.ack()` consumes one: registering, returning, or the run ending
+   * does not. An event the handler did not acknowledge stays pending: one that
+   * arrived mid-run goes back to the runtime when the run ends, and one that
+   * started the run is in the next run's events. The returned function stops
+   * taking events and waits for handler calls still running.
+   */
+  readonly onEvent: (
+    handler: (event: import("./event-delivery.js").FoundryHandledEvent) => void | Promise<void>,
+    match?: (event: import("glove-core").AgentEvent) => boolean,
+  ) => () => Promise<void>;
+  /** True when this run was started for addressed events rather than a message of its own. */
+  readonly eventTurn?: boolean;
 }
 export interface AgentHandlerContext<TInput = unknown>
   extends FoundryExecutionContext<TInput> {
@@ -260,6 +277,19 @@ export interface AgentAssemblyOptions<TInput = unknown> {
   readonly delegates?: FoundryListResolver<FoundryDelegate, TInput>;
   readonly durableSubagents?: DurableSubagents;
   readonly eventDelivery?: import("./event-delivery.js").FoundryEventPolicy;
+  /**
+   * Read current facts for an addressed event (an agent message or a
+   * transmission) just before a text turn sees it, whether it starts the run
+   * or joins a turn already going. Return `{ say }` to give the turn fresh
+   * text in place of the event's content, or `{ suppress }` when nothing is
+   * due any more: the event is then finished with and the turn never sees it.
+   * Throwing withholds it: the turn does not see it, it is not acknowledged,
+   * and the next attempt prepares it again.
+   */
+  readonly prepareEvent?: (
+    event: import("glove-core").AgentEvent,
+    context: import("./event-delivery.js").FoundryEventPreparationContext,
+  ) => import("./event-delivery.js").FoundryEventPreparation | Promise<import("./event-delivery.js").FoundryEventPreparation>;
   /**
    * When this agent works on a delegated task, how long glove_foundry_ask
    * waits in the same run for an answer before the run suspends. Default 90s.
@@ -423,6 +453,7 @@ export interface FoundryAgentConventionModule {
   readonly delegates?: AgentAssemblyOptions["delegates"];
   readonly durableSubagents?: DurableSubagents;
   readonly eventDelivery?: import("./event-delivery.js").FoundryEventPolicy;
+  readonly prepareEvent?: AgentAssemblyOptions["prepareEvent"];
   readonly answerWaitMs?: number;
   readonly memory?: AgentAssemblyOptions["memory"];
   readonly goals?: AgentAssemblyOptions["goals"];
@@ -549,7 +580,7 @@ const CONVENTION_EXPORTS = [
   "displayManager", "serverMode", "runTimeoutMs", "maxConcurrentRuns", "maxRetries", "maxConsecutiveErrors",
   "compactionLimit", "compactionInstructions", "maxTurns",
   "enableToolResultSummary", "tools", "hooks", "skills", "subagents",
-  "delegates", "durableSubagents", "eventDelivery", "answerWaitMs", "memory", "goals", "facts", "forms", "contextProviders", "inboxes", "subscribers", "layers", "calls", "schedules", "playbooks", "mesh",
+  "delegates", "durableSubagents", "eventDelivery", "prepareEvent", "answerWaitMs", "memory", "goals", "facts", "forms", "contextProviders", "inboxes", "subscribers", "layers", "calls", "schedules", "playbooks", "mesh",
   "workingEnvironment", "repl", "configure", "build",
   "spawn", "run", "handler",
 ] as const;

@@ -921,6 +921,7 @@ run cleanup. See the [document adapter](../../glove-env-documents/README.md).
 - Transmissions own executable integration logic; playbooks remain serializable policy.
 - Provider adapters own credential acquisition and refresh.
 - Voice rooms own audio transport; `voiceCall` owns the session and the transcript; Foundry owns the durable run.
+- Product events reach a call through `voiceCall({ events })`: told at a pause from freshly prepared facts, as system context, with a durable delivery receipt per event. `call.say` is caller input and never carries notices.
 - A definition is what a kind of agent can be; each agent, its name and its job are instance data.
 - Interactors keep the person's context; workers keep one task's. Delegation results and questions come back to the conversation that delegated.
 - Agents that already exist as peers in one workspace can message each other on the hosted mesh. Replies come back to the conversation that sent the message.

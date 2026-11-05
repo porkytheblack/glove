@@ -14,6 +14,12 @@ import {
 } from "./domain.js";
 import { TopologyStore } from "./services.js";
 import {
+  assertEventReceipt,
+  matchesReceiptFilter,
+  type FoundryEventReceipt,
+  type FoundryEventReceiptFilter,
+} from "./event-receipts.js";
+import {
   assertScheduleOccurrence,
   compareOccurrences,
   matchesOccurrenceFilter,
@@ -57,6 +63,7 @@ interface FileFoundryState {
   approvals: FoundryApproval[];
   activations: FoundryActivationRecord[];
   occurrences: FoundryScheduleOccurrence[];
+  receipts: FoundryEventReceipt[];
   conversations: Conversation[];
   workspaceEntries: WorkspaceEntry[];
   workingEnvironments: PersistedWorkingEnvironment[];
@@ -91,6 +98,7 @@ function emptyState(environment: ReadonlyArray<EnvironmentValue>): FileFoundrySt
     approvals: [],
     activations: [],
     occurrences: [],
+    receipts: [],
     conversations: [],
     workspaceEntries: [],
     workingEnvironments: [],
@@ -143,7 +151,7 @@ export class FileFoundryDataAdapter implements FoundryDataAdapter {
   private readonly lockFile: string;
   private readonly lockTimeoutMs: number;
   private readonly staleLockMs: number;
-  private readonly seeds: Omit<FileFoundryState, "events" | "occurrences" | "version" | "inboundDeliveries" | "pendingInbound" | "approvals" | "workspaceEntries" | "workingEnvironments" | "inbox" | "tasks">;
+  private readonly seeds: Omit<FileFoundryState, "events" | "occurrences" | "receipts" | "version" | "inboundDeliveries" | "pendingInbound" | "approvals" | "workspaceEntries" | "workingEnvironments" | "inbox" | "tasks">;
   private initialized: Promise<void> | undefined;
   private queue: Promise<unknown> = Promise.resolve();
 
@@ -220,6 +228,7 @@ export class FileFoundryDataAdapter implements FoundryDataAdapter {
         approvals: parsed.approvals ?? [],
         activations: parsed.activations ?? [],
         occurrences: parsed.occurrences ?? [],
+        receipts: parsed.receipts ?? [],
         conversations: parsed.conversations ?? [],
         workspaceEntries: parsed.workspaceEntries ?? [],
         workingEnvironments: parsed.workingEnvironments ?? [],
@@ -344,6 +353,7 @@ export class FileFoundryDataAdapter implements FoundryDataAdapter {
       state.approvals = state.approvals.filter((item) => item.agentId !== agentId);
       state.activations = state.activations.filter((item) => item.agentId !== agentId);
       state.occurrences = state.occurrences.filter((item) => item.agentId !== agentId);
+      state.receipts = state.receipts.filter((item) => item.agentId !== agentId);
       state.conversations = state.conversations.filter((item) => item.agentId !== agentId);
       state.workingEnvironments = state.workingEnvironments.filter((item) => item.owner.agentId !== agentId);
       state.inbox = state.inbox.filter((item) => item.agentId !== agentId && !ids.has(item.conversationId ?? ""));
@@ -426,6 +436,24 @@ export class FileFoundryDataAdapter implements FoundryDataAdapter {
   }); }
   listEvents() { return effect(async () => structuredClone((await this.snapshot()).events)); }
 
+  claimEventReceipt(receipt: FoundryEventReceipt) { return effect(async () => {
+    assertEventReceipt(receipt);
+    await this.ensureInitialized();
+    return this.mutate((state) => {
+      if (state.receipts.some((item) => item.id === receipt.id)) return false;
+      state.receipts.push(structuredClone(receipt));
+      return true;
+    });
+  }); }
+  putEventReceipt(receipt: FoundryEventReceipt) { return effect(async () => {
+    assertEventReceipt(receipt);
+    await this.ensureInitialized();
+    await this.mutate((state) => { replaceById(state.receipts, receipt); });
+  }); }
+  getEventReceipt(id: string) { return effect(async () =>
+    structuredClone((await this.snapshot()).receipts.find((item) => item.id === id) ?? null)); }
+  listEventReceipts(filter?: FoundryEventReceiptFilter) { return effect(async () =>
+    structuredClone((await this.snapshot()).receipts.filter((item) => matchesReceiptFilter(item, filter)))); }
   claimScheduleOccurrence(occurrence: FoundryScheduleOccurrence) { return effect(async () => {
     assertScheduleOccurrence(occurrence);
     await this.ensureInitialized();

@@ -20,6 +20,7 @@ import {
   matchesOccurrenceFilter,
   prunableOccurrences,
 } from "./schedule-occurrences.js";
+import { assertEventReceipt, matchesReceiptFilter } from "./event-receipts.js";
 import type { FoundryScheduleTiming } from "./schedule.js";
 
 export interface AgentInstance {
@@ -223,6 +224,19 @@ export interface FoundryDataAdapter {
   putScheduleOccurrence?(occurrence: import("./schedule-occurrences.js").FoundryScheduleOccurrence): Effect.Effect<void, unknown, never>;
   getScheduleOccurrence?(id: string): Effect.Effect<import("./schedule-occurrences.js").FoundryScheduleOccurrence | null, unknown, never>;
   listScheduleOccurrences?(filter?: import("./schedule-occurrences.js").FoundryScheduleOccurrenceFilter): Effect.Effect<ReadonlyArray<import("./schedule-occurrences.js").FoundryScheduleOccurrence>, unknown, never>;
+  /**
+   * Event delivery receipts (optional). A handler that tells someone about an
+   * event (a voice call speaking it) records here whether it was never tried,
+   * possibly sent, accepted by the provider, suppressed, or handed to a late
+   * chat effect, so a redelivery after a crash never says it twice. Kept apart
+   * from workspace entries: agent workspace tools cannot read or change them.
+   * `claimEventReceipt` is an atomic insert-if-absent by `id`. Without these,
+   * receipts last only as long as the process that wrote them.
+   */
+  claimEventReceipt?(receipt: import("./event-receipts.js").FoundryEventReceipt): Effect.Effect<boolean, unknown, never>;
+  putEventReceipt?(receipt: import("./event-receipts.js").FoundryEventReceipt): Effect.Effect<void, unknown, never>;
+  getEventReceipt?(id: string): Effect.Effect<import("./event-receipts.js").FoundryEventReceipt | null, unknown, never>;
+  listEventReceipts?(filter?: import("./event-receipts.js").FoundryEventReceiptFilter): Effect.Effect<ReadonlyArray<import("./event-receipts.js").FoundryEventReceipt>, unknown, never>;
   getActivation(id: string): Effect.Effect<FoundryActivationRecord | null, unknown, never>;
   putActivation(activation: FoundryActivationRecord): Effect.Effect<void, unknown, never>;
   listActivations(workspaceId?: string): Effect.Effect<ReadonlyArray<FoundryActivationRecord>, unknown, never>;
@@ -324,6 +338,8 @@ function cloneContentPart(part: ContentPart): ContentPart {
 export interface FoundryResult {
   /** Internal event receipts, acknowledged by the controller only after successful completion. */
   readonly consumedEventIds?: ReadonlyArray<string>;
+  /** Events this run withheld because preparing them failed; the runtime retries them after a delay. */
+  readonly retryEventIds?: ReadonlyArray<string>;
   readonly status: "completed" | "suspended";
   readonly value: unknown;
   readonly agentId: string;
@@ -406,6 +422,7 @@ export class MemoryFoundryDataAdapter implements FoundryDataAdapter {
   private readonly approvals = new Map<string, FoundryApproval>();
   private readonly activations = new Map<string, FoundryActivationRecord>();
   private readonly occurrences = new Map<string, import("./schedule-occurrences.js").FoundryScheduleOccurrence>();
+  private readonly receipts = new Map<string, import("./event-receipts.js").FoundryEventReceipt>();
   private readonly conversations = new Map<string, Conversation>();
   private readonly workspace = new Map<string, WorkspaceEntry>();
   private readonly workingEnvironments = new Map<string, EnvSnapshot>();
@@ -492,6 +509,7 @@ export class MemoryFoundryDataAdapter implements FoundryDataAdapter {
     for (const [id, item] of this.approvals) if (item.agentId === agentId) this.approvals.delete(id);
     for (const [id, item] of this.activations) if (item.agentId === agentId) this.activations.delete(id);
     for (const [id, item] of this.occurrences) if (item.agentId === agentId) this.occurrences.delete(id);
+    for (const [id, item] of this.receipts) if (item.agentId === agentId) this.receipts.delete(id);
     for (const id of conversationIds) this.conversations.delete(id);
     for (const [id, item] of this.inbox) if (item.agentId === agentId || conversationIds.has(item.conversationId ?? "")) this.inbox.delete(id);
     for (const [id, item] of this.tasks) if (item.agentId === agentId || conversationIds.has(item.conversationId ?? "")) this.tasks.delete(id);
@@ -554,6 +572,22 @@ export class MemoryFoundryDataAdapter implements FoundryDataAdapter {
   }); }
   listEvents() { return Effect.sync(() => [...this.events.values()].map((record) => structuredClone(record))); }
 
+  claimEventReceipt(receipt: import("./event-receipts.js").FoundryEventReceipt) { return Effect.sync(() => {
+    assertEventReceipt(receipt);
+    if (this.receipts.has(receipt.id)) return false;
+    this.receipts.set(receipt.id, structuredClone(receipt));
+    return true;
+  }); }
+  putEventReceipt(receipt: import("./event-receipts.js").FoundryEventReceipt) { return Effect.sync(() => {
+    assertEventReceipt(receipt);
+    this.receipts.set(receipt.id, structuredClone(receipt));
+  }); }
+  getEventReceipt(id: string) { return Effect.sync(() => {
+    const receipt = this.receipts.get(id);
+    return receipt ? structuredClone(receipt) : null;
+  }); }
+  listEventReceipts(filter?: import("./event-receipts.js").FoundryEventReceiptFilter) { return Effect.sync(() =>
+    [...this.receipts.values()].filter((item) => matchesReceiptFilter(item, filter)).map((item) => structuredClone(item))); }
   claimScheduleOccurrence(occurrence: import("./schedule-occurrences.js").FoundryScheduleOccurrence) { return Effect.sync(() => {
     assertScheduleOccurrence(occurrence);
     if (this.occurrences.has(occurrence.id)) return false;

@@ -647,6 +647,12 @@ export interface RunMailboxSink {
   forward(deliveries: ReadonlyArray<FoundryConversationDelivery>): Promise<void>;
   /** Remove and return forwarded deliveries the run has not used yet. */
   reclaim(match: (delivery: FoundryConversationDelivery) => boolean): Promise<FoundryConversationDelivery[]>;
+  /**
+   * On close: everything to hand back to the runtime, in place of
+   * `reclaim(() => true)`: what the run did not use, and deliveries handlers
+   * took but never finished with.
+   */
+  release?(): Promise<FoundryConversationDelivery[]>;
 }
 
 /** One listener per run, shared by everything in the run that hears from delegations. */
@@ -662,6 +668,15 @@ export interface RunMailbox {
   onMesh(handler: (messages: ReadonlyArray<FoundryMeshMessage>) => void | Promise<void>): () => Promise<void>;
   /** Take results, questions and failures while registered, including any already waiting. */
   onUpdates(handler: (updates: ReadonlyArray<FoundryDelegationUpdate>) => void | Promise<void>): () => Promise<void>;
+  /**
+   * Hand deliveries `match` accepts to `take`, one at a time, including any
+   * already waiting. Unlike updates and mesh messages, nothing is reported
+   * consumed here: `take`'s owner acknowledges each one itself.
+   */
+  onEvents(
+    match: (delivery: FoundryConversationDelivery) => boolean,
+    take: (delivery: FoundryConversationDelivery) => Promise<void>,
+  ): () => Promise<void>;
   /** Stop listening and hand what the run did not use back to the runtime. */
   close(): Promise<void>;
 }
@@ -686,6 +701,8 @@ export function openRunMailbox(options: {
   const handlers = new Set<UpdateHandler>();
   type MeshHandler = (messages: ReadonlyArray<FoundryMeshMessage>) => void | Promise<void>;
   const meshHandlers = new Set<MeshHandler>();
+  type EventRoute = { readonly match: (delivery: FoundryConversationDelivery) => boolean; readonly take: (delivery: FoundryConversationDelivery) => Promise<void> };
+  const eventRoutes = new Set<EventRoute>();
   let closed = false;
   const toHandlers = async (updates: ReadonlyArray<FoundryDelegationUpdate>): Promise<void> => {
     for (const handler of [...handlers]) await handler(updates);
@@ -700,6 +717,7 @@ export function openRunMailbox(options: {
       const meshAnswers = new Map<string, Array<FoundryConversationDelivery & FoundryMeshDelivery>>();
       const heardMesh: Array<FoundryConversationDelivery & FoundryMeshDelivery> = [];
       const updates: FoundryDelegationUpdate[] = [];
+      const routed: Array<{ readonly route: EventRoute; readonly delivery: FoundryConversationDelivery }> = [];
       const rest: FoundryConversationDelivery[] = [];
       for (const delivery of deliveries) {
         if (delivery.durable?.event.expiresAt && Date.parse(delivery.durable.event.expiresAt) <= Date.now()) {
@@ -719,7 +737,9 @@ export function openRunMailbox(options: {
         } else if (isDelegationUpdate(delivery) && handlers.size > 0) {
           updates.push(delivery);
         } else {
-          rest.push(delivery);
+          const route = [...eventRoutes].find((candidate) => candidate.match(delivery));
+          if (route) routed.push({ route, delivery });
+          else rest.push(delivery);
         }
       }
       for (const [delegationId, batch] of replies) {
@@ -732,6 +752,7 @@ export function openRunMailbox(options: {
       if (updates.length > 0) await toHandlers(updates);
       if (heardMesh.length > 0) for (const handler of [...meshHandlers]) await handler(heardMesh.map((item) => item.message));
       options.consumed?.([...([...replies.values()].flat()), ...([...meshAnswers.values()].flat()), ...updates, ...heardMesh]);
+      for (const { route, delivery } of routed) await route.take(delivery);
       if (rest.length > 0) await options.sink.forward(rest);
     },
   });
@@ -803,13 +824,26 @@ export function openRunMailbox(options: {
         await waiting;
       };
     },
+    onEvents(match, take) {
+      const route: EventRoute = { match, take };
+      eventRoutes.add(route);
+      // Deliveries that came in before this handler did are its to take.
+      const waiting = options.sink.reclaim(match).then(async (taken) => {
+        for (const delivery of taken) await take(delivery);
+      });
+      return async () => {
+        eventRoutes.delete(route);
+        await waiting;
+      };
+    },
     async close() {
       if (closed) return;
       closed = true;
       for (const finish of [...waiters.values()]) finish(null);
       for (const finish of [...meshWaiters.values()]) finish(null);
       await listener.stop(async () => {
-        for (const delivery of await options.sink.reclaim(() => true)) {
+        const unused = options.sink.release ? await options.sink.release() : await options.sink.reclaim(() => true);
+        for (const delivery of unused) {
           await writeMailboxDelivery(options.directory, options.conversationId, delivery);
         }
       });
@@ -865,8 +899,20 @@ export function deliveryOf(event: AgentEvent): FoundryConversationDelivery | und
 export const formatRunEvents: EventFormatter = defaultEventFormatter;
 
 /** The run's event queue, which can hand back the deliveries it still holds. */
+export interface RunEventPreparation {
+  /** Whether this delivery is prepared at all. */
+  applies(delivery: FoundryConversationDelivery): boolean;
+  prepare(event: AgentEvent, delivery: FoundryConversationDelivery): Promise<{ readonly say: string } | { readonly suppress: string }>;
+  /** Fresh preparation said nothing is due: finished with, never shown. */
+  suppressed(delivery: FoundryConversationDelivery, reason: string): void;
+  /** Preparation threw: withheld and kept for the next attempt. */
+  failed(event: AgentEvent, cause: unknown): void;
+}
+
 export class RunEventQueue implements EventQueueAdapter {
   private events: AgentEvent[] = [];
+
+  constructor(private readonly preparation?: RunEventPreparation) {}
 
   async push(event: AgentEvent): Promise<boolean> {
     if (this.events.some((queued) => queued.id === event.id)) return false;
@@ -881,7 +927,25 @@ export class RunEventQueue implements EventQueueAdapter {
   async take(): Promise<AgentEvent[]> {
     const taken = this.events;
     this.events = [];
-    return taken;
+    if (!this.preparation) return taken;
+    // Prepared as the turn takes them, so the turn sees current facts. What
+    // fails stays queued, ahead of anything that arrived meanwhile.
+    const ready: AgentEvent[] = [];
+    const kept: AgentEvent[] = [];
+    for (const event of taken) {
+      const delivery = deliveryOf(event);
+      if (!delivery || !this.preparation.applies(delivery)) { ready.push(event); continue; }
+      try {
+        const prepared = await this.preparation.prepare(event, delivery);
+        if ("suppress" in prepared) this.preparation.suppressed(delivery, prepared.suppress);
+        else ready.push({ ...event, content: prepared.say });
+      } catch (cause) {
+        kept.push(event);
+        this.preparation.failed(event, cause);
+      }
+    }
+    this.events = [...kept, ...this.events];
+    return ready;
   }
 
   async remove(ids: ReadonlyArray<string>): Promise<void> {
