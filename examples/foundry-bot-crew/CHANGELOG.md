@@ -1,5 +1,13 @@
 # glove-foundry-bot-crew
 
+## 1.0.3
+
+### Patch Changes
+
+- Updated dependencies [[`e6e61a8`](https://github.com/porkytheblack/glove/commit/e6e61a8f81a56df85aa7ced866a757ea38ee9ece)]:
+  - glove-foundry@0.10.0
+  - glove-foundry-web-kit@1.0.3
+
 ## 1.0.2
 
 ### Patch Changes
