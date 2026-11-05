@@ -15,6 +15,7 @@ import { test } from "node:test";
 import { Effect } from "effect";
 import { nextCronOccurrence } from "station-schedules";
 import { defineApplication } from "../src/application.js";
+import { createHash } from "node:crypto";
 import { createFoundryClient } from "../src/client.js";
 import type { FoundryCoreCommand } from "../src/core-tools.js";
 import { FileFoundryDataAdapter } from "../src/file-data.js";
@@ -28,7 +29,9 @@ import {
 } from "../src/primitives.js";
 import {
   activationScheduleRevision,
+  canonicalJson,
   planScheduleOccurrence,
+  scheduleRevisionMatches,
   scheduleOccurrenceId,
   type FoundryScheduleOccurrence,
 } from "../src/schedule-occurrences.js";
@@ -43,14 +46,20 @@ interface Reminder { readonly activationId: string; readonly occurrenceId: strin
 
 interface Harness {
   readonly file: string;
-  readonly seed: (timing: FoundryScheduleTiming, nextOccurrenceAt: string) => Promise<FoundryActivationRecord>;
+  readonly seed: (timing: FoundryScheduleTiming, nextOccurrenceAt: string, options?: SeedOptions) => Promise<FoundryActivationRecord>;
   /** Start a controller; with a checkpoint, resolves once it has killed its process group. */
-  readonly boot: (crashAt?: string) => Promise<Controller>;
+  readonly boot: (crashAt?: string, options?: { readonly jsonb?: boolean }) => Promise<Controller>;
   readonly reminders: () => Promise<Reminder[]>;
   /** A fresh adapter each time, as a restarted host would have. */
   readonly data: () => FileFoundryDataAdapter;
   readonly occurrences: () => Promise<ReadonlyArray<FoundryScheduleOccurrence>>;
   readonly activation: () => Promise<FoundryActivationRecord | null>;
+}
+
+interface SeedOptions {
+  readonly payload?: unknown;
+  /** Store this revision instead of the current canonical one, as an older Foundry would have. */
+  readonly revision?: (configuration: Omit<FoundryActivationRecord, "scheduleRevision" | "nextOccurrenceAt">) => string;
 }
 
 interface Controller {
@@ -78,7 +87,7 @@ async function withHarness(work: (harness: Harness) => Promise<void>): Promise<v
     await work({
       file,
       data,
-      seed: async (timing, nextOccurrenceAt) => {
+      seed: async (timing, nextOccurrenceAt, options = {}) => {
         const adapter = data();
         const agent = createAgentInstance("reminder", { id: "agent_reminder", workspaceId: "workspace_reminder" });
         const conversation = createConversation(agent, { id: "conversation_reminder", workspaceId: agent.workspaceId });
@@ -93,6 +102,7 @@ async function withHarness(work: (harness: Harness) => Promise<void>): Promise<v
           conversationId: conversation.id,
           workspaceId: agent.workspaceId,
           message: "Send the daily reminder.",
+          ...(options.payload !== undefined ? { payload: options.payload } : {}),
           timing,
           origin: "agent-tool" as const,
           status: "active" as const,
@@ -101,12 +111,12 @@ async function withHarness(work: (harness: Harness) => Promise<void>): Promise<v
           updatedAt: now,
         };
         const activation: FoundryActivationRecord = {
-          ...base, scheduleRevision: activationScheduleRevision(base), nextOccurrenceAt,
+          ...base, scheduleRevision: (options.revision ?? activationScheduleRevision)(base), nextOccurrenceAt,
         };
         await Effect.runPromise(adapter.putActivation(activation));
         return activation;
       },
-      boot: async (crashAt) => {
+      boot: async (crashAt, options = {}) => {
         const child = spawn(process.execPath, ["--import", tsx, controller], {
           detached: true,
           stdio: ["ignore", "pipe", "inherit", "ipc"],
@@ -115,6 +125,7 @@ async function withHarness(work: (harness: Harness) => Promise<void>): Promise<v
             FOUNDRY_SCHEDULE_DATA: file,
             FOUNDRY_SCHEDULE_REMINDER_LOG: log,
             FOUNDRY_SCHEDULE_CRASH_AT: crashAt ?? "",
+            FOUNDRY_SCHEDULE_JSONB: options.jsonb ? "1" : "",
           },
         });
         live.push(child);
@@ -527,4 +538,97 @@ test("pausing a recurring schedule mid-handoff lets that run finish, fires nothi
     release();
     await runtime.stop();
   }
+});
+
+/** The revision glove-foundry 0.10.0 stored: JSON.stringify in the record's own key order. */
+function revision0100(activation: Parameters<typeof activationScheduleRevision>[0]): string {
+  return createHash("sha256").update(JSON.stringify({
+    definitionId: activation.definitionId, agentId: activation.agentId, conversationId: activation.conversationId,
+    message: activation.message, payload: activation.payload ?? null, timing: activation.timing,
+  })).digest("hex");
+}
+
+test("schedule revisions ignore object key order and follow real changes", () => {
+  const base = {
+    definitionId: "reminder", agentId: "agent", conversationId: "conversation", message: "Remind.",
+    payload: { channel: { kind: "sms", to: "+254700000000" }, tags: ["b", "a"], quiet: false },
+    timing: { kind: "cron" as const, expression: "0 9 * * *", timezone: "Africa/Nairobi" },
+  };
+  const reordered = {
+    timing: { timezone: "Africa/Nairobi", kind: "cron" as const, expression: "0 9 * * *" },
+    payload: { quiet: false, tags: ["b", "a"], channel: { to: "+254700000000", kind: "sms" } },
+    message: "Remind.", conversationId: "conversation", agentId: "agent", definitionId: "reminder",
+  };
+  const revision = activationScheduleRevision(base);
+  assert.equal(activationScheduleRevision(reordered), revision);
+  assert.equal(canonicalJson({ b: 1, a: { d: undefined, c: [2, 1] } }), '{"a":{"c":[2,1]},"b":1}');
+  for (const changed of [
+    { ...base, message: "Remind again." },
+    { ...base, agentId: "other-agent" },
+    { ...base, conversationId: "other-conversation" },
+    { ...base, definitionId: "other" },
+    { ...base, timing: { ...base.timing, expression: "0 10 * * *" } },
+    { ...base, timing: { ...base.timing, timezone: "UTC" } },
+    { ...base, payload: { ...base.payload, channel: { kind: "sms", to: "+254700000001" } } },
+    { ...base, payload: { ...base.payload, tags: ["a", "b"] } },
+    { ...base, payload: undefined },
+  ]) assert.notEqual(activationScheduleRevision(changed), revision, JSON.stringify(changed));
+});
+
+test("revisions stored by 0.10.0 still match their configuration after timing keys are reordered", () => {
+  const stored = {
+    definitionId: "reminder", agentId: "agent", conversationId: "conversation", message: "Remind.",
+    timing: { kind: "cron" as const, expression: "0 9 * * *", timezone: "Africa/Nairobi" },
+  };
+  const legacy = revision0100(stored);
+  assert.notEqual(legacy, activationScheduleRevision(stored));
+  const asJsonb = { ...stored, timing: { kind: "cron" as const, timezone: "Africa/Nairobi", expression: "0 9 * * *" } };
+  assert.equal(scheduleRevisionMatches(asJsonb, legacy), true);
+  assert.equal(scheduleRevisionMatches(stored, activationScheduleRevision(asJsonb)), true);
+  assert.equal(scheduleRevisionMatches({ ...asJsonb, message: "Remind again." }, legacy), false);
+  assert.equal(scheduleRevisionMatches({ ...asJsonb, timing: { ...asJsonb.timing, expression: "0 10 * * *" } }, legacy), false);
+});
+
+for (const checkpoint of ["after-advance", "after-receipt"] as const) {
+  test(`a jsonb store that reorders keys replays ${checkpoint === "after-advance" ? "a pending" : "an accepted"} occurrence instead of superseding it`, { timeout: 180_000 }, async () => {
+    await withHarness(async (harness) => {
+      const { timing, owed } = dailyNairobi();
+      await harness.seed(timing, owed, { payload: { channel: { kind: "sms", to: "+254700000000" }, audience: "member" } });
+      await harness.boot(checkpoint, { jsonb: true });
+      const [claimed] = await harness.occurrences();
+      assert.equal(claimed?.status, checkpoint === "after-advance" ? "pending" : "accepted");
+
+      const restarted = await harness.boot(undefined, { jsonb: true });
+      const delivered = await completedOccurrence(harness);
+      await restarted.kill();
+      assert.equal(delivered.id, claimed!.id);
+      assert.equal(delivered.scheduledFor, owed);
+      const occurrences = await harness.occurrences();
+      assert.equal(occurrences.length, 1);
+      assert.ok(occurrences.every((item) => item.reason !== "superseded"));
+      const reminders = await harness.reminders();
+      assert.ok(reminders.length >= 1 && reminders.every((item) => item.occurrenceId === claimed!.id));
+      assert.equal((await harness.activation())?.scheduleRevision, claimed!.revision, "the stored revision is kept");
+    });
+  });
+}
+
+test("an obligation stored by 0.10.0 keeps its occurrence id and is delivered after upgrading", { timeout: 180_000 }, async () => {
+  await withHarness(async (harness) => {
+    const { timing, owed } = dailyNairobi();
+    const seeded = await harness.seed(timing, owed, { revision: revision0100 });
+    const legacy = seeded.scheduleRevision!;
+    assert.notEqual(legacy, activationScheduleRevision(seeded));
+    await harness.boot("after-advance", { jsonb: true });
+    const [claimed] = await harness.occurrences();
+    assert.equal(claimed?.revision, legacy, "a cursor resumed under a 0.10.0 revision keeps it");
+
+    const restarted = await harness.boot(undefined, { jsonb: true });
+    const delivered = await completedOccurrence(harness);
+    await restarted.kill();
+    assert.equal(delivered.id, claimed!.id);
+    assert.equal(delivered.id, scheduleOccurrenceId(ACTIVATION_ID, legacy, owed));
+    assert.equal((await harness.reminders()).length, 1);
+    assert.equal((await harness.activation())?.scheduleRevision, legacy);
+  });
 });

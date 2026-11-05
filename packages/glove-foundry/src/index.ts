@@ -169,6 +169,7 @@ export {
 export {
   activationScheduleRevision,
   scheduleOccurrenceId,
+  scheduleRevisionMatches,
   type FoundryScheduleOccurrence,
   type FoundryScheduleOccurrenceFilter,
   type FoundryScheduleOccurrenceStatus,

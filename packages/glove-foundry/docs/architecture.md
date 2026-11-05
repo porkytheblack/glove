@@ -175,7 +175,7 @@ A successful execution result carries consumed-event receipts. The controller re
 
 ## Schedule occurrences
 
-The controller owns every timer: one-shot schedules, sleeps and recurring schedules. Station's scheduler is not used, so no schedule state lives in the execution daemon. An activation persists `nextOccurrenceAt`, the scheduled time of the next occurrence it owes, together with `scheduleRevision`, a hash of the configuration that cursor belongs to (target, message, payload, timing). Status and timestamp writes never change the revision.
+The controller owns every timer: one-shot schedules, sleeps and recurring schedules. Station's scheduler is not used, so no schedule state lives in the execution daemon. An activation persists `nextOccurrenceAt`, the scheduled time of the next occurrence it owes, together with `scheduleRevision`, a hash of the configuration that cursor belongs to (target, message, payload, timing). Status and timestamp writes never change the revision, and neither does the order a store returns object keys in: the hash is taken over JSON with every object's keys sorted, so a PostgreSQL `jsonb` column is fine. A revision stored by 0.10.0, which hashed keys in stored order, still matches its configuration (with the timing keys in any order) and is kept as stored, so the ids of occurrences claimed under it do not change.
 
 When the cursor comes due, under the activation lock, the controller:
 

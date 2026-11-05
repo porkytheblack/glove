@@ -5,6 +5,9 @@
  *
  * FOUNDRY_SCHEDULE_DATA      the FileFoundryDataAdapter file
  * FOUNDRY_SCHEDULE_CRASH_AT  checkpoint, or empty to run until told to stop
+ * FOUNDRY_SCHEDULE_JSONB     "1": reads return object keys in PostgreSQL jsonb
+ *                            order (shorter keys first, then bytewise), as a
+ *                            jsonb column would
  */
 import { Effect } from "effect";
 import { dirname, resolve } from "node:path";
@@ -18,6 +21,23 @@ import type { FoundryScheduleOccurrence } from "../../../src/schedule-occurrence
 
 const here = dirname(fileURLToPath(import.meta.url));
 const crashAt = process.env.FOUNDRY_SCHEDULE_CRASH_AT ?? "";
+const jsonb = process.env.FOUNDRY_SCHEDULE_JSONB === "1";
+
+/** Reorder object keys the way PostgreSQL jsonb stores them. */
+function jsonbOrder<T>(value: T): T {
+  if (!jsonb) return value;
+  const order = (item: unknown): unknown => {
+    if (Array.isArray(item)) return item.map(order);
+    if (item && typeof item === "object") {
+      const record = item as Record<string, unknown>;
+      const keys = Object.keys(record).sort((left, right) =>
+        left.length - right.length || Buffer.compare(Buffer.from(left), Buffer.from(right)));
+      return Object.fromEntries(keys.map((key) => [key, order(record[key])]));
+    }
+    return item;
+  };
+  return order(value) as T;
+}
 
 function crash(checkpoint: string): never {
   process.stdout.write(`${JSON.stringify({ crashed: checkpoint })}\n`);
@@ -28,6 +48,12 @@ function crash(checkpoint: string): never {
 
 class CrashingAdapter extends FileFoundryDataAdapter {
   private claimed = false;
+  override getActivation(id: string) { return Effect.map(super.getActivation(id), jsonbOrder); }
+  override listActivations(workspaceId?: string) { return Effect.map(super.listActivations(workspaceId), jsonbOrder); }
+  override getScheduleOccurrence(id: string) { return Effect.map(super.getScheduleOccurrence(id), jsonbOrder); }
+  override listScheduleOccurrences(filter?: Parameters<FileFoundryDataAdapter["listScheduleOccurrences"]>[0]) {
+    return Effect.map(super.listScheduleOccurrences(filter), jsonbOrder);
+  }
   override claimScheduleOccurrence(occurrence: FoundryScheduleOccurrence) {
     return Effect.flatMap(Effect.sync(() => { if (crashAt === "before-claim") crash(crashAt); }), () =>
       Effect.tap(super.claimScheduleOccurrence(occurrence), (fresh) => Effect.sync(() => {
