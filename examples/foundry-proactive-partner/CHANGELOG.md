@@ -1,5 +1,14 @@
 # glove-foundry-proactive-partner
 
+## 1.0.5
+
+### Patch Changes
+
+- Updated dependencies [[`2377ca4`](https://github.com/porkytheblack/glove/commit/2377ca467bf8d723c6bd27e4ffe7780ed6aa97c9), [`2377ca4`](https://github.com/porkytheblack/glove/commit/2377ca467bf8d723c6bd27e4ffe7780ed6aa97c9)]:
+  - glove-voice-s2s@0.5.0
+  - glove-foundry@0.11.0
+  - glove-classifier@0.1.5
+
 ## 1.0.4
 
 ### Patch Changes
