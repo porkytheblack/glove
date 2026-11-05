@@ -78,21 +78,78 @@ export const SCHEDULE_MISFIRE_GRACE_MS = 60_000;
  */
 export const RETAINED_TERMINAL_OCCURRENCES = 100;
 
+type ScheduleConfiguration = Pick<FoundryActivationRecord,
+  "definitionId" | "agentId" | "conversationId" | "message" | "payload" | "timing">;
+
 /**
- * The schedule configuration an occurrence belongs to. It changes only when
- * what the schedule delivers, to whom, or when changes; status and timestamp
- * writes leave it alone.
+ * JSON text with every object's keys sorted, recursively. Values go through
+ * JSON first, so `undefined` members, `toJSON` and the rest of JSON's rules
+ * apply as before; array order is kept. Stores that reorder object keys
+ * (PostgreSQL `jsonb` does) therefore leave it unchanged.
  */
-export function activationScheduleRevision(activation: Pick<FoundryActivationRecord,
-  "definitionId" | "agentId" | "conversationId" | "message" | "payload" | "timing">): string {
-  return createHash("sha256").update(JSON.stringify({
+export function canonicalJson(value: unknown): string {
+  const text = JSON.stringify(value);
+  if (text === undefined) return "null";
+  const sort = (item: unknown): unknown => {
+    if (Array.isArray(item)) return item.map(sort);
+    if (item && typeof item === "object") {
+      const record = item as Record<string, unknown>;
+      return Object.fromEntries(Object.keys(record).sort().map((key) => [key, sort(record[key])]));
+    }
+    return item;
+  };
+  return JSON.stringify(sort(JSON.parse(text)));
+}
+
+function configuration(activation: ScheduleConfiguration) {
+  return {
     definitionId: activation.definitionId,
     agentId: activation.agentId,
     conversationId: activation.conversationId,
     message: activation.message,
     payload: activation.payload ?? null,
     timing: activation.timing,
-  })).digest("hex");
+  };
+}
+
+/**
+ * The schedule configuration an occurrence belongs to. It changes only when
+ * what the schedule delivers, to whom, or when changes; status and timestamp
+ * writes leave it alone, and so does the order a store returns object keys in.
+ */
+export function activationScheduleRevision(activation: ScheduleConfiguration): string {
+  return createHash("sha256").update(canonicalJson(configuration(activation))).digest("hex");
+}
+
+function permutations<T>(items: ReadonlyArray<T>): T[][] {
+  if (items.length <= 1) return [[...items]];
+  return items.flatMap((item, index) =>
+    permutations([...items.slice(0, index), ...items.slice(index + 1)]).map((rest) => [item, ...rest]));
+}
+
+/**
+ * Revisions glove-foundry 0.10.0 could have stored for this configuration. It
+ * hashed `JSON.stringify` of the record as stored, so the result depended on
+ * key order: this tries the timing's keys in every order (at most four keys)
+ * with the payload as stored. A payload whose keys a store reordered since
+ * cannot be matched.
+ */
+function legacyScheduleRevisions(activation: ScheduleConfiguration): string[] {
+  const timing = activation.timing as unknown as Record<string, unknown>;
+  return permutations(Object.keys(timing)).map((keys) =>
+    createHash("sha256").update(JSON.stringify({
+      ...configuration(activation),
+      timing: Object.fromEntries(keys.map((key) => [key, timing[key]])),
+    })).digest("hex"));
+}
+
+/**
+ * Whether a stored revision belongs to this configuration: the canonical
+ * revision, or one 0.10.0 stored for it. A matching stored revision is kept
+ * as it is, so occurrence ids derived from it do not change.
+ */
+export function scheduleRevisionMatches(activation: ScheduleConfiguration, revision: string): boolean {
+  return revision === activationScheduleRevision(activation) || legacyScheduleRevisions(activation).includes(revision);
 }
 
 export function scheduleOccurrenceId(activationId: string, revision: string, scheduledFor: string): string {

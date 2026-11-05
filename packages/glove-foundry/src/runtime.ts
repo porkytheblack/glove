@@ -24,6 +24,7 @@ import {
   planScheduleOccurrence,
   prunableOccurrences,
   scheduleOccurrenceId,
+  scheduleRevisionMatches,
   TERMINAL_OCCURRENCE_STATUSES,
   type FoundryScheduleOccurrence,
   type FoundryScheduleOccurrenceFilter,
@@ -4621,12 +4622,14 @@ export class FoundryRuntime {
       ) {
         throw new Error(`Activation "${activation.id}" has an invalid wake time.`);
       }
-      const revision = activationScheduleRevision(activation);
       const now = new Date();
-      // The same configuration resumes from its stored cursor; a new or
-      // changed one starts from now. A one-shot that already fired has no
+      // The same configuration resumes from its stored cursor, keeping the
+      // stored revision so occurrence ids already derived from it hold; a new
+      // or changed one starts from now. A one-shot that already fired has no
       // cursor and waits for its occurrence to settle.
-      const resumes = activation.scheduleRevision === revision;
+      const stored = activation.scheduleRevision;
+      const resumes = stored !== undefined && scheduleRevisionMatches(activation, stored);
+      const revision = resumes ? stored : activationScheduleRevision(activation);
       const cursor = resumes
         ? activation.nextOccurrenceAt
         : firstScheduledTime(activation.timing, now).toISOString();
@@ -4902,7 +4905,7 @@ export class FoundryRuntime {
           ? "paused"
           // Compare with the configuration as stored now, not the revision field,
           // which is only rewritten when the activation is armed again.
-          : activationScheduleRevision(activation) !== occurrence.revision ? "superseded" : undefined;
+          : !scheduleRevisionMatches(activation, occurrence.revision) ? "superseded" : undefined;
       if (reason) {
         const now = new Date().toISOString();
         await this.putOccurrence({ ...occurrence, status: "cancelled", reason, updatedAt: now, settledAt: now });
