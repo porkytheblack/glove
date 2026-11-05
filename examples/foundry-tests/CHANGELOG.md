@@ -1,5 +1,12 @@
 # foundry-tests
 
+## 1.0.14
+
+### Patch Changes
+
+- Updated dependencies [[`e6e61a8`](https://github.com/porkytheblack/glove/commit/e6e61a8f81a56df85aa7ced866a757ea38ee9ece)]:
+  - glove-foundry@0.10.0
+
 ## 1.0.13
 
 ### Patch Changes
