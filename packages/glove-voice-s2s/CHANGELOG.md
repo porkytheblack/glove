@@ -1,5 +1,11 @@
 # glove-voice-s2s
 
+## 0.5.0
+
+### Minor Changes
+
+- [#230](https://github.com/porkytheblack/glove/pull/230) [`2377ca4`](https://github.com/porkytheblack/glove/commit/2377ca467bf8d723c6bd27e4ffe7780ed6aa97c9) Thanks [@porkytheblack](https://github.com/porkytheblack)! - `RealtimeAgent.inject(text, { role: "system" })` passes the role through to the adapter, so product or framework context reaches the model as system text rather than as the caller. The OpenAI adapters already supported it. Gemini Live, which has no system role for mid-session text, now sends it as user text marked `[system]`.
+
 ## 0.4.7
 
 ### Patch Changes
