@@ -1,5 +1,12 @@
 # glove-foundry-example
 
+## 1.0.15
+
+### Patch Changes
+
+- Updated dependencies [[`c39e68d`](https://github.com/porkytheblack/glove/commit/c39e68dcded0ae806de087213895c7e942418b9a)]:
+  - glove-foundry@0.10.1
+
 ## 1.0.14
 
 ### Patch Changes
