@@ -60,7 +60,7 @@ Docs: https://glove.dterminal.net/foundry/docs/agents-are-data
 | thread tables and message routing | Conversations | `client.createConversation(agentId)` · `client.send(agentId, conversationId, text)` · `client.conversationTranscript(…)` |
 | per-customer feature flags around tool lists | Installable capabilities | `defineSharedTool` · `defineApp` · `defineMcp` + `install(definition, config)` / `client.install` / `PUT /api/installations` |
 | coordination tables between agents | Shared work | `glove_foundry_workspace` · `glove_foundry_tasks` · `glove_foundry_shared_inbox` · `glove_foundry_environment`; `compareAndSetWorkspaceEntry` for optimistic writes |
-| serialising runtime state yourself | Data adapters | `new FileFoundryDataAdapter({ file })` (one host) · a transactional `FoundryDataAdapter` (many hosts) |
+| serialising runtime state yourself | Data adapters | a database `FoundryDataAdapter` in production (PostgreSQL reference: `examples/foundry-postgres`) · `new FileFoundryDataAdapter({ file })` for one host or development |
 | cron jobs and a job queue that call your agent | Schedules | `defineSchedule({ name, timing: { kind: "cron", expression, timezone? }, message })` returned from `schedules`; agents use `glove_foundry_schedule` |
 | "check back later" state and a timer | Sleep | `glove_foundry_sleep({ kind: "for", duration: "20m", message })` — never `setTimeout` |
 | fire-and-forget promises that die with the request | Spawn and background | `glove_foundry_spawn` · `glove_foundry_background` |
@@ -141,12 +141,12 @@ A definition never declares request input/output (Foundry owns them) and is neve
 
 ## Persistence: four separate boundaries
 
-1. **Runtime data** (instances, conversations, activations, workspace, VFS snapshots): `FileFoundryDataAdapter({ file })` for one host; a transactional adapter for several.
+1. **Runtime data** (instances, conversations, activations, workspace, VFS snapshots): a database adapter in production. Start from the tested PostgreSQL reference in `examples/foundry-postgres` (documents in `json` columns, constraints for the atomic claims); Redis, MongoDB or DynamoDB must meet the requirements in the Durability docs (durable acknowledged writes, insert-if-absent, compare-and-set, primary reads). `FileFoundryDataAdapter({ file })` is for development and one host. Build the client in `foundry.application.ts` from configuration: every run's process builds its own. Key external side effects on Foundry's stable ids (`source.occurrenceId`, `handled.id`, `source.eventId`, delegation id, `effectId`): delivery is at least once.
 2. **Transcripts**: the agent `store` / application `conversationStore`. A plain `MemoryStore` starts empty on every run.
 3. **Structured memory**: glove-memory adapters, e.g. `createSqliteMemoryAdapters({ file, namespace, schema })` from `glove-memory/sqlite` (Node 22.13+), scoped by trusted instance identity.
 4. **Working-environment files**: `foundryDataEnvironmentPersistence({ scope })` or a persistent `Vfs`.
 
-Persisting one does not persist the others. Run **one runtime per data store** (every runtime arms the schedules it finds). Runs, events and pending approvals live in the Foundry process and are lost on restart; activations are rebuilt from the data adapter.
+Persisting one does not persist the others. Run **one runtime per data store** (every runtime arms the schedules it finds). The run queue, run status and event history live in the Foundry process and are lost on restart; with a data adapter that has the optional durability methods, inbound events, the event journal, delegated tasks, approvals, schedule occurrences and voice delivery receipts survive and are delivered again under the same ids, and activations resume from their stored cursors.
 
 ## Calling and operating
 

@@ -569,6 +569,20 @@ export class FileStore extends MemoryStore {
 Persisting one does not persist the others. The execution queue is in-memory;
 activations are reconstructed on startup but interrupted live runs are not resumed.
 
+Durability model (see /foundry/docs/durability): Foundry writes an obligation
+before acting on it (inbound events, schedule occurrences, voice receipts),
+settles races with atomic insert-if-absent claims, gives every obligation a
+stable id, delivers again (at least once) whatever it cannot prove finished,
+and recovers from the store on startup. Key external side effects on those ids:
+request.source.occurrenceId, handled.id (onEvent), request.source.eventId,
+delegation id, effectId. Production needs a database adapter with durable
+acknowledged writes, atomic claims, compare-and-set and primary reads:
+PostgreSQL is recommended (tested reference: examples/foundry-postgres; store
+documents in json columns, not jsonb); Redis needs appendfsync always; MongoDB
+writeConcern majority; DynamoDB ConsistentRead base-table queries. Build the
+database client in foundry.application.ts from configuration: every run's
+process builds its own. Run one controller per data store.
+
 ## 17. Application, config and security
 
 defineApplication({ name, data, conversationStore, accounts, routes, bindings,

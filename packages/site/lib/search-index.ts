@@ -26,6 +26,7 @@ const synonyms: Record<string, string> = {
   "/foundry/docs/approvals": "human in the loop permission approve deny confirm redirect interrupt cancel",
   "/foundry/docs/automation": "cron timer setTimeout recurring wake later webhook trigger background spawn",
   "/foundry/docs/persistence": "database postgres sqlite durable restart storage save store",
+  "/foundry/docs/durability": "crash recovery idempotent idempotency at least once exactly once journal claim postgres redis mongodb dynamodb kill restart guarantee",
   "/foundry/docs/deploy": "production docker hosting auth security tls health",
   "/foundry/docs/capabilities": "defineSharedTool defineMcp defineMemory install installation layer subscriber",
   "/foundry/docs/applications": "telegram slack whatsapp email integration webhook defineApp defineTransmission credentials oauth",

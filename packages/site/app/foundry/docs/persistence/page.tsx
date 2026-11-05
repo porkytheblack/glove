@@ -4,7 +4,7 @@ import { CodeBlock } from "@/components/code-block";
 export const metadata = {
   title: "Persistence",
   description:
-    "Foundry runtime data, Glove transcripts, structured memory and the VFS persist separately. Configure all four with file, SQLite or custom adapters.",
+    "Foundry runtime data, Glove transcripts, structured memory and the VFS persist separately. Put them on PostgreSQL or another database in production, or on files and SQLite on one host.",
 };
 
 export default function PersistencePage() {
@@ -18,6 +18,14 @@ export default function PersistencePage() {
         does not make an in-memory transcript store durable, and neither saves an
         agent&apos;s files. The starter templates persist none of the four.
       </p>
+      <p>
+        In production, put runtime data and transcripts in a real database. PostgreSQL is the
+        recommended choice, and there is a tested reference implementation below; Redis, MongoDB
+        and DynamoDB work too when they meet the requirements in{" "}
+        <Link href="/foundry/docs/durability">Durability</Link>, which explains what Foundry
+        guarantees and what each store must provide. Files and SQLite are for development and
+        single-machine deployments.
+      </p>
 
       <h2 id="four-boundaries">Four boundaries</h2>
       <table>
@@ -29,25 +37,25 @@ export default function PersistencePage() {
             <td><strong>1. Foundry runtime data</strong>: agent instances, conversation records, playbook subscriptions, inbound delivery claims, schedule/sleep activations, workspace entries, shared inbox, tasks, environment values, VFS snapshots</td>
             <td><code>defineApplication({"{ data }"})</code>, a <code>FoundryDataAdapter</code></td>
             <td><code>MemoryFoundryDataAdapter</code> (a fresh one is used when <code>data</code> is omitted)</td>
-            <td><code>FileFoundryDataAdapter</code> on one host; your own transactional adapter for several hosts</td>
+            <td>A database adapter: PostgreSQL (the <a href="#postgres">reference below</a>), or Redis, MongoDB or DynamoDB meeting the <Link href="/foundry/docs/durability#database-requirements">requirements</Link>. <code>FileFoundryDataAdapter</code> on one host</td>
           </tr>
           <tr>
             <td><strong>2. Glove conversation transcripts</strong>: the exact <code>Message</code> history, turn and token counters</td>
             <td><code>defineAgent({"{ store }"})</code> or <code>defineApplication({"{ conversationStore }"})</code>, a Glove <code>StoreAdapter</code></td>
             <td><code>new MemoryStore(...)</code></td>
-            <td>A durable <code>StoreAdapter</code> you provide (example below). <code>glove-sqlite</code>’s <code>SqliteStore</code> exists but is deprecated</td>
+            <td>A <code>StoreAdapter</code> on your database (<code>PostgresStore</code> <a href="#postgres">below</a>), or the file store on one host. <code>glove-sqlite</code>’s <code>SqliteStore</code> exists but is deprecated</td>
           </tr>
           <tr>
             <td><strong>3. Structured memory</strong>: entities, episodes, resources, pinned context, goals, facts, forms</td>
             <td>Adapters returned by a <code>defineMemory</code> profile (or <code>goals</code>/<code>facts</code>/<code>forms</code>)</td>
             <td><code>InMemoryContextAdapter</code> (travel concierge)</td>
-            <td><code>createSqliteMemoryAdapters</code> from <code>glove-memory/sqlite</code> (Node 22.13+, single host) or your own adapters</td>
+            <td><code>createSqliteMemoryAdapters</code> from <code>glove-memory/sqlite</code> (Node 22.13+, single host), or your own adapters on your database</td>
           </tr>
           <tr>
             <td><strong>4. Working-environment VFS</strong>: files the agent writes</td>
             <td><code>defineWorkingEnvironment({"{ persistence }"})</code></td>
             <td>None: the VFS is discarded when the run ends</td>
-            <td><code>foundryDataEnvironmentPersistence({"{ scope }"})</code>, or a native persistent <code>Vfs</code> such as <code>cachedRemote</code></td>
+            <td><code>foundryDataEnvironmentPersistence({"{ scope }"})</code> (snapshots in the data adapter, so in your database), or a native persistent <code>Vfs</code> over object storage such as <code>cachedRemote</code></td>
           </tr>
         </tbody>
       </table>
@@ -80,17 +88,92 @@ export default function PersistencePage() {
       <div className="docs-note">
         <span className="docs-note-icon">!</span>
         <p>
-          The adapters below share state through files on disk, which every Foundry process on
-          the host can open. That is what makes multi-turn history, workspace writes and VFS
-          restores work, not only restarts.
+          A durable adapter is one every Foundry process can reach: a database server, or files
+          on a disk every process on the host can open. That is what makes multi-turn history,
+          workspace writes and VFS restores work, not only restarts. Each process builds its own
+          client from configuration; never pass a live connection between them.
         </p>
       </div>
 
-      <h2 id="complete-example">A complete single-host setup</h2>
+      <h2 id="postgres">A complete PostgreSQL setup</h2>
       <p>
-        These five files persist all four boundaries under one data directory. They were run
-        against a real runtime: history, workspace entries and VFS files carry across turns
-        and across a full restart.
+        <a href="https://github.com/porkytheblack/glove/tree/main/examples/foundry-postgres"><code>examples/foundry-postgres</code></a>{" "}
+        has a complete <code>FoundryDataAdapter</code> (every method, including the optional ones
+        that make the event journal, approvals, schedule occurrences and delivery receipts durable)
+        and a transcript <code>StoreAdapter</code>. Its tests run the adapter contract against a
+        real PostgreSQL server, concurrent claims from separate connections included, and restart
+        a real Foundry runtime on the same database. Copy <code>src/</code> into your project; the
+        wiring is three files:
+      </p>
+      <CodeBlock filename="lib/db.ts" language="typescript" code={`import pg from "pg";
+
+/**
+ * One pool per process, built from configuration. Foundry runs each agent run
+ * in its own process, which loads this module and opens its own pool.
+ */
+export const pool = new pg.Pool({
+  connectionString: process.env.DATABASE_URL,
+  max: Number(process.env.DATABASE_POOL_MAX ?? 5),
+  // A finished run's process must be able to exit with idle connections.
+  idleTimeoutMillis: 5_000,
+  allowExitOnIdle: true,
+});`} />
+      <CodeBlock filename="foundry.application.ts" language="typescript" code={`import { defineApplication } from "glove-foundry";
+import { pool } from "./lib/db.js";
+import { PostgresFoundryDataAdapter } from "./src/postgres-data.js";
+
+export default defineApplication({
+  name: "Support",
+  data: new PostgresFoundryDataAdapter({ pool }),
+});`} />
+      <CodeBlock filename="agents/support/agent.ts" language="typescript" code={`import { defineAgent } from "glove-foundry";
+import { pool } from "../../lib/db.js";
+import { PostgresStore } from "../../src/postgres-store.js";
+
+export default defineAgent({
+  description: "Answers support tickets",
+  systemPrompt: "You are a support agent.",
+  model: () => myModel(),
+  store: ({ conversationId }) => new PostgresStore(pool, conversationId),
+});`} />
+      <ul>
+        <li>
+          <strong>Create the tables at deploy time</strong> with <code>migrate(pool)</code> or by
+          applying <code>src/schema.sql</code> with your migration tool. Not from{" "}
+          <code>foundry.application.ts</code>, which every run&apos;s process loads.
+        </li>
+        <li>
+          <strong>Records are stored whole</strong> in <code>json</code> columns, exactly as Foundry wrote
+          them, with the queried fields in columns beside them. The constraints are where the
+          guarantees come from: a primary key turns <code>insert … on conflict do nothing</code>{" "}
+          into a claim, a unique index on <code>provisioning_key</code> makes provisioning atomic.
+        </li>
+        <li>
+          <strong>Connections:</strong> allow the controller plus up to{" "}
+          <code>execution.maxConcurrent</code> run processes, each with up to{" "}
+          <code>DATABASE_POOL_MAX</code> connections, or put PgBouncer in front.
+        </li>
+        <li>
+          <strong>Memory and files:</strong> VFS snapshots go through the data adapter, so{" "}
+          <code>foundryDataEnvironmentPersistence</code> stores them in PostgreSQL too.{" "}
+          <code>glove-memory</code> ships in-memory and SQLite adapters; for PostgreSQL, implement its
+          adapter interfaces on your database the same way.
+        </li>
+      </ul>
+      <p>
+        For Redis, MongoDB or DynamoDB, keep the same structure (one record per id, stored whole,
+        with the listed fields indexed) and take the atomic operations from the table in{" "}
+        <Link href="/foundry/docs/durability#atomic-operations">Durability</Link>. Then run the
+        example&apos;s contract tests against your adapter.
+      </p>
+
+      <h2 id="single-host">One host, no database: files and SQLite</h2>
+      <span id="complete-example" />
+      <p>
+        Without a database server, these five files persist all four boundaries under one data
+        directory on a persistent disk. They suit development and single-machine deployments, and
+        are what most examples use. They were run against a real runtime: history, workspace
+        entries and VFS files carry across turns and across a full restart.
       </p>
       <div className="docs-note"><span className="docs-note-icon">◆</span><p>
         Projects created by <code>glove-foundry init</code> already ship{" "}
@@ -263,7 +346,7 @@ export default defineAgent({
         volume (see the <Link href="/foundry/docs/deploy#container">container recipe</Link>).
       </p>
 
-      <h2 id="data-adapters">Runtime data: memory vs file adapter</h2>
+      <h2 id="data-adapters">The bundled adapters: memory and file</h2>
       <table>
         <thead><tr><th></th><th><code>MemoryFoundryDataAdapter</code></th><th><code>FileFoundryDataAdapter</code></th></tr></thead>
         <tbody>
@@ -335,16 +418,19 @@ export default defineApplication({
           and expect write cost to grow with total state.
         </li>
         <li>
-          It is a single-host adapter. Several hosts need a database adapter with real
-          transactions.
+          It is a single-host adapter. Several hosts, or a lot of state, need a{" "}
+          <a href="#postgres">database adapter</a>.
         </li>
       </ul>
 
       <h2 id="custom-adapter">Writing a database adapter</h2>
       <p>
-        Implement <code>FoundryDataAdapter</code> (exported from <code>glove-foundry</code>).
-        Every method returns an <code>Effect</code> whose error channel is <code>unknown</code>.
-        Records must round-trip through JSON.
+        Implement <code>FoundryDataAdapter</code> (exported from <code>glove-foundry</code>), or
+        start from the <a href="#postgres">PostgreSQL reference</a>. Every method returns an{" "}
+        <code>Effect</code> whose error channel is <code>unknown</code>. Records must round-trip
+        through JSON. The optional methods are what make the guarantees in{" "}
+        <Link href="/foundry/docs/durability">Durability</Link> hold: without them, the matching
+        state lives in the controller&apos;s memory and a crash can lose it.
       </p>
       <table>
         <thead><tr><th>Group</th><th>Methods</th><th>Contract</th></tr></thead>
@@ -352,6 +438,10 @@ export default defineApplication({
           <tr><td>Instances</td><td><code>getAgent</code>, <code>putAgent</code>, <code>listAgents(definitionId?)</code>, <code>provisionAgent</code></td><td><code>provisionAgent</code> must be atomic on <code>provisioningKey</code>: concurrent calls with one key return one instance. Rehydrate with <code>reconstructAgentInstance</code>.</td></tr>
           <tr><td>Subscriptions</td><td><code>getPlaybookSubscription</code>, <code>putPlaybookSubscription</code>, <code>deletePlaybookSubscription</code> (returns whether it existed), <code>listPlaybookSubscriptions(workspaceId?)</code></td><td>Rehydrate with <code>reconstructPlaybookSubscription</code>.</td></tr>
           <tr><td>Inbound delivery</td><td><code>getInboundDelivery</code>, <code>claimInboundDelivery</code>, <code>completeInboundDelivery(key, runIds)</code>, <code>releaseInboundDelivery</code></td><td>Claim is insert-if-absent: <code>true</code> only for the first caller. Complete fails when no claim exists. Release removes only a <code>pending</code> claim.</td></tr>
+          <tr><td>Pending inbound events (optional)</td><td><code>putPendingInbound</code>, <code>deletePendingInbound</code>, <code>listPendingInbound</code></td><td>Upsert by id. An inbound event or delegated task stays here until the run handling it settles, so a restart delivers it again.</td></tr>
+          <tr><td>Event journal (optional; required for addressed events)</td><td><code>claimEvent</code>, <code>putEvent</code>, <code>listEvents</code></td><td>Claim is insert-if-absent by record id and must refuse a purged worker; <code>putEvent</code> ignores one. Records move from <code>pending</code> to <code>acknowledged</code> or <code>expired</code> and are kept for deduplication.</td></tr>
+          <tr><td>Approvals (optional)</td><td><code>putApproval</code>, <code>getApproval</code>, <code>listApprovals</code></td><td>Upsert by id. With the event journal, an approval outlives the run that asked for it.</td></tr>
+          <tr><td>Purge (optional)</td><td><code>purgeAgentData(agentId)</code></td><td>Only for an archived durable worker: remove everything it owns (events, pending inbound, approvals, activations, occurrences, receipts, conversations and their inbox, tasks and environment values, snapshots) atomically, and keep the agent as a <code>purged</code> tombstone.</td></tr>
           <tr><td>Activations</td><td><code>getActivation</code>, <code>putActivation</code>, <code>listActivations(workspaceId?)</code></td><td>Schedule and sleep records; read at startup to re-arm work from their stored <code>nextOccurrenceAt</code>.</td></tr>
           <tr><td>Schedule occurrences (optional)</td><td><code>claimScheduleOccurrence</code>, <code>putScheduleOccurrence</code>, <code>getScheduleOccurrence</code>, <code>listScheduleOccurrences(filter?)</code></td><td>Claim is an atomic insert-if-absent by <code>id</code>: <code>true</code> only for the first caller, and it changes nothing otherwise. Filter by <code>activationId</code>, <code>workspaceId</code>, <code>agentId</code> and <code>status</code> (one or several); return them oldest <code>scheduledFor</code> first. You may drop terminal occurrences beyond the latest 100 per activation. Activations and occurrences only need to round-trip as JSON values: a store that reorders object keys, such as a <code>jsonb</code> column, does not change a schedule&apos;s revision. Without these, occurrences are kept in memory and a crash can lose one that was due. See <Link href="/foundry/docs/automation#occurrences">Occurrences</Link>.</td></tr>
           <tr><td>Event delivery receipts (optional)</td><td><code>claimEventReceipt</code>, <code>putEventReceipt</code>, <code>getEventReceipt</code>, <code>listEventReceipts(filter?)</code></td><td>What a handler did with an event (a voice call telling it): <code>queued</code>, <code>dispatching</code>, <code>accepted</code>, <code>suppressed</code>, <code>redirecting</code>, <code>redirected</code>. Keyed by the event&apos;s journal id; claim is insert-if-absent. Store them apart from workspace entries so agent workspace tools never reach them. The child process writes them through the adapter <code>foundry.application.ts</code> builds, so construct it from configuration there, never from a handle passed in by the controller. Without these, receipts last only as long as the process. See <Link href="/foundry/docs/voice#receipts">Delivery receipts</Link>.</td></tr>
@@ -362,41 +452,32 @@ export default defineApplication({
           <tr><td>Environment</td><td><code>listEnvironment({"{ workspaceId, agentId?, conversationId? }"})</code></td><td>Return workspace-scoped values plus agent- or conversation-scoped values matching the ids. Read-only through Foundry; never store secrets here.</td></tr>
         </tbody>
       </table>
-      <p>The one method most likely to be written wrong is provisioning, because subscriptions call it concurrently:</p>
-      <CodeBlock filename="lib/postgres-data.ts" language="typescript" code={`import { Effect } from "effect";
-import {
-  createAgentInstance,
-  reconstructAgentInstance,
-  type AgentInstance,
-  type ProvisionAgentOptions,
-} from "glove-foundry";
-
-// your code: any SQL client; this stub only names the shape used below.
-declare const sql: {
-  query<T>(text: string, values: unknown[]): Promise<{ rows: T[] }>;
-};
-
-/** One row per provisioning key, so concurrent callers converge on one instance. */
-export function provisionAgent(
-  input: ProvisionAgentOptions,
-): Effect.Effect<AgentInstance, unknown, never> {
-  return Effect.tryPromise({
-    try: async () => {
-      const candidate = createAgentInstance(input.definitionId, input, input.provisioningKey);
-      await sql.query(
-        "insert into foundry_agents (id, provisioning_key, record) values ($1, $2, $3) " +
-          "on conflict (provisioning_key) do nothing",
-        [candidate.id, input.provisioningKey, JSON.stringify(candidate)],
-      );
-      const { rows } = await sql.query<{ record: AgentInstance }>(
-        "select record from foundry_agents where provisioning_key = $1",
-        [input.provisioningKey],
-      );
-      return reconstructAgentInstance(rows[0]!.record);
-    },
-    catch: (cause) => cause,
+      <p>
+        The methods most likely to be written wrong are the atomic ones: provisioning (subscriptions
+        call it concurrently), the claims, and compare-and-set. In PostgreSQL the constraint does
+        the work:
+      </p>
+      <CodeBlock filename="src/postgres-data.ts" language="typescript" code={`/**
+ * Atomic on provisioningKey: concurrent calls with one key return one
+ * instance. The unique index decides; the loser reads the winner's row.
+ */
+provisionAgent(input: ProvisionAgentOptions) {
+  return run(async () => {
+    const created = createAgentInstance(input.definitionId, { ...input, id: input.id ?? \`agent_\${randomUUID()}\` }, input.provisioningKey);
+    const inserted = await this.pool.query(
+      \`insert into foundry_agents (id, definition_id, provisioning_key, doc) values ($1, $2, $3, $4)
+       on conflict do nothing returning id\`,
+      [created.id, created.definitionId, input.provisioningKey, JSON.stringify(created)]);
+    if (inserted.rowCount) return created;
+    const existing = await this.one<AgentInstance>("select doc from foundry_agents where provisioning_key = $1", [input.provisioningKey]);
+    if (!existing) throw new Error(\`Agent instance "\${created.id}" already exists with another provisioning key.\`);
+    return reconstructAgentInstance(existing);
   });
 }`} />
+      <p>
+        Equivalents for Redis, MongoDB and DynamoDB are in{" "}
+        <Link href="/foundry/docs/durability#atomic-operations">Durability</Link>.
+      </p>
 
       <h3 id="compare-and-set">compareAndSetWorkspaceEntry</h3>
       <p>
@@ -475,7 +556,9 @@ export function claimTicket(ctx: AgentAssemblyContext): GloveFoldArgs<z.infer<ty
           <code>glove-sqlite</code> package has <code>new SqliteStore({"{ dbPath, sessionId }"})</code>{" "}
           (better-sqlite3); it does not implement newer optional capabilities such as{" "}
           <code>createSubAgentStore</code>. For production, implement <code>StoreAdapter</code> on
-          your database, or extend <code>MemoryStore</code> as above.
+          your database (see <code>PostgresStore</code> in the <a href="#postgres">reference</a>:
+          messages in insertion order, token and turn counters, and per-input permission decisions,
+          which approvals need), or extend <code>MemoryStore</code> as above on one host.
         </li>
       </ul>
 

@@ -68,7 +68,7 @@ glove foundry start --host 0.0.0.0 --port 4141`} />
       <table>
         <thead><tr><th>Item</th><th>API</th><th>Why</th></tr></thead>
         <tbody>
-          <tr><td>Durable runtime data</td><td><code>defineApplication({"{ data: new FileFoundryDataAdapter({ file }) }"})</code> or your adapter</td><td>The default is in memory; agent writes during runs are otherwise lost.</td></tr>
+          <tr><td>Durable runtime data</td><td>A database adapter, such as the <Link href="/foundry/docs/persistence#postgres">PostgreSQL reference</Link>; <code>FileFoundryDataAdapter</code> on one host</td><td>The default is in memory; agent writes during runs are otherwise lost. See <Link href="/foundry/docs/durability">Durability</Link> for what the database must guarantee.</td></tr>
           <tr><td>Durable transcripts</td><td><code>conversationStore</code> / <code>store</code> returning a durable <code>StoreAdapter</code></td><td><code>MemoryStore</code> gives every run an empty history.</td></tr>
           <tr><td>Durable memory</td><td><code>createSqliteMemoryAdapters</code> in <code>defineMemory</code></td><td>In-memory adapters reset.</td></tr>
           <tr><td>Persistent files</td><td><code>foundryDataEnvironmentPersistence</code> or a persistent <code>Vfs</code></td><td>The VFS is discarded after every run.</td></tr>
