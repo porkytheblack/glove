@@ -197,6 +197,35 @@ await workerHandle.send("Handle this update promptly.", {
     <p>A realtime runtime can hold the turn queue and consume native events as part of its session. It decides when a response can be spoken or displayed, for example at a quiet pause. The controller still owns durable targeting and delivery; a provider socket or live room is not what makes the worker durable.</p>
     <p>Use <code>client.emitEvent</code>, <code>runtime.emitEvent</code> or the Foundry messaging tool for durable acceptance. A direct <code>glove.emitEvent</code> call inside a process does not create a Foundry journal record. Optional live mesh transport has its own configuration and is not required here. See <Link href="/docs/runtime-context">runtime context and spontaneous events</Link> for the native primitives.</p>
 
+    <h2 id="on-event">Take events in a handler</h2>
+    <p>A custom <code>handler</code> or <code>run</code> that never runs the default turn has every event that started the run acknowledged when it returns. To handle addressed events yourself (agent messages and transmissions, not delegation, mesh or approval deliveries), register <code>context.onEvent</code>: then nothing but your <code>ack()</code> consumes them.</p>
+    <CodeBlock filename="agents/notifier/agent.ts" language="typescript" code={`async handler(context) {
+  const stop = context.onEvent(async (handled) => {
+    // handled.id is the journal id: the same on every redelivery.
+    if (await notices.alreadySent(handled.id)) return handled.ack();
+    if (await notices.send(handled.id, handled.event)) handled.ack();
+    // Not acknowledged: it stays pending and comes back.
+  }, (event) => event.source === "acme:notices");
+  await work();
+  await stop(); // waits for handler calls still running
+}`} />
+    <ul>
+      <li>The handler gets the events that started the run (<code>initial: true</code>) and those that arrive while it is registered, one call per event.</li>
+      <li>Registering, returning and the run ending acknowledge nothing; in a mixed batch only the events you acknowledged are consumed.</li>
+      <li>An event left unacknowledged that arrived mid-run goes back to the runtime when the run ends and follows its <code>whenIdle</code> policy. One that started the run is in the next run&apos;s events.</li>
+      <li>The run waits for handler calls still running before it reports what was consumed. The returned function stops taking events and waits for them too.</li>
+      <li>Delegation updates, mesh messages and every run without <code>onEvent</code> behave as before.</li>
+    </ul>
+
+    <h2 id="prepare-event">Read current facts before a turn sees an event</h2>
+    <p>An event can sit for a while before a turn reads it, so text copied into it can be stale. <code>prepareEvent</code> on the definition reads current facts just before a text turn sees an addressed event, whether the event starts the run or joins a turn already going:</p>
+    <CodeBlock filename="agents/assistant/agent.ts" language="typescript" code={`prepareEvent: async (event, context) => {
+  const meeting = await meetings.get(event.metadata?.meetingId as string);
+  if (!meeting || meeting.cancelled) return { suppress: "cancelled" };
+  return { say: \`Meeting \${meeting.title} is at \${meeting.time}.\` };
+},`} />
+    <p><code>{"{ say }"}</code> replaces the event&apos;s content for the turn. <code>{"{ suppress }"}</code> finishes the event without the turn seeing it. Throwing withholds it: the turn does not see it, it is not acknowledged, and the runtime delivers it again after a delay that doubles from one second to five minutes. A voice call uses <Link href="/foundry/docs/voice#events"><code>voiceCall({"{ events: { prepare } }"})</code></Link> instead.</p>
+
     <h2 id="responsiveness">Give workers different execution budgets</h2>
     <p>A worker&apos;s run is independent of the run that delegated to it. A parent can finish a request while its worker continues, and a later question or result can wake the originating parent conversation. You can choose different models and run limits for each responsibility:</p>
     <CodeBlock language="typescript" code={`// On the worker's defineAgent:

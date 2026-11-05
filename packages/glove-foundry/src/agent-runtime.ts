@@ -1,6 +1,7 @@
 import { createAgentMessagingTool, refreshDurableAuthority } from "./durable-subagents.js";
 import { pathToFileURL } from "node:url";
 import type {
+  AgentEvent,
   DefineSkillArgs,
   DefineSubAgentArgs,
   GloveFoldArgs,
@@ -12,6 +13,7 @@ import type {
   SubscriberEventDataMap,
 } from "glove-core";
 import { Glove, isTurnSuspended } from "glove-core";
+import { isGenericDelivery, type FoundryHandledEvent } from "./event-delivery.js";
 import { mountFoundryGuidance } from "./guidance.js";
 import { mountMesh } from "glove-mesh";
 import { Effect } from "effect";
@@ -128,6 +130,7 @@ import {
   delegationFromContext,
   RunEventQueue,
   deliveryEvent,
+  deliveryOf,
   renderDeliveries,
   formatRunEvents,
   isDelegationUpdate,
@@ -546,7 +549,31 @@ async function executeDefinition(
     // A run never wakes itself: an event that arrives while no turn runs waits
     // for the run's next request, and delegation deliveries still waiting
     // when the run ends go back to the runtime.
-    const eventQueue = new RunEventQueue();
+    // Journal ids of events withheld because preparing them failed, by event id.
+    const withheld = new Map<string, string>();
+    const prepareEvent = definition.prepareEvent;
+    const eventQueue = new RunEventQueue(prepareEvent ? {
+      applies: (delivery) => isGenericDelivery(delivery) && !approvalDecisionOf(delivery),
+      prepare: async (event, delivery) => {
+        const prepared = await prepareEvent(delivery.durable?.event ?? event, {
+          runId, definitionId: id, agentId: request.agentId, conversationId: request.conversationId,
+          workspaceId: request.workspaceId, eventRecordId: delivery.durable?.id ?? event.id, signal: abortController.signal,
+        });
+        withheld.delete(event.id);
+        return prepared;
+      },
+      suppressed: (delivery, reason) => {
+        const event = deliveryEvent(delivery);
+        forwarded.delete(event.id);
+        consumed([delivery]);
+        controls.emit({ type: "foundry.event.suppressed", data: { id: delivery.durable?.id ?? event.id, reason } });
+      },
+      failed: (event, cause) => {
+        const delivery = deliveryOf(event);
+        if (delivery?.durable) withheld.set(event.id, delivery.durable.id);
+        controls.emit({ type: "foundry.event.prepare.failed", data: { id: event.id, message: cause instanceof Error ? cause.message : String(cause) } });
+      },
+    } : undefined);
     const base = new Glove({
       ...(runtimeStore ? { store: runtimeStore } : {}),
       events: { queue: eventQueue, policy: () => "defer", deferTimeoutMs: Infinity, formatter: formatRunEvents },
@@ -706,6 +733,17 @@ async function executeDefinition(
     const consumed = (deliveries: ReadonlyArray<FoundryConversationDelivery>): void => {
       for (const delivery of deliveries) if (delivery.durable) consumedEventIds.add(delivery.durable.id);
     };
+    // Addressed events handed to `onEvent` handlers and not acknowledged yet, by
+    // journal id. Only a handler's `ack()` consumes one.
+    const heldEvents = new Map<string, { readonly delivery: FoundryConversationDelivery; readonly initial: boolean }>();
+    // Events that started the run and went to a handler instead of the turn.
+    const routedInitial = new Set<FoundryConversationDelivery>();
+    const eventCalls = new Set<Promise<void>>();
+    // Set once the default turn has the run's initial events.
+    let initialForwarded = false;
+    const settleEventCalls = async (): Promise<void> => {
+      while (eventCalls.size) await Promise.allSettled([...eventCalls]);
+    };
     // Build may replace the assembled runnable. Hold arrivals until the final
     // recipient and its receipt subscriber are ready, including during build.
     let eventRecipient: IGloveRunnable | undefined;
@@ -746,6 +784,19 @@ async function executeDefinition(
           sink: {
             async forward(deliveries) {
               await forwardDeliveries(deliveries);
+            },
+            async release() {
+              // Handler calls still running may yet acknowledge what they hold.
+              await settleEventCalls();
+              // An event that arrived mid-run goes back to the runtime; one that
+              // started the run is already in the next run's events.
+              const back = [...heldEvents].filter(([, held]) => !held.initial);
+              for (const [id] of back) heldEvents.delete(id);
+              // An event whose preparation failed is retried by the runtime
+              // after a delay, not handed straight back to wake another run.
+              const retrying = new Set(withheld.keys());
+              const unread = await this.reclaim(() => true);
+              return [...back.map(([, held]) => held.delivery), ...unread.filter((delivery) => !retrying.has(deliveryEvent(delivery).id))];
             },
             async reclaim(match) {
               const buffered = bufferedDeliveries.filter(match);
@@ -979,6 +1030,49 @@ async function executeDefinition(
         cleanups.push(stop);
         return stop;
       },
+      eventTurn: envelope.eventTurn ?? false,
+      onEvent: (handler: (event: FoundryHandledEvent) => void | Promise<void>, match?: (event: AgentEvent) => boolean) => {
+        const senderEvent = (delivery: FoundryConversationDelivery): AgentEvent => delivery.durable?.event ?? deliveryEvent(delivery);
+        const accepts = (delivery: FoundryConversationDelivery): boolean =>
+          isGenericDelivery(delivery) && !approvalDecisionOf(delivery) && (!match || match(senderEvent(delivery)));
+        const calls = new Set<Promise<void>>();
+        let stopped = false;
+        const take = (delivery: FoundryConversationDelivery, initial: boolean): void => {
+          const event = senderEvent(delivery);
+          const id = delivery.durable?.id ?? event.id;
+          if (stopped || heldEvents.has(id)) return;
+          heldEvents.set(id, { delivery, initial });
+          const handled: FoundryHandledEvent = {
+            id, event, initial,
+            ack: () => { if (heldEvents.delete(id)) consumed([delivery]); },
+          };
+          const call = Promise.resolve()
+            .then(() => handler(handled))
+            .catch((cause: unknown) => {
+              controls.emit({ type: "foundry.event.handler.error", data: { id, message: cause instanceof Error ? cause.message : String(cause) } });
+            });
+          calls.add(call);
+          eventCalls.add(call);
+          void call.finally(() => { calls.delete(call); eventCalls.delete(call); });
+        };
+        // The events that started the run, unless the turn already has them.
+        if (!initialForwarded) {
+          for (const delivery of initialDeliveries) {
+            if (routedInitial.has(delivery) || !accepts(delivery)) continue;
+            routedInitial.add(delivery);
+            take(delivery, true);
+          }
+        }
+        const stopMailbox = mailbox().onEvents(accepts, async (delivery) => { take(delivery, false); });
+        const stop = async (): Promise<void> => {
+          if (stopped) { while (calls.size) await Promise.allSettled([...calls]); return; }
+          stopped = true;
+          await stopMailbox();
+          while (calls.size) await Promise.allSettled([...calls]);
+        };
+        cleanups.push(stop);
+        return stop;
+      },
     };
     for (const call of calls) {
       if (callByName.has(call.name)) throw new Error(`Duplicate Foundry call "${call.name}".`);
@@ -1160,6 +1254,7 @@ async function executeDefinition(
     ) => {
       if (initialEventsPending && messageInput === assemblyContext.messageInput) {
         initialEventsPending = false;
+        initialForwarded = true;
         // A decided approval carries on the turn that stopped at its tool call.
         const decisions = initialDeliveries.filter((delivery) => approvalDecisionOf(delivery));
         if (decisions.length && glove.resumeToolCalls) {
@@ -1179,14 +1274,15 @@ async function executeDefinition(
           });
           if (done.length) {
             consumed(done);
-            const rest = initialDeliveries.filter((delivery) => !done.includes(delivery));
+            const rest = initialDeliveries.filter((delivery) => !done.includes(delivery) && !routedInitial.has(delivery));
             if (!rest.length) return resumed === undefined ? null : extractOutput(resumed);
             await forwardDeliveries(rest);
             return extractOutput(await glove.processEvents(abortController.signal));
           }
         }
         // Nothing to resume in place (the conversation moved on): the decision arrives as an event.
-        await forwardDeliveries(initialDeliveries);
+        // Events an `onEvent` handler took are its own to acknowledge.
+        await forwardDeliveries(initialDeliveries.filter((delivery) => !routedInitial.has(delivery)));
         return extractOutput(await glove.processEvents(abortController.signal));
       }
       return extractOutput(await glove.processRequest(toGloveRequestInput(messageInput), abortController.signal));
@@ -1226,7 +1322,11 @@ async function executeDefinition(
       // API callers read the value as the reply, so say what the run is waiting on.
       result = `Waiting for approval to run ${awaitingApproval.toolName || "a tool"} (${awaitingApproval.approvalId}).`;
     }
-    if (initialEventsPending) consumed(initialDeliveries);
+    // Handler calls still running may yet acknowledge the events they hold.
+    await settleEventCalls();
+    // A handler that never ran the default turn finished with the run's events,
+    // except those it took with `onEvent`: only its `ack()` consumes those.
+    if (initialEventsPending) consumed(initialDeliveries.filter((delivery) => !routedInitial.has(delivery)));
     await guidance.snapshot();
     const sleep = [...controls.commands].reverse().find(
       (command: FoundryCoreCommand) => command.type === "sleep",
@@ -1237,6 +1337,7 @@ async function executeDefinition(
       status: sleep || question || waiting || awaitingApproval ? "suspended" : "completed",
       value: serializable(result),
       ...(consumedEventIds.size ? { consumedEventIds: [...consumedEventIds] } : {}),
+      ...(withheld.size ? { retryEventIds: [...new Set(withheld.values())].filter((recordId) => !consumedEventIds.has(recordId)) } : {}),
       agentId: request.agentId,
       conversationId: request.conversationId,
       workspaceId: request.workspaceId,
@@ -1372,6 +1473,7 @@ export function compileAgentDefinition(
     .input(executionEnvelope)
     .output(z.object({
       consumedEventIds: z.array(z.string()).readonly().optional(),
+      retryEventIds: z.array(z.string()).readonly().optional(),
       status: z.enum(["completed", "suspended"]),
       value: z.unknown(),
       agentId: z.string(),

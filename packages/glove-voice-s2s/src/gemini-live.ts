@@ -364,8 +364,11 @@ export class GeminiLiveAdapter extends EventEmitter<S2SEvents> implements S2SAda
     );
   }
 
-  injectText(text: string, opts?: { respond?: boolean }): void {
+  injectText(text: string, opts?: { respond?: boolean; role?: "user" | "system" }): void {
     if (!this.ws) return;
+    // Gemini Live has no system role for mid-session text: mark it instead,
+    // as session instruction patches already do.
+    if (opts?.role === "system") text = `[system] ${text}`;
     if (opts?.respond !== false) {
       // Gemini 3.1 Live accepts clientContent only for INITIAL history
       // seeding. Runtime text turns use realtimeInput.text; sending them as

@@ -5,7 +5,7 @@ import { VoiceCallStory } from "@/components/foundry-stories";
 export const metadata = {
   title: "Voice agents",
   description:
-    "Run a Foundry agent as a live voice call with voiceCall: the same prompt, tools and memory as its text turns, a room for the audio, and delegation results spoken at the next pause.",
+    "Run a Foundry agent as a live voice call with voiceCall: the same prompt, tools and memory as its text turns, a room for the audio, and delegation results and product events told at the next pause.",
 };
 
 export default function VoicePage() {
@@ -126,6 +126,57 @@ return Response.json({ url: \`ws://127.0.0.1:\${port}/call?token=\${token}\` });
         text turn instead, so the result is waiting in the chat.
       </p>
 
+      <h2 id="events">Product events on the call</h2>
+      <p>
+        Your product can tell a live call things too: a meeting moved, an order shipped. Send
+        an addressed event to the call&apos;s conversation (<code>client.emitEvent</code> or{" "}
+        <code>runtime.emitEvent</code>) and pass <code>events</code> to <code>voiceCall</code>:
+      </p>
+      <CodeBlock filename="agents/assistant/agent.ts" language="typescript" code={`run: voiceCall({
+  room: (context) => myRoom(context),
+  events: {
+    // Which events this call tells; others are left to the run.
+    accept: (event) => event.source === "acme:meetings",
+    // Read the facts now, after the pause, not when the event was sent.
+    prepare: async (event, context) => {
+      const meeting = await meetings.get(event.metadata?.meetingId as string);
+      if (!meeting || meeting.cancelled) return { suppress: "cancelled" };
+      return { say: \`The \${meeting.title} meeting is now at \${meeting.time}.\` };
+    },
+    // Never attempted before the call ended (or no call was open): tell it in chat.
+    afterCall: async (event, { effectId }) => {
+      await chat.post({ idempotencyKey: effectId, text: \`Update: \${event.content}\` });
+    },
+  },
+})`} />
+      <ul>
+        <li><strong>At a pause.</strong> An accepted event waits until neither side is speaking, with no time limit, and one is told at a time.</li>
+        <li><strong>Fresh facts.</strong> <code>prepare</code> runs at that pause. It returns <code>{"{ say }"}</code> with what to tell now, or <code>{"{ suppress }"}</code> when nothing is due any more. If it throws, nothing is told and the event is tried again at a later pause. If speech starts while it reads, the next pause prepares it again. One failing event never holds up delegation updates or other events.</li>
+        <li><strong>As product context, not the caller.</strong> The text goes to the model with the <code>system</code> role (Gemini Live, which has none mid-call, gets it as user text marked <code>[system]</code>). The transcript line is marked as framework event context, <code>[event from &lt;source&gt;] …</code>; change it with <code>transcript</code>.</li>
+        <li><strong>Once.</strong> Each event has a durable delivery receipt, kept by the data adapter (see <Link href="#receipts">below</Link>).</li>
+        <li><strong>No call open.</strong> An event that wakes the agent while nobody is calling opens no room: <code>afterCall</code> takes it, or it stays pending for the next run.</li>
+      </ul>
+      <h3 id="receipts">Delivery receipts and crashes</h3>
+      <table>
+        <thead><tr><th>Receipt</th><th>Meaning</th><th>When the event comes again</th></tr></thead>
+        <tbody>
+          <tr><td><code>queued</code></td><td>Never attempted. A call that ends leaves it here as proof nothing was said.</td><td>Told at the next call&apos;s pause, or handed to <code>afterCall</code>.</td></tr>
+          <tr><td><code>dispatching</code></td><td>Recorded just before the provider is asked; a crash after that leaves the outcome unknown.</td><td>Held. Never told again by another run or call, never sent to chat instead. <code>resolveUncertain</code> may settle it from a provider receipt.</td></tr>
+          <tr><td><code>accepted</code></td><td>The provider&apos;s transport took it. Not proof the caller heard it.</td><td>Acknowledged without telling it again. A missing transcript line is written once.</td></tr>
+          <tr><td><code>suppressed</code></td><td><code>prepare</code> said nothing is due.</td><td>Acknowledged silently.</td></tr>
+          <tr><td><code>redirecting</code> / <code>redirected</code></td><td>Handed to <code>afterCall</code> under an <code>effectId</code> derived from the event.</td><td>The same effect is retried with the same <code>effectId</code>; voice is never tried.</td></tr>
+        </tbody>
+      </table>
+      <p>
+        Receipts use the application&apos;s data adapter (<code>FileFoundryDataAdapter</code> and{" "}
+        <code>MemoryFoundryDataAdapter</code> have them; a database adapter adds four methods,
+        see <Link href="/foundry/docs/persistence#custom-adapter">Persistence</Link>). They are
+        kept apart from the workspace, so agent workspace tools never see them. An event the call
+        did not finish is not acknowledged: it stays pending and comes back, and its receipt
+        decides what happens. Key your own side effects on <code>effectId</code>, and use{" "}
+        <code>eventTranscriptMessageId(id)</code> to find an event&apos;s transcript line.
+      </p>
+
       <h2 id="rooms">Rooms</h2>
       <p>
         A room connects the session to callers: <code>{"{ open(call), close() }"}</code>. It
@@ -206,13 +257,17 @@ export const call = voiceCall({ room: (context) => liveKitRoom(roomNameFor(conte
           <tr><td><code>announce</code></td><td>How a delegation update is put to the model. Return <code>null</code> to keep it silent.</td></tr>
           <tr><td><code>announceMesh</code></td><td>How a message from a mesh peer is put to the model, for an agent on the <Link href="/foundry/docs/multi-agent#mesh">hosted mesh</Link>. Default: <code>announceMeshMessage</code>.</td></tr>
           <tr><td><code>offCall</code></td><td>Handles a delegation update or mesh message that arrives when no call is live. Default: save it to the conversation.</td></tr>
+          <tr><td><code>events</code></td><td>None. Tell addressed events on the call: <code>accept</code> (required), <code>prepare</code>, <code>afterCall</code>, <code>resolveUncertain</code>, <code>transcript</code>, <code>respond</code> (default <code>true</code>). See <Link href="#events">Product events</Link>.</td></tr>
         </tbody>
       </table>
       <p>
-        The run returns <code>{"{ endedBecause, durationMs, turns, updatesSpoken }"}</code>, and
+        The run returns <code>{"{ endedBecause, durationMs, turns, updatesSpoken, eventsTold? }"}</code>, and
         the trace shows <code>foundry.voice.call.open</code>, <code>caller.joined</code>,{" "}
         <code>caller.left</code>, <code>tool</code>, <code>updates.spoken</code> and{" "}
-        <code>call.ended</code>.
+        <code>call.ended</code>, plus <code>foundry.voice.event.*</code> for each event:{" "}
+        <code>queued</code>, <code>prepare.failed</code>, <code>suppressed</code>,{" "}
+        <code>accepted</code>, <code>uncertain</code>, <code>redirected</code>,{" "}
+        <code>retained</code> and <code>transcript.repaired</code>.
       </p>
 
       <h2 id="deploy">Deploying</h2>

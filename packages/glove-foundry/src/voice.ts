@@ -1,10 +1,14 @@
+import { randomUUID } from "node:crypto";
 import { createServer } from "node:http";
-import type { IGloveRunnable, Message, Tool } from "glove-core";
+import type { AgentEvent, IGloveRunnable, Message, Tool } from "glove-core";
 import { RealtimeAgent, type RealtimeAgentConfig } from "glove-voice-s2s";
 import { WebSocketServer, type RawData, type WebSocket } from "ws";
 import type { AgentHandlerContext } from "./definition.js";
 import { renderDeliveries, type FoundryDelegationUpdate } from "./delegation.js";
 import { renderMeshMessages, type FoundryMeshMessage } from "./mesh.js";
+import { VoiceEventDelivery, type VoiceCallEvents } from "./voice-events.js";
+
+export { defaultEventTranscript, type VoiceCallEvents, type VoiceEventContext } from "./voice-events.js";
 
 /**
  * Foundry tools that have no place in a spoken conversation. Durable,
@@ -92,6 +96,15 @@ export interface VoiceCallOptions {
    * call starts knowing it.
    */
   readonly offCall?: (agent: IGloveRunnable, context: AgentHandlerContext) => unknown;
+  /**
+   * Tell addressed events (agent messages and transmissions) on the call:
+   * the ones `accept` takes wait for a pause, are prepared from current facts
+   * just before they are told, go to the model as system context rather than
+   * as the caller, and keep a durable receipt so that no restart tells one
+   * twice. A run started only by such events, with no call to tell them on,
+   * opens no room: `afterCall` handles them, or they stay pending.
+   */
+  readonly events?: VoiceCallEvents;
 }
 
 export interface VoiceCallResult {
@@ -101,6 +114,8 @@ export interface VoiceCallResult {
   readonly turns: number;
   /** Delegation updates and mesh messages put to the caller during the call. */
   readonly updatesSpoken: number;
+  /** Addressed events told on the call (accepted by the provider, which is not proof they were heard). */
+  readonly eventsTold?: number;
 }
 
 /** The default way a delegation update is put to the model mid-call. */
@@ -171,6 +186,17 @@ export function voiceCall(options: VoiceCallOptions) {
       await agent.store.appendMessages([{ sender: "user", text: context.messageText }]);
       return { endedBecause: "not a call", durationMs: 0, turns: 0, updatesSpoken: 0 } satisfies VoiceCallResult;
     }
+    const events = options.events;
+    const callId = randomUUID();
+    // Started only by events this call tells, with nobody calling: no room.
+    if (events && context.eventTurn && (context.events ?? []).length > 0
+      && (context.events ?? []).every((event) => events.accept(senderEvent(event)))) {
+      const offCall = new VoiceEventDelivery({ events, agent, context, callId, keepTranscript: options.transcript !== false });
+      const stop = context.onEvent((handled) => offCall.handle(handled), events.accept);
+      await stop();
+      await offCall.finish();
+      return { endedBecause: "not a call", durationMs: 0, turns: 0, updatesSpoken: 0, eventsTold: 0 } satisfies VoiceCallResult;
+    }
 
     const startedAt = Date.now();
     const excludeTools = [...new Set([
@@ -197,6 +223,17 @@ export function voiceCall(options: VoiceCallOptions) {
     let updatesSpoken = 0;
     let agentSpeaking = false;
     let userSpeaking = false;
+    let connected = 0;
+    let callEnded = false;
+    const eventDelivery = events
+      ? new VoiceEventDelivery({
+          events, agent, context, callId, keepTranscript,
+          live: {
+            quiet: () => !callEnded && realtime.isConnected && connected > 0 && !agentSpeaking && !userSpeaking,
+            inject: (text, respond) => realtime.inject(text, { respond, role: "system" }),
+          },
+        })
+      : undefined;
     realtime.on("user_said", (text) => save([{ sender: "user", text }]));
     realtime.on("agent_said", (text) => {
       turns++;
@@ -255,10 +292,10 @@ export function voiceCall(options: VoiceCallOptions) {
         },
       });
     };
-    realtime.adapter.on("agent_speech_started", () => { agentSpeaking = true; });
-    realtime.adapter.on("agent_speech_stopped", () => { agentSpeaking = false; pump(); });
+    realtime.adapter.on("agent_speech_started", () => { agentSpeaking = true; eventDelivery?.responding(); });
+    realtime.adapter.on("agent_speech_stopped", () => { agentSpeaking = false; pump(); eventDelivery?.pump(); });
     realtime.adapter.on("user_speech_started", () => { userSpeaking = true; });
-    realtime.adapter.on("user_speech_stopped", () => { userSpeaking = false; pump(); });
+    realtime.adapter.on("user_speech_stopped", () => { userSpeaking = false; pump(); eventDelivery?.pump(); });
     realtime.adapter.on("interrupted", () => { agentSpeaking = false; });
     const hear = (items: ReadonlyArray<Heard>): void => {
       if (queue.length === 0) heldSince = Date.now();
@@ -267,8 +304,9 @@ export function voiceCall(options: VoiceCallOptions) {
     };
     const stopUpdates = context.onDelegationUpdate((updates) => hear(updates.map((update) => ({ update }))));
     const stopMesh = context.onMeshMessage((messages) => hear(messages.map((mesh) => ({ mesh }))));
+    const stopEvents = eventDelivery ? context.onEvent((handled) => eventDelivery.handle(handled), events!.accept) : undefined;
     const stopListening = async (): Promise<void> => {
-      await Promise.all([stopUpdates(), stopMesh()]);
+      await Promise.all([stopUpdates(), stopMesh(), stopEvents?.()]);
     };
 
     const room = typeof options.room === "function" ? await options.room(context) : options.room;
@@ -283,7 +321,6 @@ export function voiceCall(options: VoiceCallOptions) {
         resolveEnded(reason);
       };
     });
-    let connected = 0;
     let greeted = false;
     let idleTimer: ReturnType<typeof setTimeout> | undefined;
     const armIdle = (): void => {
@@ -304,6 +341,7 @@ export function voiceCall(options: VoiceCallOptions) {
           realtime.inject(options.greeting, { respond: true });
         }
         pump();
+        eventDelivery?.pump();
       },
       left() {
         connected = Math.max(0, connected - 1);
@@ -332,13 +370,19 @@ export function voiceCall(options: VoiceCallOptions) {
       context.emit({ type: "foundry.voice.call.open", data: { tools: realtime.exposedTools.map((tool) => tool.name) } });
       const endedBecause = await ended;
       context.emit({ type: "foundry.voice.call.ended", data: { endedBecause } });
-      return { endedBecause, durationMs: Date.now() - startedAt, turns, updatesSpoken } satisfies VoiceCallResult;
+      return {
+        endedBecause, durationMs: Date.now() - startedAt, turns, updatesSpoken,
+        ...(eventDelivery ? { eventsTold: eventDelivery.told } : {}),
+      } satisfies VoiceCallResult;
     } finally {
       clearTimeout(maxTimer);
       if (idleTimer) clearTimeout(idleTimer);
       if (retry) clearTimeout(retry);
       context.signal.removeEventListener("abort", onAbort);
+      callEnded = true;
       await stopListening();
+      // Events never attempted go to the late-chat policy, or stay pending.
+      await eventDelivery?.finish();
       // Updates nobody heard stay in the conversation for the next turn.
       if (queue.length > 0) save([{ sender: "user", text: rendered(queue.splice(0)) }]);
       try { await room.close(); } catch { /* the call is over either way */ }
@@ -346,6 +390,13 @@ export function voiceCall(options: VoiceCallOptions) {
       await saving;
     }
   };
+}
+
+/** An event as its sender wrote it, without Foundry's delivery bookkeeping. */
+function senderEvent(event: AgentEvent): AgentEvent {
+  if (!event.metadata || !("foundry_delivery" in event.metadata)) return event;
+  const { foundry_delivery: _delivery, ...metadata } = event.metadata;
+  return { ...event, ...(Object.keys(metadata).length ? { metadata } : { metadata: undefined }) };
 }
 
 // ── A WebSocket room ─────────────────────────────────────────────────────────

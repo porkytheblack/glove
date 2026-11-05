@@ -65,3 +65,45 @@ export function eventDue(record: FoundryEventRecord, now = Date.now()): boolean 
   return record.policy.whenIdle !== "defer" || (record.policy.deferTimeoutMs !== undefined
     && now >= Date.parse(record.createdAt) + record.policy.deferTimeoutMs);
 }
+
+/**
+ * An addressed event handed to a handler registered with `context.onEvent`.
+ * Nothing acknowledges it but `ack()`: an event the handler did not finish
+ * stays pending and is delivered again, to this conversation's next run.
+ */
+export interface FoundryHandledEvent {
+  /** The event's journal id: the same on every redelivery. Key receipts and effects on it. */
+  readonly id: string;
+  /** The event as its sender wrote it. */
+  readonly event: AgentEvent;
+  /** True when the event started this run; false when it arrived while the run was going. */
+  readonly initial: boolean;
+  /** This event is finished with. The run reports it consumed; nothing else is. */
+  ack(): void;
+}
+
+/**
+ * What to do with an event about to be told, decided just before telling it.
+ * `say`: the current facts to tell, freshly read. `suppress`: nothing is due
+ * any more (cancelled, moved, too late); the event is finished with silently.
+ * Throwing tells nothing and keeps the event for a later attempt.
+ */
+export type FoundryEventPreparation =
+  | { readonly say: string }
+  | { readonly suppress: string };
+
+export interface FoundryEventPreparationContext {
+  readonly runId: string;
+  readonly definitionId: string;
+  readonly agentId: string;
+  readonly conversationId: string;
+  readonly workspaceId: string;
+  /** The event's journal id. */
+  readonly eventRecordId: string;
+  readonly signal: AbortSignal;
+}
+
+/** Addressed events a sender wrote (agent messages and transmissions), as opposed to Foundry's own deliveries. */
+export function isGenericDelivery(delivery: FoundryConversationDelivery): boolean {
+  return delivery.kind === "agent-message" || delivery.kind === "transmission";
+}
