@@ -252,7 +252,8 @@ test("killed after the provider accepted an event: the restart repairs the trans
     assert.equal(lines[0]!.framework_context, "event");
     await harness.control({ end: true });
     assert.equal(await second.call({ method: "wait", runId }), "completed");
-    assert.equal((await harness.event("m4", CALLER.conversationId, CALLER.agentId))?.status, "acknowledged");
+    // The controller records the acknowledgement just after the run settles.
+    await eventually(() => harness.event("m4", CALLER.conversationId, CALLER.agentId).then((record) => record?.status === "acknowledged"), "the acknowledgement");
     assert.equal((await injected(harness)).length, 1, "told once across both processes");
     await second.call({ method: "stop" });
   });
