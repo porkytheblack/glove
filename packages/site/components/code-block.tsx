@@ -14,7 +14,10 @@ export async function CodeBlock({
 }: CodeBlockProps) {
   const html = await codeToHtml(code.trim(), {
     lang: language,
-    theme: "vitesse-dark",
+    // Both palettes ship as CSS variables (--shiki-dark / --shiki-light);
+    // globals.css picks one from <html data-theme>.
+    themes: { dark: "vitesse-dark", light: "vitesse-light" },
+    defaultColor: false,
   });
 
   return (

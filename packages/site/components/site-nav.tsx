@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { GloveLogo } from "@/components/glove-logo";
 import { SiteSearch } from "@/components/site-search";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 const links = [
   { href: "/foundry", label: "Foundry", match: "/foundry", className: "nav-foundry" },
@@ -52,6 +53,7 @@ export function SiteNav() {
           </Link>
         ))}
         <SiteSearch />
+        <ThemeToggle />
         <a
           href="https://github.com/porkytheblack/glove"
           target="_blank"

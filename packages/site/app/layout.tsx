@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { DM_Sans, JetBrains_Mono } from "next/font/google";
 import { SiteNav } from "@/components/site-nav";
 import { SiteFooter } from "@/components/site-footer";
+import { themeBootScript } from "@/components/theme-toggle";
 import "./globals.css";
 
 const dmSans = DM_Sans({
@@ -59,7 +60,12 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
+    // data-theme is set by the boot script before React hydrates, so the
+    // server-rendered <html> legitimately differs from the client's.
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: themeBootScript }} />
+      </head>
       <body className={`${dmSans.variable} ${jetbrainsMono.variable}`}>
         <SiteNav />
         {children}
