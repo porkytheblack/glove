@@ -59,8 +59,9 @@
 }
 
 /* ─── Light theme ───────────────────────────────────────────────────────
-   Opt-in via <html data-theme="light">, set by the toggle in the nav (see
-   components/theme-toggle.tsx and the boot script in app/layout.tsx).
+   Applied via <html data-theme="light">: follows the OS setting by default,
+   overridable with the toggle in the nav (see components/theme-toggle.tsx
+   and the boot script in app/layout.tsx).
    Same mint family as the dark theme, deepened so text and accents keep
    WCAG AA contrast on a near-white page. */
 :root[data-theme="light"] {

@@ -2,8 +2,10 @@
 
 // Light/dark switch for the whole site. The theme lives on
 // <html data-theme="light|dark">; app/layout.tsx sets it before first paint
-// from the saved choice so pages never flash the wrong theme. Dark is the
-// default; light is opt-in and remembered in localStorage.
+// so pages never flash the wrong theme. With no saved choice the site follows
+// the OS setting (prefers-color-scheme) and tracks it live. Clicking the
+// toggle saves an explicit choice; picking the theme the OS already asks for
+// clears it, so the site goes back to following the system.
 
 import { useEffect, useState } from "react";
 
@@ -15,9 +17,24 @@ export const THEME_STORAGE_KEY = "glove-theme";
  * Runs inline in <head> before the body renders. Keep it tiny, dependency
  * free and in sync with THEME_STORAGE_KEY.
  */
-export const themeBootScript = `(function(){try{var t=localStorage.getItem(${JSON.stringify(
+export const themeBootScript = `(function(){var t;try{t=localStorage.getItem(${JSON.stringify(
   THEME_STORAGE_KEY,
-)});if(t==="light"||t==="dark")document.documentElement.setAttribute("data-theme",t);}catch(e){}})();`;
+)});}catch(e){}if(t!=="light"&&t!=="dark"){t=window.matchMedia&&window.matchMedia("(prefers-color-scheme: light)").matches?"light":"dark";}document.documentElement.setAttribute("data-theme",t);})();`;
+
+const LIGHT_QUERY = "(prefers-color-scheme: light)";
+
+function systemTheme(): Theme {
+  return window.matchMedia(LIGHT_QUERY).matches ? "light" : "dark";
+}
+
+function savedTheme(): Theme | null {
+  try {
+    const value = localStorage.getItem(THEME_STORAGE_KEY);
+    return value === "light" || value === "dark" ? value : null;
+  } catch {
+    return null;
+  }
+}
 
 function readTheme(): Theme {
   return document.documentElement.getAttribute("data-theme") === "light" ? "light" : "dark";
@@ -26,7 +43,9 @@ function readTheme(): Theme {
 function applyTheme(theme: Theme) {
   document.documentElement.setAttribute("data-theme", theme);
   try {
-    localStorage.setItem(THEME_STORAGE_KEY, theme);
+    // Matching the OS means "follow the system" again, so forget the override.
+    if (theme === systemTheme()) localStorage.removeItem(THEME_STORAGE_KEY);
+    else localStorage.setItem(THEME_STORAGE_KEY, theme);
   } catch {
     // Private mode or blocked storage: the switch still works for this page.
   }
@@ -44,14 +63,22 @@ export function useTheme(): Theme {
     // Keep other open tabs in step with a change made here.
     const onStorage = (event: StorageEvent) => {
       if (event.key !== THEME_STORAGE_KEY) return;
-      const next = event.newValue === "light" ? "light" : "dark";
+      const next = event.newValue === "light" || event.newValue === "dark" ? event.newValue : systemTheme();
       document.documentElement.setAttribute("data-theme", next);
     };
     window.addEventListener("storage", onStorage);
 
+    // Follow the OS live while there is no saved override.
+    const media = window.matchMedia(LIGHT_QUERY);
+    const onSystemChange = () => {
+      if (!savedTheme()) document.documentElement.setAttribute("data-theme", systemTheme());
+    };
+    media.addEventListener("change", onSystemChange);
+
     return () => {
       observer.disconnect();
       window.removeEventListener("storage", onStorage);
+      media.removeEventListener("change", onSystemChange);
     };
   }, []);
 
