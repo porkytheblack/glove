@@ -170,6 +170,23 @@ test("a run that listens receives the reply itself, and no extra run starts", as
   });
 });
 
+test("a live run in a conversation with a long id still takes deliveries (mailbox names are hashed)", async () => {
+  await withRuntime(async (runtime) => {
+    const ed = await runtime.createAgent("assistant", { id: "ed" });
+    await runtime.createAgent("coder", { id: "ed-coder" });
+    // Like a dispatched conversation: transmission:agent:<instance id>:<key>. Its hex alone is 400 bytes.
+    const longId = `transmission:agent:agent_${"a".repeat(64)}:${"k".repeat(110)}`;
+    assert.equal(longId.length, 200);
+    const conversation = await runtime.createConversation(ed.id, { id: longId });
+    const call = await runtime.send(ed.id, conversation.id, "listen:ed-coder");
+    const done = await runtime.waitForRun(call.id, { timeoutMs: 30_000 });
+    assert.equal((done?.output as { value?: unknown }).value, "live: hello world done");
+    await new Promise((resolveWait) => setTimeout(resolveWait, 500));
+    const runs = (await runtime.listRuns("assistant")).filter((run) => run.conversationId === conversation.id);
+    assert.equal(runs.length, 1, "the reply reached the live run");
+  });
+});
+
 test("peers come from data: names, workspaces and the definition's peers rule", async () => {
   await withRuntime(async (runtime, logFile) => {
     await runtime.createAgent("gatekeeper", { id: "gate", context: { team: "red" } });

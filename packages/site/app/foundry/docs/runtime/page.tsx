@@ -179,6 +179,10 @@ await summary.wait();`} />
           <tr><td colSpan={3}><strong>Approvals</strong></td></tr>
           <tr><td><code>approvals({"{ runId?, status? }"})</code></td><td><code>FoundryApproval[]</code></td><td><code>GET /api/approvals</code></td></tr>
           <tr><td><code>resolveApproval(approvalId, &quot;approve&quot; | &quot;deny&quot;)</code></td><td><code>FoundryApproval</code></td><td><code>POST /api/approvals/:id</code></td></tr>
+          <tr><td><code>threads({"{ agentId?, conversationId?, to?, status? }"})</code> · <code>thread(threadId)</code></td><td><code>FoundryMeshThread[]</code> · <code>FoundryMeshThread</code></td><td><code>GET /api/threads</code> · <code>GET /api/threads/:id</code></td></tr>
+          <tr><td><code>meshHumanMessage(threadId, {"{ authorId, name?, text, id? }"})</code></td><td><code>FoundryMeshMessage</code></td><td><code>POST /api/threads/:id/messages</code></td></tr>
+          <tr><td><code>meshTakeOver(threadId, {"{ by, agentId? }"})</code></td><td><code>FoundryMeshThread</code></td><td><code>POST /api/threads/:id/take-over</code></td></tr>
+          <tr><td><code>releaseMeshMessage(threadId, messageId, &quot;deliver&quot; | &quot;discard&quot;)</code></td><td><code>FoundryMeshThread</code></td><td><code>POST /api/threads/:id/held/:messageId</code></td></tr>
           <tr><td colSpan={3}><strong>Workspace data</strong></td></tr>
           <tr><td><code>workspaceEntries(workspaceId)</code> / <code>putWorkspaceEntry(workspaceId, key, value)</code></td><td><code>WorkspaceEntry[]</code> / <code>WorkspaceEntry</code></td><td><code>GET</code> / <code>PUT /api/workspaces/:id/entries</code></td></tr>
           <tr><td><code>sharedInbox(workspaceId)</code> / <code>postSharedInbox(workspaceId, {"{ topic, payload?, agentId?, conversationId? }"})</code></td><td><code>SharedInboxItem[]</code> / <code>SharedInboxItem</code></td><td><code>GET</code> / <code>POST /api/workspaces/:id/inbox</code></td></tr>
@@ -260,6 +264,11 @@ await summary.wait();`} />
           <tr><td colSpan={3}><strong>Approvals</strong></td></tr>
           <tr><td><code>GET /api/approvals</code></td><td><code>runId</code> (or <code>run_id</code>), <code>status</code></td><td><code>FoundryApproval[]</code>, oldest first</td></tr>
           <tr><td><code>POST /api/approvals/:id</code></td><td><code>decision</code>: <code>&quot;approve&quot;</code> | <code>&quot;deny&quot;</code></td><td><code>FoundryApproval</code></td></tr>
+          <tr><td><code>GET /api/threads</code></td><td><code>agentId</code>, <code>conversationId</code>, <code>to</code>, <code>status</code></td><td><code>FoundryMeshThread[]</code>, newest first</td></tr>
+          <tr><td><code>GET /api/threads/:id</code></td><td>—</td><td><code>FoundryMeshThread</code>, or <code>404</code></td></tr>
+          <tr><td><code>POST /api/threads/:id/messages</code></td><td><code>authorId</code>, <code>text</code>, <code>name?</code>, <code>id?</code></td><td><code>201</code> with the person&apos;s <code>FoundryMeshMessage</code></td></tr>
+          <tr><td><code>POST /api/threads/:id/take-over</code></td><td><code>by</code>, <code>agentId?</code></td><td><code>FoundryMeshThread</code>; <code>400</code> for an agent not in the thread</td></tr>
+          <tr><td><code>POST /api/threads/:id/held/:messageId</code></td><td><code>decision</code>: <code>&quot;deliver&quot;</code> | <code>&quot;discard&quot;</code></td><td><code>FoundryMeshThread</code>; <code>404</code> when nothing is held under that id, <code>409</code> for a draft (decide its approval)</td></tr>
           <tr><td colSpan={3}><strong>Workspaces</strong></td></tr>
           <tr><td><code>GET</code> / <code>PUT /api/workspaces/:id/entries</code></td><td>PUT: <code>key</code>, <code>value</code></td><td>entries / <code>WorkspaceEntry</code></td></tr>
           <tr><td><code>GET</code> / <code>POST /api/workspaces/:id/inbox</code></td><td>POST: <code>topic</code>, <code>payload?</code>, <code>agentId?</code>, <code>conversationId?</code></td><td>items / <code>201</code> item (<code>pending</code>)</td></tr>

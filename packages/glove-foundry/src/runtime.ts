@@ -2097,6 +2097,11 @@ export class FoundryRuntime {
     const runs: FoundryRun[] = [];
     const deliveries: Array<{ agentId: string; playbookIds: string[]; runId?: string }> = [];
     const matchedByAgent = new Map<string, { agent: AgentInstance; playbooks: AgentPlaybook[] }>();
+    // A subscription's playbook is copied onto every instance it provisions, but
+    // only the subscription knows which of them an event is for (its targets
+    // and provisioning keys). Matched per instance, it would wake them all.
+    const subscriptions = await this.listPlaybookSubscriptions();
+    const subscribedPlaybooks = new Set(subscriptions.map((subscription) => subscription.playbook.id));
     for (const stored of instances) {
       let agent: AgentInstance;
       try { agent = await this.effectiveAgent(stored); } catch { if (stored.durableSubagent) continue; throw new Error(`Cannot resolve agent "${stored.id}".`); }
@@ -2117,6 +2122,7 @@ export class FoundryRuntime {
       if (!hasInstalledOwner) continue;
       const matched: AgentPlaybook[] = [];
       for (const playbook of agent.playbooks) {
+        if (subscribedPlaybooks.has(playbook.id)) continue;
         if (await this.playbookMatches(
           playbook,
           integration,
@@ -2130,7 +2136,7 @@ export class FoundryRuntime {
       matchedByAgent.set(agent.id, { agent, playbooks: matched });
     }
 
-    for (const subscription of await this.listPlaybookSubscriptions()) {
+    for (const subscription of subscriptions) {
       if (!subscription.enabled || subscription.workspaceId.length === 0) continue;
       if (!await this.playbookMatches(
         subscription.playbook,
@@ -3645,6 +3651,11 @@ export class FoundryRuntime {
   // travel as "mesh" deliveries on the same durable path as delegation
   // updates: into the run working on that conversation, or as one run once it
   // is free. The recipient's final reply goes back on its own.
+
+  /** One mesh thread, by id. Null when there is none. */
+  getThread(threadId: string): Promise<FoundryMeshThread | null> {
+    return this.loadThread(threadId);
+  }
 
   /** Every thread, newest first, optionally narrowed to who started it or who it went to. */
   async listThreads(filter: {
