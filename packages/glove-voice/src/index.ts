@@ -22,6 +22,13 @@ export {
   type ElevenLabsAdaptersConfig,
   ElevenLabsSTTAdapter,
   type ElevenLabsSTTConfig,
+  type ElevenLabsSTTEvents,
+  type ElevenLabsRealtimeModel,
+  type ElevenLabsCommitStrategy,
+  type ScribeWord,
+  type ScribeCommit,
+  type ScribeDiarizedSegment,
+  type ScribeSpeakerTurn,
   ElevenLabsTTSAdapter,
   type ElevenLabsTTSConfig,
 } from "./adapters/eleven-labs";

@@ -544,8 +544,8 @@ function App() {
         rows={[
           [
             "ElevenLabsSTTAdapter",
-            "ElevenLabs Scribe Realtime",
-            "WebSocket-based streaming STT using ElevenLabs Scribe v2. Supports partial and committed transcripts with auto-reconnect.",
+            "ElevenLabs Scribe v3 Live",
+            "WebSocket-based streaming STT using ElevenLabs Scribe v3 Live by default. Partial and committed transcripts, auto-reconnect, and Scribe v3 Live's live diarization, turn prediction and multilingual mode (see below).",
           ],
           [
             "ElevenLabsTTSAdapter",
@@ -563,6 +563,117 @@ function App() {
             "ML-based voice activity detection using ONNX Runtime. Much more accurate in noisy environments. Loaded from glove-voice/silero-vad subpath.",
           ],
         ]}
+      />
+
+
+      <h3 id="scribe-v3">ElevenLabs Scribe v3 Live &amp; Scribe v3</h3>
+
+      <p>
+        <code>ElevenLabsSTTAdapter</code> uses <code>scribe_v3_live</code> by
+        default. Set <code>model: &quot;scribe_v2_realtime&quot;</code> to stay on
+        the previous model. Scribe v3 Live adds options that are all off unless
+        you set them:
+      </p>
+
+      <PropTable
+        headers={["Option", "Type", "Description"]}
+        rows={[
+          [
+            "commitStrategy",
+            '"manual" | "vad" | "turn_prediction"',
+            "Who ends an utterance. manual (default): GloveVoice's VAD or commitTurn(). vad: Scribe after vadSilenceThreshold seconds of silence. turn_prediction (v3 Live only): Scribe predicts the end of the turn and commits at turn_probability \u2265 0.9.",
+          ],
+          [
+            "diarize",
+            "boolean",
+            "Live speaker labels (v3 Live only). Each commit is followed by a diarized event with speaker turns. Cannot be combined with filterBackgroundAudio.",
+          ],
+          [
+            "multilangMode",
+            "boolean",
+            "Follow speakers who switch language mid-sentence, writing each language in its own script.",
+          ],
+          [
+            "language",
+            "string | null",
+            'Default "en". null lets Scribe detect the language. secondaryLanguages limits detection to a set of codes.',
+          ],
+          ["keyterms", "string[]", "Names and jargon Scribe should favor."],
+          [
+            "includeTimestamps",
+            "boolean",
+            "Word timings on committed events. includeLanguageDetection adds the detected language.",
+          ],
+          [
+            "previousText",
+            "string",
+            "Context sent with the first audio chunk, such as the agent's last line. Best under 50 characters.",
+          ],
+          [
+            "noVerbatim / filterBackgroundAudio / keepaliveIntervalMs",
+            "boolean / boolean / number",
+            "Drop filler words; suppress background speech; how often Scribe sends keepalive partials.",
+          ],
+          [
+            "extraParams",
+            "Record<string, ...>",
+            "Any other realtime query parameter, passed through as is.",
+          ],
+        ]}
+      />
+
+      <p>
+        The adapter keeps the plain <code>STTAdapter</code> events, so it drops
+        into <code>GloveVoice</code> unchanged. The Scribe-only events are on{" "}
+        <code>stt.scribe</code>: <code>diarized</code>,{" "}
+        <code>speakers_merged</code>, <code>turn_probability</code>,{" "}
+        <code>committed</code>, <code>session_started</code> and{" "}
+        <code>warning</code>.
+      </p>
+
+      <CodeBlock
+        code={`import { ElevenLabsSTTAdapter } from "glove-voice";
+
+const stt = new ElevenLabsSTTAdapter({
+  getToken: () => fetchToken("/api/voice/stt-token"),
+  diarize: true,
+  commitStrategy: "turn_prediction",
+  keyterms: ["Glove", "Kuiper"],
+});
+
+// Who said what. Speaker IDs already follow any merges Scribe announced.
+stt.scribe.on("diarized", (segment) => {
+  for (const turn of segment.turns) console.log(\`\${turn.speakerId}: \${turn.text}\`);
+});
+
+// Scribe's end-of-turn confidence on every partial.
+stt.scribe.on("turn_probability", (p) => meter.set(p));`}
+        filename="lib/voice.ts"
+        language="typescript"
+      />
+
+      <p>
+        For recordings, <code>transcribeWithElevenLabs</code> from{" "}
+        <code>glove-voice/server</code> calls batch Scribe v3 (
+        <code>scribe_v3</code>) and returns the text, the words and speaker
+        turns. It sends your API key, so call it from server code only.
+      </p>
+
+      <CodeBlock
+        code={`import { transcribeWithElevenLabs } from "glove-voice/server";
+
+const transcript = await transcribeWithElevenLabs({
+  apiKey: process.env.ELEVENLABS_API_KEY!,
+  audio: await file.arrayBuffer(), // or sourceUrl / cloudStorageUrl
+  filename: file.name,
+  diarize: true,
+  keyterms: ["Glove"],
+});
+
+transcript.text;   // full transcript
+transcript.turns;  // [{ speakerId: "speaker_0", text, start, end }, ...]`}
+        filename="app/api/transcribe/route.ts"
+        language="typescript"
       />
 
       {/* ------------------------------------------------------------------ */}

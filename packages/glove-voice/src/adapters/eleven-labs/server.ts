@@ -23,7 +23,8 @@
  */
 
 /**
- * Create a single-use token for Scribe Realtime (STT WebSocket).
+ * Create a single-use token for Scribe Realtime (STT WebSocket), used by
+ * Scribe v3 Live and Scribe v2 Realtime alike.
  * Valid for 15 minutes — generate fresh per session.
  */
 export async function createElevenLabsSTTToken(apiKey: string): Promise<string> {

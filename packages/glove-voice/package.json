@@ -26,7 +26,8 @@
   ],
   "scripts": {
     "build": "tsup",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node --test --import tsx tests/*.test.ts"
   },
   "keywords": [],
   "packageManager": "pnpm@10.28.2",

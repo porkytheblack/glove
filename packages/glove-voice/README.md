@@ -44,6 +44,42 @@ const { stt, createTTS } = createElevenLabsAdapters({
 });
 ```
 
+### Scribe v3 Live options
+
+The STT adapter runs ElevenLabs **Scribe v3 Live** (`scribe_v3_live`) by default. Pass `stt` options to use its new features:
+
+```ts
+const { stt, createTTS } = createElevenLabsAdapters({
+  getSTTToken, getTTSToken, voiceId,
+  stt: {
+    diarize: true,                      // live speaker labels
+    commitStrategy: "turn_prediction",  // Scribe predicts the end of the turn
+    multilangMode: true,                // follow mid-sentence language switches
+    keyterms: ["Glove", "Kuiper"],
+    language: null,                     // auto-detect (default "en")
+  },
+});
+
+// Scribe-only events live on `stt.scribe`
+stt.scribe.on("diarized", (seg) => {
+  for (const t of seg.turns) console.log(`${t.speakerId}: ${t.text}`);
+});
+```
+
+Other options: `includeTimestamps`, `includeLanguageDetection`, `secondaryLanguages`, `noVerbatim`, `filterBackgroundAudio`, `previousText`, `keepaliveIntervalMs`, `extraParams`. `stt.scribe` also emits `speakers_merged`, `turn_probability`, `committed`, `session_started` and `warning`. Set `model: "scribe_v2_realtime"` for the previous model (it has no `diarize` or `turn_prediction`).
+
+For recordings, use batch **Scribe v3** on the server:
+
+```ts
+import { transcribeWithElevenLabs } from "glove-voice/server";
+
+const { text, turns } = await transcribeWithElevenLabs({
+  apiKey: process.env.ELEVENLABS_API_KEY!,
+  audio: buffer, filename: "call.mp3",   // or sourceUrl / cloudStorageUrl
+  diarize: true,
+});
+```
+
 ### 3. Create voice instance
 
 ```ts
@@ -238,7 +274,7 @@ All adapters implement typed interfaces. Build your own by implementing:
 | Entry Point | Exports | Browser-safe |
 |-------------|---------|-------------|
 | `glove-voice` | GloveVoice, adapters, AudioCapture, AudioPlayer, VAD | Yes |
-| `glove-voice/server` | Token generators (createElevenLabsSTTToken, etc.) | No (server only) |
+| `glove-voice/server` | Token generators (createElevenLabsSTTToken, etc.), `transcribeWithElevenLabs` (batch Scribe v3) | No (server only) |
 | `glove-voice/silero-vad` | SileroVADAdapter | Yes (WASM) |
 
 React voice bindings are exported from `glove-react/voice`:

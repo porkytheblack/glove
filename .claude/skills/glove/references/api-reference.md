@@ -1162,9 +1162,21 @@ const { stt, createTTS } = createElevenLabsAdapters({
   getTTSToken: GetTokenFn,           // Fetches token from your server
   voiceId: string,                   // ElevenLabs voice ID
   stt?: {                            // Override STT options
-    model?: string,                  // Default: "scribe_v2_realtime"
-    language?: string,               // Default: "en"
+    model?: string,                  // Default: "scribe_v3_live" ("scribe_v2_realtime" still works)
+    language?: string | null,        // Default: "en"; null = auto-detect
+    commitStrategy?: "manual" | "vad" | "turn_prediction", // Default: "manual" ("vad" if vadSilenceThreshold > 0)
     vadSilenceThreshold?: number,    // Default: 0 (we manage VAD ourselves)
+    diarize?: boolean,               // v3 Live: live speaker labels → stt.scribe "diarized"
+    multilangMode?: boolean,         // v3 Live: mid-sentence language switching
+    secondaryLanguages?: string[],
+    keyterms?: string[],
+    includeTimestamps?: boolean,     // word timings on stt.scribe "committed"
+    includeLanguageDetection?: boolean,
+    noVerbatim?: boolean,
+    filterBackgroundAudio?: boolean, // not with diarize
+    previousText?: string,           // context sent with the first chunk (<50 chars)
+    keepaliveIntervalMs?: number,
+    extraParams?: Record<string, string | number | boolean | string[]>,
     maxReconnects?: number,          // Default: 3
   },
   tts?: {                            // Override TTS options
@@ -1173,6 +1185,30 @@ const { stt, createTTS } = createElevenLabsAdapters({
     voiceSettings?: { stability?: number; similarityBoost?: number; speed?: number },
   },
 });
+```
+
+Scribe-only events are on `adapter.scribe` (the adapter itself keeps the plain
+`STTAdapter` events): `diarized` (`{ segmentIndex, text, words, turns: [{ speakerId, text, start, end }] }`,
+speaker IDs already follow merges), `speakers_merged` (`{ from, to }`), `turn_probability`
+(number, with `commitStrategy: "turn_prediction"`), `committed` (`{ text, segmentIndex?, languageCode?, words? }`),
+`session_started` and `warning`. `adapter.resolveSpeaker(id)` follows merges for any ID.
+
+### Batch transcription (Scribe v3)
+
+```typescript
+import { transcribeWithElevenLabs } from "glove-voice/server"; // server only — sends the API key
+
+const t = await transcribeWithElevenLabs({
+  apiKey: string,
+  audio?: Blob | ArrayBuffer | ArrayBufferView, filename?: string, mimeType?: string,
+  sourceUrl?: string, cloudStorageUrl?: string,   // exactly one of audio / sourceUrl / cloudStorageUrl
+  model?: string,                    // Default: "scribe_v3"
+  languageCode?, diarize?, numSpeakers?, diarizationThreshold?, tagAudioEvents?,
+  timestampsGranularity?, keyterms?, noVerbatim?, temperature?, seed?, useMultiChannel?,
+  extra?: Record<string, ...>,       // any other form field, e.g. numbers_format
+  disableLogging?, baseUrl?, signal?,
+});
+// → { text, languageCode, languageProbability, words, turns: [{ speakerId, text, start, end }], transcriptionId, raw }
 ```
 
 ### SileroVADAdapter
