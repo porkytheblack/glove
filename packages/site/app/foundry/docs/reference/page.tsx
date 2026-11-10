@@ -131,10 +131,13 @@ const groups: ReadonlyArray<Group> = [
     values: [
       ["defineSchedule", "function", "Agent-local schedule `{ name, message, timing, payload?, enabled?, description? }` returned from the `schedules` field. `timing`: `at`, `after`, `every` or `cron` (timezone default `UTC`)."],
       ["isFoundrySchedule", "function", "Brand guard."],
-      ["createFoundryCoreTools", "function", "Build the built-in `glove_foundry_*` tools for an assembly context. The runtime mounts them on every run."],
+      ["createFoundryCoreTools", "function", "Build the built-in `glove_foundry_*` tools for an assembly context. The runtime mounts them on every run the definition's `builtins` policy allows."],
+      ["FOUNDRY_BUILTIN_TOOLS", "const", "Every built-in tool as `{ name, group, workspaceWide }`. `group` is `scheduling`, `spawning`, `transmission`, `conversations`, `workspace`, `environment`, `delegation`, `messaging` or `mesh`; `workspaceWide` marks tools that reach the whole workspace or every conversation of the instance."],
+      ["builtinAllowed", "function", "`builtinAllowed(policy)` → `(name) => boolean`: whether a tool is on under a `builtins` policy. Names that are not built-ins are always on."],
+      ["isFoundryBuiltin", "function", "Whether a tool name is one of Foundry's built-ins."],
       ["FOUNDRY_CORE_COMMAND_EVENT", "const", "`\"foundry.core.command\"` — the event type that carries tool-issued commands to the runtime."],
     ],
-    types: ["DefineFoundryScheduleOptions", "FoundryScheduleDefinition", "FoundryScheduleTiming", "FoundryScheduleTimingInput", "FoundryCoreCommand"],
+    types: ["DefineFoundryScheduleOptions", "FoundryScheduleDefinition", "FoundryScheduleTiming", "FoundryScheduleTimingInput", "FoundryCoreCommand", "FoundryBuiltinsPolicy", "FoundryBuiltinTool", "FoundryBuiltinGroup"],
   },
   {
     id: "mesh",
@@ -142,8 +145,9 @@ const groups: ReadonlyArray<Group> = [
     guide: { href: "/foundry/docs/multi-agent#mesh", label: "Multi-agent: the mesh" },
     values: [
       ["meshIdentity", "function", "How an instance appears to its peers on the mesh: `{ id, name, description, metadata: { definitionId } }`, from the instance's `name` and `description` (the id when there is no name)."],
+      ["DEFAULT_MESH_REFUSAL", "const", "`\"Your message could not be sent.\"`: what a sender reads when the application's mesh refuses and gives no wording."],
     ],
-    types: ["FoundryMeshOptions", "FoundryMeshThread", "FoundryMeshThreadStatus", "FoundryMeshMessage", "FoundryMeshParty"],
+    types: ["FoundryMeshOptions", "FoundryMeshThread", "FoundryMeshThreadStatus", "FoundryMeshMessage", "FoundryMeshParty", "FoundryApplicationMesh", "FoundryMeshPeer", "FoundryMeshSend", "FoundryMeshDecision", "FoundryMeshThreadStart", "FoundryMeshRecordedMessage", "FoundryMeshHookContext", "FoundryMeshHeldMessage", "FoundryMeshOutgoing"],
   },
   {
     id: "workbench",
@@ -171,10 +175,10 @@ const groups: ReadonlyArray<Group> = [
     title: "Runtime, server & client",
     guide: { href: "/foundry/docs/runtime", label: "Client & HTTP API" },
     values: [
-      ["defineApplication", "function", "Default export of `foundry.application.ts`: `name` plus optional `data`, `conversationStore`, `accounts`, `routes`, `bindings`, `requestAuthorization`, `provisioner`, `services`, `daemon`."],
+      ["defineApplication", "function", "Default export of `foundry.application.ts`: `name` plus optional `data`, `conversationStore`, `accounts`, `routes`, `bindings`, `requestAuthorization`, `provisioner`, `approvals`, `mesh` (peers, gate, record binding and commit for the hosted mesh), `services`, `daemon`."],
       ["isFoundryApplication", "function", "Brand guard."],
       ["EMPTY_FOUNDRY_APPLICATION", "const", "`defineApplication({ name: \"Glove Foundry\" })`, used when there is no application file."],
-      ["FoundryRuntime", "class", "The control process: `FoundryRuntime.discover({ rootDir, agentsDir, application?, applicationFilePath?, config? })`, then `start()` / `stop()`. Owns data, activations, approvals, delegations, durable workers, mesh threads and the execution daemon; every HTTP endpoint calls one of its methods. `listDelegations({ agentId?, conversationId?, status? })` lists delegations, newest first; `listSubagents(parentId)` lists durable workers; `listThreads({ agentId?, conversationId?, to?, status? })` lists mesh threads by who started them, the conversation that started them, the recipient or status."],
+      ["FoundryRuntime", "class", "The control process: `FoundryRuntime.discover({ rootDir, agentsDir, application?, applicationFilePath?, config? })`, then `start()` / `stop()`. Owns data, activations, approvals, delegations, durable workers, mesh threads and the execution daemon; every HTTP endpoint calls one of its methods. `listDelegations({ agentId?, conversationId?, status? })` lists delegations, newest first; `listSubagents(parentId)` lists durable workers; `listThreads({ agentId?, conversationId?, to?, status? })` lists mesh threads by who started them, the conversation that started them, the recipient or status; `meshHumanMessage(threadId, { authorId, name?, text, id? })` puts a person's message in a thread; `meshTakeOver(threadId, { by, agentId? })` takes agents out of one; `releaseMeshMessage(threadId, messageId, \"deliver\" | \"discard\")` decides a message the application's gate held."],
       ["FoundryRuntimeError", "tagged error class", "Error of the runtime's Effect APIs (`operation`, `message`)."],
       ["FoundryServer", "class", "HTTP server for the inspector, `/api`, `/v1` and `/health`: `new FoundryServer(runtime, { host?, port?, branding?, messageBodyBytes? })`, `listen()` → `{ host, port, url }`, `close()`."],
       ["createFoundryClient", "function", "Typed HTTP client; also exported by `glove-foundry/client`. Options: `baseUrl` (default `http://127.0.0.1:4141`), `fetch`, `authorization`."],
@@ -429,7 +433,9 @@ export default [
 
       <h2 id="core-tools">Built-in agent tools</h2>
       <p>
-        Mounted on every assembled run; no installation needed. Guides:{" "}
+        Mounted on every assembled run unless the definition&apos;s{" "}
+        <Link href="/foundry/docs/capabilities#builtins"><code>builtins</code></Link> policy
+        withholds them; no installation needed. Guides:{" "}
         <Link href="/foundry/docs/automation">Automation</Link>,{" "}
         <Link href="/foundry/docs/conversations#agent-tools">Conversations</Link>,{" "}
         <Link href="/foundry/docs/multi-agent#spawn">Multi-agent</Link>. Definitions with{" "}

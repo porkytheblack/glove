@@ -204,6 +204,8 @@ export function voiceCall(options: VoiceCallOptions) {
       ...gatedTools(agent),
       ...(options.realtime?.excludeTools ?? []),
     ])];
+    // Visible in the run's trace: what the call could not reach.
+    context.emit({ type: "foundry.voice.tools.excluded", data: { tools: excludeTools } });
     const realtime = new RealtimeAgent({ ...options.realtime, agent, excludeTools });
     const keepTranscript = options.transcript !== false;
     let saving: Promise<void> = Promise.resolve();

@@ -68,6 +68,54 @@ export default function CapabilitiesPage() {
         full example. Every instance gets these tools; nothing has to be installed.
       </p>
 
+      <h2 id="builtins">Built-in tools: which ones a run gets</h2>
+      <p>
+        Every run gets Foundry&apos;s{" "}
+        <Link href="/foundry/docs/reference#core-tools">built-in tools</Link>:{" "}
+        <code>glove_foundry_*</code>, the delegation tools and, with <code>mesh</code>, the{" "}
+        <code>glove_mesh_*</code> tools. Some reach far. <code>glove_foundry_workspace</code>,{" "}
+        <code>_shared_inbox</code> and <code>_tasks</code> read and write the whole workspace,{" "}
+        <code>glove_foundry_conversations</code> lists every conversation of the instance, and{" "}
+        <code>glove_foundry_spawn</code> starts work in any of them. When one instance talks
+        with different people, a prompt-injected turn in one person&apos;s conversation could
+        use them against another&apos;s. <code>builtins</code> decides which a run gets. It
+        takes one of three forms, and like <code>tools</code> it can be a resolver, so the
+        answer can depend on the run.
+      </p>
+      <CodeBlock filename="agents/concierge/agent.ts" language="typescript" code={`import { defineAgent } from "glove-foundry";
+
+export default defineAgent({
+  description: "Talks with many people on one instance",
+  // …
+  // A block list: every built-in but these. One added in a later release is on.
+  builtins: { block: ["glove_foundry_spawn", "glove_foundry_conversations", "glove_foundry_workspace", "glove_foundry_shared_inbox", "glove_foundry_tasks"] },
+});`} />
+      <CodeBlock filename="the other forms" language="typescript" code={`// An allow list: only these. One added in a later release stays off. A bare array means the same.
+builtins: { allow: ["glove_foundry_schedule", "glove_foundry_delegate", "glove_foundry_reply", "glove_mesh_*"] },
+
+// A filter: decide per tool, by name, group or reach.
+builtins: { filter: (tool) => !tool.workspaceWide },
+
+// A resolver, per run: scheduled runs get no tools that write.
+builtins: (_definition, ctx) =>
+  ctx.request.source?.kind === "activation" ? { allow: ["glove_foundry_sleep"] } : { block: ["glove_foundry_spawn"] },`} />
+      <table>
+        <thead><tr><th>Form</th><th>On</th><th>A built-in added later</th></tr></thead>
+        <tbody>
+          <tr><td>omitted</td><td>Every built-in</td><td>On</td></tr>
+          <tr><td><code>{"{ block: [...] }"}</code></td><td>Every built-in but these</td><td>On</td></tr>
+          <tr><td><code>{"{ allow: [...] }"}</code> or <code>[...]</code></td><td>Only these</td><td>Off</td></tr>
+          <tr><td><code>{"{ filter: (tool) => boolean }"}</code></td><td>Each tool the filter accepts</td><td>Whatever the filter says</td></tr>
+        </tbody>
+      </table>
+      <ul>
+        <li>A name ending in <code>*</code> matches a prefix: <code>glove_mesh_*</code>, <code>glove_foundry_*</code>.</li>
+        <li>A filter gets <code>{"{ name, group, workspaceWide }"}</code> for each tool. <code>FOUNDRY_BUILTIN_TOOLS</code> lists them all; <code>group</code> is <code>scheduling</code>, <code>spawning</code>, <code>transmission</code>, <code>conversations</code>, <code>workspace</code>, <code>environment</code>, <code>delegation</code>, <code>messaging</code> or <code>mesh</code>.</li>
+        <li>Only built-ins are subject to it. The agent&apos;s own <code>tools</code>, installed apps and MCP servers are not.</li>
+        <li>A withheld tool is withheld, not refused: the model never sees it. The controller also refuses any command from that run that only a withheld tool could have sent, so a run cannot get around the policy by sending the command itself. The trace has <code>foundry.builtins.mounted</code> with what the run got and <code>foundry.builtin.refused</code> for anything refused.</li>
+        <li>A run with <code>voiceCall</code> leaves out <code>VOICE_EXCLUDED_FOUNDRY_TOOLS</code> (from <code>glove-foundry/voice</code>) on the call, and its trace says so with <code>foundry.voice.tools.excluded</code>. To have the controller enforce the same, put them in the policy: <code>{"builtins: { block: [...VOICE_EXCLUDED_FOUNDRY_TOOLS] }"}</code>.</li>
+      </ul>
+
       <h2 id="installable">Installable capabilities</h2>
       <p>
         Installables are colocated files, one default export each. The file name is the

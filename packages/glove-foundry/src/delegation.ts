@@ -141,6 +141,8 @@ export interface FoundryMeshDelivery {
   readonly kind: "mesh";
   readonly side: "recipient" | "starter";
   readonly message: FoundryMeshMessage;
+  /** The agent on the other side, for a person's message that reaches the starter. */
+  readonly peer?: string;
 }
 
 export function isMeshDelivery(delivery: FoundryConversationDelivery): delivery is FoundryConversationDelivery & FoundryMeshDelivery {
@@ -243,7 +245,7 @@ export function renderDelegatedTask(input: {
 /** How a delivery reads when it arrives as a message. */
 export function renderDelivery(delivery: FoundryConversationDelivery): string {
   if (delivery.kind === "transmission" || delivery.kind === "agent-message") return delivery.message;
-  if (delivery.kind === "mesh") return renderMeshMessage(delivery.message, delivery.side);
+  if (delivery.kind === "mesh") return renderMeshMessage(delivery.message, delivery.side, delivery.peer);
   if (delivery.kind === "reply") {
     return [
       `<delegation-reply id="${escapeAttribute(delivery.delegationId)}" from="${escapeAttribute(delivery.from)}">`,

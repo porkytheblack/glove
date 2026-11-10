@@ -97,10 +97,109 @@ await foundry.createAgent("bot", { id: "maya-bot-3", workspaceId: "maya", name: 
       <ul>
         <li>A thread is a conversation on the recipient. Its final reply goes back to the conversation that started the thread on its own, as a <code>&lt;mesh-message status=&quot;replied&quot;&gt;</code>; a failed or cancelled run sends <code>status=&quot;failed&quot;</code>.</li>
         <li>Messages go straight into a run that listens with <code>ctx.onMeshMessage</code>. Otherwise they wait until the conversation is free and start one run with <code>source.kind: &quot;mesh&quot;</code>.</li>
-        <li>Workspaces are the boundary. Another tenant&apos;s agents are never listed and cannot be messaged, whatever the peers rule says.</li>
+        <li>Workspaces are the boundary, unless the application says otherwise with <a href="#mesh-application"><code>defineApplication({"{ mesh }"})</code></a>. Without it, another tenant&apos;s agents are never listed and cannot be messaged, whatever the peers rule says.</li>
         <li>Mesh messages ride the same event journal as delegation updates, so they are handed over after a restart. A <code>mesh</code> value with an <code>adapter</code> is the raw glove-mesh transport instead. <code>runtime.listThreads()</code> lists threads; the trace has <code>mesh.thread.started</code>, <code>mesh.message.sent</code>, <code>mesh.delivered</code>, <code>mesh.thread.replied</code> and <code>mesh.refused</code>.</li>
         <li>To mesh Gloves inside a single run, use <Link href="/docs/mesh">glove-mesh</Link> directly, as braind-storm&apos;s lead does with its specialists.</li>
       </ul>
+
+      <h3 id="mesh-application">The mesh under your application&apos;s rules</h3>
+      <p>
+        In a product where a workspace is one person, most useful threads are between two
+        people&apos;s agents, so they cross workspaces. Such a product usually has its own
+        record of conversations too: both owners can read it, either can step in, and some
+        messages need a person&apos;s say before they go. Set <code>mesh</code> on the
+        application and Foundry still hosts the threads, while your code decides who can
+        reach whom, what each message does, and which record it lands in. The agents&apos;
+        tools, inputs and results do not change.
+      </p>
+      <CodeBlock filename="foundry.application.ts" language="typescript" code={`import { Effect } from "effect";
+import { defineApplication } from "glove-foundry";
+import { core } from "./lib/core.js"; // your system of record
+
+export default defineApplication({
+  name: "Rooms",
+  data,
+  mesh: {
+    // Who a sender can see, in any workspace. Asked on every list and every new thread.
+    peers: (sender) => core.reachableAgents(sender.workspaceId),       // [{ agentId, name?, description? }]
+
+    // The gate, before every message: new threads, replies both ways, final answers.
+    authorize: async (send) => {
+      const grant = await core.grant(send.sender.workspaceId, send.recipient.workspaceId);
+      if (grant === "blocked") return { decision: "refuse", message: "That agent is not taking messages." };
+      if (grant === "review") return { decision: "draft" };            // a person approves it first
+      if (await core.overQuota(send.sender.workspaceId)) return { decision: "hold" };
+      return { decision: "deliver" };
+    },
+
+    // Name the thread after your record, then write each message there before it is delivered.
+    bindThread: async ({ sender, recipient }) => {
+      const room = await core.openRoom(sender.workspaceId, recipient.workspaceId);
+      return { threadId: \`\${room.id}-\${recipient.id}\`, record: room.id };
+    },
+    commit: ({ thread, message }) => core.append(thread.record ?? thread.id, {
+      id: message.id,                       // idempotent on this: Foundry may commit again after a crash
+      author: message.from.agentId,
+      text: message.content,
+    }),
+  },
+});`} />
+      <table>
+        <thead><tr><th>Hook</th><th>Gets</th><th>Decides</th></tr></thead>
+        <tbody>
+          <tr><td><code>peers(sender, ctx)</code></td><td>The sending instance</td><td>Who it can see and message, from any workspace, with the name and description to show. Replaces the workspace&apos;s agents; a definition&apos;s own <code>mesh.peers</code> still narrows it. A peer you stop listing cannot be messaged in a new thread at once.</td></tr>
+          <tr><td><code>authorize(send, ctx)</code></td><td><code>kind</code> (<code>message</code>, <code>reply</code> for a recipient&apos;s final answer, <code>ack</code>), <code>messageId</code>, <code>thread</code> (absent for a new one), <code>sender</code>, <code>senderConversationId</code>, <code>recipient</code>, <code>content</code>, <code>inReplyTo</code></td><td><code>deliver</code>, <code>hold</code>, <code>draft</code> or <code>refuse</code> with your wording. Asked for every message, so a block applies to open threads too. Default: deliver.</td></tr>
+          <tr><td><code>bindThread(start, ctx)</code></td><td><code>proposedId</code>, <code>sender</code>, <code>recipient</code>, <code>senderConversationId</code>, the first message</td><td><code>{"{ threadId, record? }"}</code>. The thread id is the recipient&apos;s conversation id, so it must be new per direction; returning the id of the same pair&apos;s thread, same direction, continues it. <code>record</code> (default: the thread id) is what <code>commit</code> sees.</td></tr>
+          <tr><td><code>commit(recorded, ctx)</code></td><td><code>thread</code>, <code>message</code>, <code>side</code></td><td>Nothing: write the message to your record. It must be idempotent on <code>message.id</code>.</td></tr>
+          <tr><td><code>refusal</code></td><td>—</td><td>What a sender reads when Foundry itself refuses: an agent it cannot reach, or a thread it was taken off. Default: &ldquo;Your message could not be sent.&rdquo;</td></tr>
+        </tbody>
+      </table>
+      <p>
+        The hooks run in the control process, never in a run. <code>ctx</code> carries the
+        data adapter and the sending run&apos;s id. The sender is the run&apos;s own instance,
+        checked by the controller against the run that sent the command, not what the model
+        put in the call.
+      </p>
+      <h4>Deliver, hold, draft, refuse</h4>
+      <ul>
+        <li><strong>deliver</strong>: committed to your record, then handed over.</li>
+        <li><strong>hold</strong>: kept on the thread (<code>thread.held</code>), not committed and not delivered, until you call <code>runtime.releaseMeshMessage(threadId, messageId, &quot;deliver&quot; | &quot;discard&quot;)</code>.</li>
+        <li><strong>draft</strong>: kept the same way behind a Foundry <Link href="/foundry/docs/approvals">approval</Link>, with <code>approval.mesh</code> set to the thread and message. Your <code>approvals.url</code> links to it. <code>resolveApproval(id, &quot;approve&quot;)</code> commits and delivers it; <code>&quot;deny&quot;</code> or expiry drops it. No run is resumed and the sender is not told. Drafts need a data adapter that stores approvals. Pass <code>approvalId</code> to choose its id.</li>
+        <li><strong>refuse</strong>: the send fails with your <code>message</code>, word for word.</li>
+      </ul>
+      <p>
+        To the sending agent, deliver, hold and draft look the same: the same result, and a
+        thread that reads as at work. A question an agent asks the thread&apos;s starter
+        shows up in the starter&apos;s open threads only once it is delivered. The trace has{" "}
+        <code>mesh.held</code>, <code>mesh.drafted</code>, <code>mesh.released</code>,{" "}
+        <code>mesh.discarded</code> and <code>mesh.committed</code>. They are for you; no agent
+        sees them.
+      </p>
+      <h4>Commit before delivery</h4>
+      <p>
+        A message goes into the thread&apos;s outbox, is committed to your record, then is
+        handed to the event journal, which wakes the recipient. If <code>commit</code>{" "}
+        throws, or the process stops in between, the message stays in the outbox: Foundry
+        retries it, and commits it again then delivers it at the next start. That is why{" "}
+        <code>commit</code> must be idempotent on <code>message.id</code>. Your record may see
+        a message before the recipient does, never the other way round. Foundry&apos;s own
+        notice that a recipient&apos;s run failed is committed too, without the gate.
+      </p>
+      <h4>People in a thread, and take-over</h4>
+      <CodeBlock filename="when a person writes in the room" language="typescript" code={`// Already in your record: Foundry delivers it, and does not commit it again.
+await foundry.meshHumanMessage(threadId, { authorId: "lena", name: "Lena", text: "Make it Friday instead.", id: recordMessageId });
+
+// Lena takes her agent's side over. Her agent is out of this thread from now on.
+await foundry.meshTakeOver(threadId, { by: "lena", agentId: "lena-assistant" });`} />
+      <ul>
+        <li>A person&apos;s message reaches each agent still in the thread as a <code>&lt;mesh-message party=&quot;human&quot;&gt;</code>, starts the recipient working again, and joins <code>thread.messageIds</code> so either agent can reply to it. Passing your record&apos;s message id as <code>id</code> makes a retry a no-op.</li>
+        <li><code>meshTakeOver</code> sets the thread to <code>taken-over</code>. The agents named (default: both) leave it: nothing more is delivered to them in it, what they send to it is refused with your <code>refusal</code>, the recipient gets no mesh tools on that thread, and its running run there is cancelled without a reply. Messages to a side that left still reach your record. The trace has <code>mesh.taken_over</code>.</li>
+        <li><code>runtime.listThreads()</code> lists these threads like any other, with <code>record</code>, <code>held</code>, <code>outbox</code> and <code>takenOver</code> on each.</li>
+      </ul>
+      <p>
+        Without <code>defineApplication({"{ mesh }"})</code> nothing here applies: peers are
+        the workspace&apos;s agents and nothing is gated.
+      </p>
       <p>
         The interactor-and-workers pattern, with questions and voice, is on{" "}
         <Link href="/foundry/docs/layered-agents">Layered agents</Link>. Why agents are

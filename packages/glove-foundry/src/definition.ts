@@ -276,6 +276,14 @@ export interface AgentAssemblyOptions<TInput = unknown> {
    */
   readonly delegates?: FoundryListResolver<FoundryDelegate, TInput>;
   readonly durableSubagents?: DurableSubagents;
+  /**
+   * Which of Foundry's built-in tools this run gets, resolved per run like
+   * `tools`: an allow list (`["glove_foundry_schedule", "glove_mesh_*"]` or
+   * `{ allow }`), a block list (`{ block }`) or `{ filter: (tool) => boolean }`.
+   * Omitted, every built-in is on. A withheld built-in is never shown to the
+   * model, and the controller refuses commands only it could have sent.
+   */
+  readonly builtins?: FoundryResolver<import("./builtins.js").FoundryBuiltinsPolicy, TInput>;
   readonly eventDelivery?: import("./event-delivery.js").FoundryEventPolicy;
   /**
    * Read current facts for an addressed event (an agent message or a
@@ -454,6 +462,7 @@ export interface FoundryAgentConventionModule {
   readonly durableSubagents?: DurableSubagents;
   readonly eventDelivery?: import("./event-delivery.js").FoundryEventPolicy;
   readonly prepareEvent?: AgentAssemblyOptions["prepareEvent"];
+  readonly builtins?: AgentAssemblyOptions["builtins"];
   readonly answerWaitMs?: number;
   readonly memory?: AgentAssemblyOptions["memory"];
   readonly goals?: AgentAssemblyOptions["goals"];
@@ -580,7 +589,7 @@ const CONVENTION_EXPORTS = [
   "displayManager", "serverMode", "runTimeoutMs", "maxConcurrentRuns", "maxRetries", "maxConsecutiveErrors",
   "compactionLimit", "compactionInstructions", "maxTurns",
   "enableToolResultSummary", "tools", "hooks", "skills", "subagents",
-  "delegates", "durableSubagents", "eventDelivery", "prepareEvent", "answerWaitMs", "memory", "goals", "facts", "forms", "contextProviders", "inboxes", "subscribers", "layers", "calls", "schedules", "playbooks", "mesh",
+  "delegates", "durableSubagents", "eventDelivery", "prepareEvent", "builtins", "answerWaitMs", "memory", "goals", "facts", "forms", "contextProviders", "inboxes", "subscribers", "layers", "calls", "schedules", "playbooks", "mesh",
   "workingEnvironment", "repl", "configure", "build",
   "spawn", "run", "handler",
 ] as const;

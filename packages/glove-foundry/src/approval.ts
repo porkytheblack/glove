@@ -43,6 +43,10 @@ export function readApprovalPolicy(value: string | undefined): FoundryApprovalPo
 }
 const APPROVAL_ID = /^approval_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+export function isFoundryApprovalId(value: string): boolean {
+  return APPROVAL_ID.test(value);
+}
+
 export type FoundryApprovalDecision = "approve" | "deny";
 export type FoundryApprovalStatus = "pending" | "approved" | "denied" | "expired" | "cancelled";
 
@@ -71,6 +75,11 @@ export interface FoundryApproval {
   readonly resumeRunId?: string;
   /** The run that asked read the decision itself, so no resume is owed. */
   readonly settledInRun?: boolean;
+  /**
+   * A mesh message the application's gate drafted. Approved, it is
+   * delivered; denied (or expired), it is dropped. The sender is not told.
+   */
+  readonly mesh?: { readonly threadId: string; readonly messageId: string };
 }
 
 interface ApprovalRequestRecord extends Omit<FoundryApproval, "status" | "resolvedAt" | "url" | "suspendedAt" | "resumedAt" | "resumeRunId" | "settledInRun"> {}
