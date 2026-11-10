@@ -20,6 +20,7 @@ import {
 import type { EventFilter, FoundryEvent } from "./observability.js";
 import type { FoundryRun, FoundryRuntime } from "./runtime.js";
 import type { FoundryScheduleOccurrenceStatus } from "./schedule-occurrences.js";
+import type { FoundryMeshThreadStatus } from "./mesh.js";
 import type {
   AgentInstallation,
   AgentInstallationKind,
@@ -1196,6 +1197,65 @@ export class FoundryServer {
           approvalDecisionFrom(await readJson(request)),
         ));
         return;
+      }
+      // Mesh threads: list and read them, and what the application does in them
+      // from outside a run (a person's message, a take-over, a held message).
+      if (url.pathname === "/api/threads" && method === "GET") {
+        const status = url.searchParams.get("status");
+        json(response, 200, await this.runtime.listThreads({
+          ...(url.searchParams.get("agentId") ? { agentId: url.searchParams.get("agentId")! } : {}),
+          ...(url.searchParams.get("conversationId") ? { conversationId: url.searchParams.get("conversationId")! } : {}),
+          ...(url.searchParams.get("to") ? { to: url.searchParams.get("to")! } : {}),
+          ...(status ? { status: status as FoundryMeshThreadStatus } : {}),
+        }));
+        return;
+      }
+      const threadMatch = url.pathname.match(/^\/api\/threads\/([^/]+)(?:\/(messages|take-over|held\/([^/]+)))?$/);
+      if (threadMatch) {
+        const threadId = decodeURIComponent(threadMatch[1]!);
+        const thread = await this.runtime.getThread(threadId);
+        if (!thread) throw new RequestError(404, "Foundry mesh thread was not found.");
+        const action = threadMatch[2];
+        if (!action && method === "GET") {
+          json(response, 200, thread);
+          return;
+        }
+        if (method === "POST") {
+          const body = await readJson(request) as Record<string, unknown>;
+          if (action === "messages") {
+            if (typeof body.authorId !== "string" || !body.authorId.trim() || typeof body.text !== "string" || !body.text.trim()) {
+              throw new RequestError(400, "authorId and text are required.");
+            }
+            json(response, 201, await this.runtime.meshHumanMessage(threadId, {
+              authorId: body.authorId,
+              text: body.text,
+              ...(typeof body.name === "string" ? { name: body.name } : {}),
+              ...(typeof body.id === "string" ? { id: body.id } : {}),
+            }));
+            return;
+          }
+          if (action === "take-over") {
+            if (typeof body.by !== "string" || !body.by.trim()) throw new RequestError(400, "by is required.");
+            if (body.agentId !== undefined && typeof body.agentId !== "string") throw new RequestError(400, "agentId must be a string.");
+            if (typeof body.agentId === "string" && body.agentId !== thread.from.agentId && body.agentId !== thread.to.agentId) {
+              throw new RequestError(400, "agentId is not in this thread.");
+            }
+            json(response, 200, await this.runtime.meshTakeOver(threadId, {
+              by: body.by,
+              ...(typeof body.agentId === "string" ? { agentId: body.agentId } : {}),
+            }));
+            return;
+          }
+          if (action?.startsWith("held/")) {
+            const messageId = decodeURIComponent(threadMatch[3]!);
+            if (body.decision !== "deliver" && body.decision !== "discard") throw new RequestError(400, "decision must be \"deliver\" or \"discard\".");
+            const held = thread.held?.find((item) => item.message.id === messageId);
+            if (!held) throw new RequestError(404, "The thread holds no such message.");
+            if (held.decision === "draft") throw new RequestError(409, `This message is a draft: decide approval "${held.approvalId}" instead.`);
+            json(response, 200, await this.runtime.releaseMeshMessage(threadId, messageId, body.decision));
+            return;
+          }
+        }
       }
       const transmissionFire = url.pathname.match(/^\/api\/transmissions\/([^/]+)\/fire$/);
       if (transmissionFire && method === "POST") {

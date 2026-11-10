@@ -14,6 +14,8 @@ import { defineApplication, type FoundryApplicationOptions } from "../src/applic
 import { FileFoundryDataAdapter } from "../src/file-data.js";
 import { eventRecordId } from "../src/event-delivery.js";
 import { FoundryRuntime, type FoundryRun } from "../src/runtime.js";
+import { FoundryServer } from "../src/server.js";
+import { createFoundryClient } from "../src/client.js";
 import type { FoundryApplicationMesh, FoundryMeshRecordedMessage, FoundryMeshThread } from "../src/mesh.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -196,6 +198,11 @@ test("the gate holds, drafts and refuses; the sender cannot tell the first two f
     assert.deepEqual(approval?.mesh, { threadId: drafted.id, messageId: drafted.messageIds[0] });
     assert.equal(approval?.status, "pending");
     await assert.rejects(runtime.releaseMeshMessage(drafted.id, drafted.messageIds[0]!, "deliver"), /decide approval/);
+    // The released message's reply comes back to its sender as a run; count after it.
+    for (const id of ["open-coder", "held-coder"]) {
+      await eventually(async () => (await runtime.listRuns("assistant")).find((run) =>
+        run.conversationId === chats.get(id) && sourceKind(run) === "mesh" && run.status === "completed"), `the relay in ${id}`);
+    }
     const assistantRuns = (await runtime.listRuns("assistant")).length;
     await runtime.resolveApproval(approvalId!, "deny");
     const discarded = await onlyThread(runtime, chats.get("draft-coder")!);
@@ -261,6 +268,55 @@ test("a person's message reaches the agents still in a thread; a take-over takes
     const trace = await runtime.observability.list({ category: "system" });
     assert.equal(trace.filter((event) => event.type === "mesh.taken_over").length, 2);
   });
+});
+
+test("an application without host code drives threads over HTTP, behind requestAuthorization", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "glove-foundry-app-mesh-http-"));
+  const harness = await start(directory, {
+    authorize: (send) => send.kind === "message" && send.content === "write hello" && !send.thread ? { decision: "hold" } : { decision: "deliver" },
+  }, {
+    requestAuthorization: {
+      identifier: "test-token",
+      authorize: (input) => Effect.succeed(input.authorization === "Bearer secret"),
+    },
+  });
+  const server = new FoundryServer(harness.runtime, { host: "127.0.0.1", port: 0 });
+  const listening = await server.listen();
+  try {
+    const { runtime, logFile } = harness;
+    const ada = await runtime.createAgent("assistant", { id: "ada" });
+    await runtime.createAgent("coder", { id: "ada-coder" });
+    const conversation = await runtime.createConversation(ada.id, { id: "ada-chat" });
+    await ask(runtime, ada.id, conversation.id, "build:ada-coder");
+
+    const anonymous = createFoundryClient({ baseUrl: listening.url });
+    await assert.rejects(anonymous.threads(), /authorization/i);
+    const client = createFoundryClient({ baseUrl: listening.url, authorization: { identifier: "test-token", headers: () => ({ authorization: "Bearer secret" }) } });
+
+    const [held] = await client.threads({ conversationId: conversation.id });
+    assert.equal(held?.held?.[0]?.decision, "hold");
+    assert.equal((await client.thread(held!.id)).id, held!.id);
+    await assert.rejects(client.thread("no-such-thread"), /not found/);
+    await assert.rejects(client.releaseMeshMessage(held!.id, "msg_missing", "deliver"), /no such message/);
+
+    // Release it: committed (no commit hook here), delivered, answered.
+    await client.releaseMeshMessage(held!.id, held!.messageIds[0]!, "deliver");
+    await eventually(async () => (await client.thread(held!.id)).status === "replied" ? true : undefined, "the reply");
+
+    // A person's message, then a take-over, both from outside the controller.
+    const message = await client.meshHumanMessage(held!.id, { authorId: "ada-owner", name: "Ada", text: "write hello again", id: "rec-1" });
+    assert.equal(message.from.kind, "human");
+    await eventually(async () => (await entries(logFile)).find((entry) => entry.event === "coder-task" && String(entry.task).includes("write hello again")), "the coder hearing the person");
+    await assert.rejects(client.meshTakeOver(held!.id, { by: "ada-owner", agentId: "stranger" }), /not in this thread/);
+    const taken = await client.meshTakeOver(held!.id, { by: "ada-owner" });
+    assert.equal(taken.status, "taken-over");
+    assert.deepEqual([...taken.takenOver!.agentIds].sort(), ["ada", "ada-coder"]);
+  } finally {
+    await server.close();
+    await harness.runtime.stop();
+    delete process.env.FOUNDRY_TEST_MESH_LOG;
+    await rm(directory, { recursive: true, force: true });
+  }
 });
 
 test("a message whose commit failed is committed again and delivered after a restart", async () => {

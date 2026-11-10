@@ -250,6 +250,7 @@ export default defineApplication({
         <li>Provisioning goes through <code>FoundryDataAdapter.provisionAgent</code>, which returns the existing instance for a known <code>provisioningKey</code>. Built-in keys look like <code>subscription:acme:urgent-swarm:0:per-thread:tickets-inbound:T-1001</code>, so concurrent events for one ticket never create two agents. Durable adapters must enforce the key atomically.</li>
         <li>Each new instance gets the subscription’s workspace, the target’s <code>context</code> and <code>installations</code>, and the playbook. Because the subscription carries the playbook, it reacts to the very first event.</li>
         <li>An instance matched both by its own playbook and by a subscription gets one run with both playbooks.</li>
+        <li>The subscription&apos;s playbook is stored on each instance it provisions, but only the subscription decides which of them an event goes to: an event for one thread wakes that thread&apos;s instances, not every instance the subscription ever made. A deleted subscription stops routing; the playbook it left on its instances then wakes them as their own.</li>
         <li>Saving validates targets: the definition must exist, installations must be in its <code>components</code>, and the playbook must be valid for those installations.</li>
         <li>The whole dispatch sits behind the <Link href="/foundry/docs/applications#idempotency"><code>{"<routeId>:<eventId>"}</code> delivery claim</Link>, so a retried event never provisions twice.</li>
       </ul>

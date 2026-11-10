@@ -479,8 +479,17 @@ export function createWorkerTools(
 // are written under a temporary name and renamed, so a reader never sees half
 // of one.
 
+/**
+ * A file name for an id: the sha256 hex of it, 64 bytes whatever the id's
+ * length. The hex of the id itself passes the 255-byte name limit for ids
+ * over 127 bytes (ENAMETOOLONG).
+ */
+export function mailboxName(id: string): string {
+  return createHash("sha256").update(id, "utf8").digest("hex");
+}
+
 function conversationDirectory(directory: string, conversationId: string): string {
-  return join(directory, Buffer.from(conversationId, "utf8").toString("hex"));
+  return join(directory, mailboxName(conversationId));
 }
 
 export async function writeMailboxDelivery(
@@ -501,11 +510,12 @@ const DELIVERY_SCHEMA = z.intersection(z.object({ request: z.custom<import("./pr
   z.object({
     kind: z.literal("mesh"),
     side: z.enum(["recipient", "starter"]),
+    peer: z.string().optional(),
     message: z.object({
       kind: z.enum(["message", "reply", "failed", "ack"]),
       id: z.string(),
       threadId: z.string(),
-      from: z.object({ agentId: z.string(), name: z.string() }),
+      from: z.object({ agentId: z.string(), name: z.string(), kind: z.enum(["agent", "human"]).optional() }),
       to: z.string(),
       // A read receipt's note is optional, and JSON drops it when absent.
       content: z.string().default(""),
@@ -977,7 +987,7 @@ export class RunEventQueue implements EventQueueAdapter {
 // waits here until the runtime writes its grant.
 
 function leaseFile(directory: string, runId: string): string {
-  return join(directory, ".leases", Buffer.from(runId, "utf8").toString("hex"));
+  return join(directory, ".leases", mailboxName(runId));
 }
 
 export async function writeConversationLease(directory: string, runId: string): Promise<void> {

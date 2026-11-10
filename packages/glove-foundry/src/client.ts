@@ -51,6 +51,7 @@ import type {
   FoundryApprovalDecision,
   FoundryApprovalStatus,
 } from "./approval.js";
+import type { FoundryMeshMessage, FoundryMeshThread, FoundryMeshThreadStatus } from "./mesh.js";
 
 export interface FoundryClientOptions {
   baseUrl?: string;
@@ -565,6 +566,54 @@ export class FoundryClient<TRoutes extends FoundryRouteMap> {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ decision }),
       },
+    ));
+  }
+
+  /** Mesh threads, newest first: by who started them, the conversation that did, the recipient or status. */
+  async threads(filter: {
+    readonly agentId?: string;
+    readonly conversationId?: string;
+    readonly to?: string;
+    readonly status?: FoundryMeshThreadStatus;
+  } = {}): Promise<ReadonlyArray<FoundryMeshThread>> {
+    const query = new URLSearchParams();
+    for (const [key, value] of Object.entries(filter)) if (typeof value === "string") query.set(key, value);
+    const suffix = query.size ? `?${query}` : "";
+    return readResponse(await this.fetcher(`${this.baseUrl}/api/threads${suffix}`));
+  }
+
+  async thread(threadId: string): Promise<FoundryMeshThread> {
+    return readResponse(await this.fetcher(`${this.baseUrl}/api/threads/${encodeURIComponent(threadId)}`));
+  }
+
+  /** A person's message in a thread, from your record: `runtime.meshHumanMessage`. */
+  async meshHumanMessage(threadId: string, input: {
+    readonly authorId: string;
+    readonly name?: string;
+    readonly text: string;
+    readonly id?: string;
+  }): Promise<FoundryMeshMessage> {
+    return readResponse(await this.fetcher(`${this.baseUrl}/api/threads/${encodeURIComponent(threadId)}/messages`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(input),
+    }));
+  }
+
+  /** A person takes a thread over: `runtime.meshTakeOver`. */
+  async meshTakeOver(threadId: string, options: { readonly by: string; readonly agentId?: string }): Promise<FoundryMeshThread> {
+    return readResponse(await this.fetcher(`${this.baseUrl}/api/threads/${encodeURIComponent(threadId)}/take-over`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(options),
+    }));
+  }
+
+  /** Deliver or discard a message the application's gate held: `runtime.releaseMeshMessage`. */
+  async releaseMeshMessage(threadId: string, messageId: string, decision: "deliver" | "discard"): Promise<FoundryMeshThread> {
+    return readResponse(await this.fetcher(
+      `${this.baseUrl}/api/threads/${encodeURIComponent(threadId)}/held/${encodeURIComponent(messageId)}`,
+      { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ decision }) },
     ));
   }
 

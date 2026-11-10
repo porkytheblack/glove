@@ -8,7 +8,7 @@ import { Displaymanager, Glove, MemoryStore, type Message } from "glove-core";
 import { z } from "zod";
 import { compileAgentDefinition } from "../src/agent-runtime.js";
 import { defineAgent, FOUNDRY_EXECUTION_MARKER } from "../src/definition.js";
-import { FOUNDRY_MAILBOX_DIRECTORY_ENV, writeMailboxDelivery } from "../src/delegation.js";
+import { FOUNDRY_MAILBOX_DIRECTORY_ENV, mailboxName, writeMailboxDelivery } from "../src/delegation.js";
 
 function envelope(eventTurn: boolean) {
   const now = new Date().toISOString();
@@ -59,7 +59,7 @@ for (const during of ["build", "tool execution"] as const) test(`replacement rec
     } };
     const arrive = async () => {
       await writeMailboxDelivery(directory, "conversation", late);
-      const mailbox = join(directory, Buffer.from("conversation").toString("hex"));
+      const mailbox = join(directory, mailboxName("conversation"));
       const deadline = Date.now() + 5_000;
       while ((await readdir(mailbox)).some((file) => file.endsWith(".json"))) {
         assert.ok(Date.now() < deadline, "mailbox did not receive the delivery");

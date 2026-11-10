@@ -137,6 +137,20 @@ test("an inbound playbook lazily provisions one or many subscribed agents", asyn
     assert.deepEqual(repeated.map((run) => run.id), runs.map((run) => run.id));
     assert.equal((await runtime.listAgentInstances()).length, 2);
 
+    // Another thread provisions its own pair, and wakes only them: the
+    // subscription's playbook on thread-1's agents does not match for them.
+    const otherThread = await runtime.dispatchInbound({
+      routeId: route.id,
+      eventId: "event-2",
+      threadKey: "thread-2",
+      raw: { type: "ticket.created", text: "Another ticket" },
+    });
+    assert.equal(otherThread.length, 2);
+    const byId = new Map((await runtime.listAgentInstances()).map((agent) => [agent.id, agent]));
+    assert.equal(byId.size, 4);
+    assert.ok(otherThread.every((run) => byId.get(run.agentId!)?.provisioningKey?.includes("thread-2")),
+      "thread-1's agents are not woken by thread-2's event");
+
     await runtime.deletePlaybookSubscription(subscription.id);
     const firstPrincipalRuns = await runtime.dispatchInbound({
       routeId: route.id,
@@ -154,7 +168,8 @@ test("an inbound playbook lazily provisions one or many subscribed agents", asyn
       conversationScope: "agent",
       raw: { type: "ticket.created", text: "Continue from another channel." },
     });
-    assert.equal(firstPrincipalRuns.length, 2);
+    // Deleted, the subscription no longer routes; its playbook stays on the instances it made.
+    assert.equal(firstPrincipalRuns.length, 4);
     assert.deepEqual(
       firstPrincipalRuns.map((run) => run.conversationId).sort(),
       secondPrincipalRuns.map((run) => run.conversationId).sort(),

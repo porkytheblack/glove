@@ -281,6 +281,8 @@ const clientMethods: ReadonlyArray<readonly [string, string]> = [
   ["send(agentId, conversationId, message, { payload?, context? })", "POST /api/conversations/:id/messages"],
   ["getRun · runs(route?) · cancelRun · steerRun · getEvents(filter?)", "/api/runs/:id · /api/runs · …/cancel · …/steer · /api/events"],
   ["approvals(filter?) · resolveApproval(id, decision)", "GET /api/approvals · POST /api/approvals/:id"],
+  ["threads(filter?) · thread(threadId)", "GET /api/threads · GET /api/threads/:id"],
+  ["meshHumanMessage(threadId, input) · meshTakeOver(threadId, options) · releaseMeshMessage(threadId, messageId, decision)", "POST /api/threads/:id/messages · POST …/take-over · POST …/held/:messageId"],
   ["workspaceEntries · putWorkspaceEntry · sharedInbox · postSharedInbox · updateSharedInbox · tasks · createTask · updateTask · dataEnvironment", "/api/workspaces/:ws/{entries,inbox,tasks,environment}"],
   ["dispatchInbound(input) · dispatchOutbound(input)", "POST /api/transmissions/:routeId/{fire,deliver}"],
   ["playbookSubscriptions · putPlaybookSubscription · deletePlaybookSubscription · activations", "/api/playbook-subscriptions · /api/activations"],
