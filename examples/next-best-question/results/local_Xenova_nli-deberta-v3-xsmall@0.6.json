@@ -1,0 +1,3028 @@
+{
+  "classifier": "local:Xenova/nli-deberta-v3-xsmall",
+  "confirmAt": 0.6,
+  "at": "2026-10-19T10:07:07.545Z",
+  "quality": {
+    "branchAccuracy": 0.85,
+    "confidentBranch": {
+      "n": 17,
+      "correct": 15
+    },
+    "coverage": [
+      {
+        "at": 0.5,
+        "tp": 56,
+        "fp": 25,
+        "fn": 8,
+        "precision": 0.691358024691358,
+        "recall": 0.875,
+        "f1": 0.7724137931034484
+      },
+      {
+        "at": 0.8,
+        "tp": 55,
+        "fp": 17,
+        "fn": 9,
+        "precision": 0.7638888888888888,
+        "recall": 0.859375,
+        "f1": 0.8088235294117647
+      },
+      {
+        "at": 0.9,
+        "tp": 49,
+        "fp": 14,
+        "fn": 15,
+        "precision": 0.7777777777777778,
+        "recall": 0.765625,
+        "f1": 0.7716535433070867
+      }
+    ]
+  },
+  "summary": [
+    {
+      "policy": "static",
+      "turns": 9.75,
+      "foldedTurns": 9.75,
+      "asks": 9.75,
+      "redundant": 80,
+      "phantom": 0,
+      "wrongBranch": 0,
+      "branchSettledAt": 4,
+      "stepSwitches": 3,
+      "msPerTurn": 0,
+      "callsPerTurn": 0,
+      "incomplete": 0
+    },
+    {
+      "policy": "oracle",
+      "turns": 6.75,
+      "foldedTurns": 5.75,
+      "asks": 5.75,
+      "redundant": 0,
+      "phantom": 0,
+      "wrongBranch": 0,
+      "branchSettledAt": 1.85,
+      "stepSwitches": 2.3,
+      "msPerTurn": 0,
+      "callsPerTurn": 0,
+      "incomplete": 0
+    },
+    {
+      "policy": "advisory",
+      "turns": 8.35,
+      "foldedTurns": 6.1,
+      "asks": 6.1,
+      "redundant": 7,
+      "phantom": 49,
+      "wrongBranch": 3,
+      "branchSettledAt": 1.35,
+      "stepSwitches": 3.15,
+      "msPerTurn": 41.69461077844311,
+      "callsPerTurn": 1.5149700598802396,
+      "incomplete": 0
+    },
+    {
+      "policy": "steered",
+      "turns": 8.4,
+      "foldedTurns": 6.1,
+      "asks": 6.1,
+      "redundant": 7,
+      "phantom": 50,
+      "wrongBranch": 3,
+      "branchSettledAt": 1.35,
+      "stepSwitches": 3.25,
+      "msPerTurn": 78.72619047619048,
+      "callsPerTurn": 2.5357142857142856,
+      "incomplete": 0
+    }
+  ],
+  "openings": [
+    {
+      "scenario": "v1-car-park",
+      "branch": {
+        "truth": "vehicle",
+        "choice": "vehicle",
+        "p": 0.8624472391048192
+      },
+      "covered": {
+        "fullName": {
+          "p": 0.9912211350617068,
+          "truth": true
+        },
+        "driveable": {
+          "p": 0.9843778556784196,
+          "truth": true
+        },
+        "otherParty": {
+          "p": 0.9750450029424567,
+          "truth": true
+        },
+        "incidentDate": {
+          "p": 0.9262863404943469,
+          "truth": true
+        },
+        "location": {
+          "p": 0.9005895822036772,
+          "truth": true
+        },
+        "vehicleReg": {
+          "p": 0.0014199691319954969,
+          "truth": false
+        },
+        "policyNumber": {
+          "p": 0.0020501047176673033,
+          "truth": false
+        },
+        "phone": {
+          "p": 0.018157142804327443,
+          "truth": false
+        },
+        "photos": {
+          "p": 0.005735821360697108,
+          "truth": false
+        }
+      }
+    },
+    {
+      "scenario": "v2-accident",
+      "branch": {
+        "truth": "vehicle",
+        "choice": "injury",
+        "p": 0.9418563328329217
+      },
+      "covered": {
+        "incidentDate": {
+          "p": 0.9389908421743802,
+          "truth": false
+        },
+        "location": {
+          "p": 0.7199171559275059,
+          "truth": false
+        },
+        "policyNumber": {
+          "p": 0.0013672732015302578,
+          "truth": false
+        },
+        "phone": {
+          "p": 0.002701983366254319,
+          "truth": false
+        },
+        "fullName": {
+          "p": 0.30083892506623794,
+          "truth": false
+        },
+        "photos": {
+          "p": 0.008336736264381816,
+          "truth": false
+        },
+        "vehicleReg": {
+          "p": 0.0018218634993930622,
+          "truth": false
+        },
+        "otherParty": {
+          "p": 0.04181481628168629,
+          "truth": false
+        },
+        "driveable": {
+          "p": 0.029544045351559415,
+          "truth": false
+        }
+      }
+    },
+    {
+      "scenario": "v3-lorry",
+      "branch": {
+        "truth": "vehicle",
+        "choice": "vehicle",
+        "p": 0.8247499432182953
+      },
+      "covered": {
+        "policyNumber": {
+          "p": 0.9816780089815751,
+          "truth": true
+        },
+        "otherParty": {
+          "p": 0.9379926437578531,
+          "truth": true
+        },
+        "phone": {
+          "p": 0.8971237385226057,
+          "truth": false
+        },
+        "fullName": {
+          "p": 0.7955287444842398,
+          "truth": false
+        },
+        "driveable": {
+          "p": 0.04260097160386023,
+          "truth": false
+        },
+        "location": {
+          "p": 0.04705699394932398,
+          "truth": true
+        },
+        "vehicleReg": {
+          "p": 0.38499043193228744,
+          "truth": true
+        },
+        "incidentDate": {
+          "p": 0.22822435664803103,
+          "truth": true
+        },
+        "photos": {
+          "p": 0.07116833984172266,
+          "truth": false
+        }
+      }
+    },
+    {
+      "scenario": "v4-tree",
+      "branch": {
+        "truth": "vehicle",
+        "choice": "vehicle",
+        "p": 0.7455951702563905
+      },
+      "covered": {
+        "driveable": {
+          "p": 0.9860352528531483,
+          "truth": true
+        },
+        "incidentDate": {
+          "p": 0.9659187081342874,
+          "truth": true
+        },
+        "location": {
+          "p": 0.8835420023333372,
+          "truth": true
+        },
+        "vehicleReg": {
+          "p": 0.0011720126670253744,
+          "truth": false
+        },
+        "otherParty": {
+          "p": 0.008681770933516984,
+          "truth": false
+        },
+        "policyNumber": {
+          "p": 0.0009293982311590714,
+          "truth": false
+        },
+        "phone": {
+          "p": 0.0006721844533168429,
+          "truth": false
+        },
+        "fullName": {
+          "p": 0.19058588391567577,
+          "truth": false
+        },
+        "photos": {
+          "p": 0.007241327255110626,
+          "truth": false
+        }
+      }
+    },
+    {
+      "scenario": "v5-skid",
+      "branch": {
+        "truth": "vehicle",
+        "choice": "vehicle",
+        "p": 0.6291510608630323
+      },
+      "covered": {
+        "incidentDate": {
+          "p": 0.9734576108563984,
+          "truth": false
+        },
+        "phone": {
+          "p": 0.9733758803636268,
+          "truth": true
+        },
+        "location": {
+          "p": 0.9631293380429291,
+          "truth": false
+        },
+        "fullName": {
+          "p": 0.9484310523326714,
+          "truth": true
+        },
+        "policyNumber": {
+          "p": 0.41258373524391084,
+          "truth": false
+        },
+        "otherParty": {
+          "p": 0.0800033435686247,
+          "truth": false
+        },
+        "driveable": {
+          "p": 0.012511199324172285,
+          "truth": false
+        },
+        "vehicleReg": {
+          "p": 0.2889355190876859,
+          "truth": false
+        },
+        "photos": {
+          "p": 0.010595410812501897,
+          "truth": false
+        }
+      }
+    },
+    {
+      "scenario": "p1-pipe",
+      "branch": {
+        "truth": "property",
+        "choice": "property",
+        "p": 0.7439031386116952
+      },
+      "covered": {
+        "damagedAreas": {
+          "p": 0.9677049188060309,
+          "truth": true
+        },
+        "location": {
+          "p": 0.9590877794396055,
+          "truth": false
+        },
+        "incidentDate": {
+          "p": 0.8539031269356473,
+          "truth": true
+        },
+        "fullName": {
+          "p": 0.027397799776101052,
+          "truth": false
+        },
+        "policyNumber": {
+          "p": 0.001956417177166438,
+          "truth": false
+        },
+        "phone": {
+          "p": 0.0016194068603373319,
+          "truth": false
+        },
+        "damageCause": {
+          "p": 0.014908621383615747,
+          "truth": true
+        },
+        "habitable": {
+          "p": 0.12656817779548332,
+          "truth": true
+        },
+        "photos": {
+          "p": 0.014200785427881142,
+          "truth": false
+        }
+      }
+    },
+    {
+      "scenario": "p2-damage",
+      "branch": {
+        "truth": "property",
+        "choice": "property",
+        "p": 0.9213191989256178
+      },
+      "covered": {
+        "location": {
+          "p": 0.9662089004804063,
+          "truth": false
+        },
+        "fullName": {
+          "p": 0.9486877050419348,
+          "truth": false
+        },
+        "incidentDate": {
+          "p": 0.9123701315311189,
+          "truth": false
+        },
+        "policyNumber": {
+          "p": 0.0027437647319033796,
+          "truth": false
+        },
+        "phone": {
+          "p": 0.007124221308952354,
+          "truth": false
+        },
+        "damageCause": {
+          "p": 0.0005290152262479087,
+          "truth": false
+        },
+        "damagedAreas": {
+          "p": 0.0596453562617863,
+          "truth": false
+        },
+        "habitable": {
+          "p": 0.08060352874154444,
+          "truth": false
+        },
+        "photos": {
+          "p": 0.00306288278080576,
+          "truth": false
+        }
+      }
+    },
+    {
+      "scenario": "p3-fire",
+      "branch": {
+        "truth": "property",
+        "choice": "property",
+        "p": 0.8886573624741327
+      },
+      "covered": {
+        "policyNumber": {
+          "p": 0.9731628823124706,
+          "truth": true
+        },
+        "location": {
+          "p": 0.9591060732371688,
+          "truth": true
+        },
+        "incidentDate": {
+          "p": 0.9321079277917986,
+          "truth": true
+        },
+        "fullName": {
+          "p": 0.8684567330399012,
+          "truth": true
+        },
+        "damagedAreas": {
+          "p": 0.8587273111283952,
+          "truth": true
+        },
+        "phone": {
+          "p": 0.033937079484482775,
+          "truth": false
+        },
+        "damageCause": {
+          "p": 0.1658957130234458,
+          "truth": true
+        },
+        "habitable": {
+          "p": 0.009839524085338421,
+          "truth": false
+        },
+        "photos": {
+          "p": 0.1093845913713862,
+          "truth": false
+        }
+      }
+    },
+    {
+      "scenario": "p4-roof",
+      "branch": {
+        "truth": "property",
+        "choice": "property",
+        "p": 0.9008443545721283
+      },
+      "covered": {
+        "damageCause": {
+          "p": 0.9629717255978589,
+          "truth": true
+        },
+        "location": {
+          "p": 0.9338054610698879,
+          "truth": false
+        },
+        "damagedAreas": {
+          "p": 0.9109946790840197,
+          "truth": true
+        },
+        "incidentDate": {
+          "p": 0.9046047529169998,
+          "truth": true
+        },
+        "fullName": {
+          "p": 0.055658471122304765,
+          "truth": false
+        },
+        "policyNumber": {
+          "p": 0.0012400016779341332,
+          "truth": false
+        },
+        "phone": {
+          "p": 0.00175544176826339,
+          "truth": false
+        },
+        "habitable": {
+          "p": 0.02460898839598587,
+          "truth": false
+        },
+        "photos": {
+          "p": 0.008190855122777466,
+          "truth": false
+        }
+      }
+    },
+    {
+      "scenario": "p5-wall",
+      "branch": {
+        "truth": "property",
+        "choice": "vehicle",
+        "p": 0.7815552573675657
+      },
+      "covered": {
+        "location": {
+          "p": 0.9700040574635443,
+          "truth": false
+        },
+        "incidentDate": {
+          "p": 0.9531115025622061,
+          "truth": true
+        },
+        "fullName": {
+          "p": 0.012453111670864743,
+          "truth": false
+        },
+        "policyNumber": {
+          "p": 0.0061577442750205035,
+          "truth": false
+        },
+        "phone": {
+          "p": 0.004023092688607134,
+          "truth": false
+        },
+        "photos": {
+          "p": 0.15364690404982326,
+          "truth": false
+        },
+        "damageCause": {
+          "p": 0.9755278527708048,
+          "truth": true
+        },
+        "damagedAreas": {
+          "p": 0.7815173903892941,
+          "truth": true
+        },
+        "habitable": {
+          "p": 0.015984565888370106,
+          "truth": false
+        }
+      }
+    },
+    {
+      "scenario": "i1-slip",
+      "branch": {
+        "truth": "injury",
+        "choice": "injury",
+        "p": 0.8566844913798521
+      },
+      "covered": {
+        "treatment": {
+          "p": 0.9841175968771795,
+          "truth": true
+        },
+        "incidentDate": {
+          "p": 0.9488111186628707,
+          "truth": true
+        },
+        "injuredPerson": {
+          "p": 0.9321452479819882,
+          "truth": true
+        },
+        "location": {
+          "p": 0.8428334864274455,
+          "truth": true
+        },
+        "fullName": {
+          "p": 0.647918845983911,
+          "truth": false
+        },
+        "policyNumber": {
+          "p": 0.0013377369126522467,
+          "truth": false
+        },
+        "phone": {
+          "p": 0.0009519235336649907,
+          "truth": false
+        },
+        "photos": {
+          "p": 0.0147061474265324,
+          "truth": false
+        }
+      }
+    },
+    {
+      "scenario": "i2-son",
+      "branch": {
+        "truth": "injury",
+        "choice": "injury",
+        "p": 0.8914273281954922
+      },
+      "covered": {
+        "injuredPerson": {
+          "p": 0.985036820792151,
+          "truth": true
+        },
+        "incidentDate": {
+          "p": 0.9372315247628638,
+          "truth": false
+        },
+        "policyNumber": {
+          "p": 0.0037850463865731184,
+          "truth": false
+        },
+        "phone": {
+          "p": 0.005140661641727655,
+          "truth": false
+        },
+        "fullName": {
+          "p": 0.32210775367296657,
+          "truth": false
+        },
+        "location": {
+          "p": 0.13842845898096087,
+          "truth": false
+        },
+        "treatment": {
+          "p": 0.1969360068317179,
+          "truth": false
+        },
+        "photos": {
+          "p": 0.014711963643359693,
+          "truth": false
+        }
+      }
+    },
+    {
+      "scenario": "i3-paving",
+      "branch": {
+        "truth": "injury",
+        "choice": "injury",
+        "p": 0.7417979398426917
+      },
+      "covered": {
+        "injuredPerson": {
+          "p": 0.9786801758590518,
+          "truth": true
+        },
+        "policyNumber": {
+          "p": 0.9774437961388377,
+          "truth": true
+        },
+        "fullName": {
+          "p": 0.9684881922628504,
+          "truth": true
+        },
+        "incidentDate": {
+          "p": 0.9122306412972514,
+          "truth": true
+        },
+        "location": {
+          "p": 0.8168572930829416,
+          "truth": true
+        },
+        "phone": {
+          "p": 0.6379283271203178,
+          "truth": false
+        },
+        "treatment": {
+          "p": 0.004918548674171609,
+          "truth": false
+        },
+        "photos": {
+          "p": 0.0018322944854282247,
+          "truth": false
+        }
+      }
+    },
+    {
+      "scenario": "i4-dog",
+      "branch": {
+        "truth": "injury",
+        "choice": "injury",
+        "p": 0.731603254003727
+      },
+      "covered": {
+        "treatment": {
+          "p": 0.9876841493349228,
+          "truth": true
+        },
+        "injuredPerson": {
+          "p": 0.9679724037415816,
+          "truth": true
+        },
+        "location": {
+          "p": 0.9658283454687367,
+          "truth": true
+        },
+        "incidentDate": {
+          "p": 0.9644604055686081,
+          "truth": true
+        },
+        "policyNumber": {
+          "p": 0.0018530019693152656,
+          "truth": false
+        },
+        "phone": {
+          "p": 0.003763871023808495,
+          "truth": false
+        },
+        "fullName": {
+          "p": 0.14391652585010078,
+          "truth": false
+        },
+        "photos": {
+          "p": 0.1669620293655221,
+          "truth": false
+        }
+      }
+    },
+    {
+      "scenario": "i5-physio",
+      "branch": {
+        "truth": "injury",
+        "choice": "injury",
+        "p": 0.5784206431716893
+      },
+      "covered": {
+        "incidentDate": {
+          "p": 0.9263777017166406,
+          "truth": true
+        },
+        "location": {
+          "p": 0.6467877648233277,
+          "truth": false
+        },
+        "policyNumber": {
+          "p": 0.001461307839553458,
+          "truth": false
+        },
+        "fullName": {
+          "p": 0.09873198692402733,
+          "truth": false
+        },
+        "phone": {
+          "p": 0.0007959963884048856,
+          "truth": false
+        },
+        "photos": {
+          "p": 0.005148230452979957,
+          "truth": false
+        },
+        "injuredPerson": {
+          "p": 0.9499184488074256,
+          "truth": true
+        },
+        "treatment": {
+          "p": 0.9696511721785815,
+          "truth": true
+        }
+      }
+    },
+    {
+      "scenario": "t1-burglary",
+      "branch": {
+        "truth": "theft",
+        "choice": "theft",
+        "p": 0.5983517571775142
+      },
+      "covered": {
+        "incidentDate": {
+          "p": 0.9412731849912377,
+          "truth": true
+        },
+        "location": {
+          "p": 0.9362446520527369,
+          "truth": false
+        },
+        "phone": {
+          "p": 0.2688739333561548,
+          "truth": false
+        },
+        "fullName": {
+          "p": 0.47505247203431694,
+          "truth": false
+        },
+        "policyNumber": {
+          "p": 0.5521007213565449,
+          "truth": false
+        },
+        "photos": {
+          "p": 0.0076727099838340964,
+          "truth": false
+        },
+        "forcedEntry": {
+          "p": 0.9663821277396334,
+          "truth": true
+        },
+        "policeReport": {
+          "p": 0.9756386114626951,
+          "truth": true
+        },
+        "itemsStolen": {
+          "p": 0.9884925816929909,
+          "truth": true
+        }
+      }
+    },
+    {
+      "scenario": "t2-burgled",
+      "branch": {
+        "truth": "theft",
+        "choice": "theft",
+        "p": 0.9599150641992492
+      },
+      "covered": {
+        "itemsStolen": {
+          "p": 0.9932376342512962,
+          "truth": false
+        },
+        "location": {
+          "p": 0.9201695663582588,
+          "truth": false
+        },
+        "forcedEntry": {
+          "p": 0.9000137891146541,
+          "truth": false
+        },
+        "incidentDate": {
+          "p": 0.8910679189970298,
+          "truth": false
+        },
+        "policyNumber": {
+          "p": 0.005165097307322098,
+          "truth": false
+        },
+        "phone": {
+          "p": 0.007201423093132751,
+          "truth": false
+        },
+        "fullName": {
+          "p": 0.42773187620336744,
+          "truth": false
+        },
+        "policeReport": {
+          "p": 0.005057632182776954,
+          "truth": false
+        },
+        "photos": {
+          "p": 0.005707265256345285,
+          "truth": false
+        }
+      }
+    },
+    {
+      "scenario": "t3-bike",
+      "branch": {
+        "truth": "theft",
+        "choice": "theft",
+        "p": 0.9512543554326135
+      },
+      "covered": {
+        "itemsStolen": {
+          "p": 0.9879766765797082,
+          "truth": true
+        },
+        "location": {
+          "p": 0.9470153393956344,
+          "truth": true
+        },
+        "incidentDate": {
+          "p": 0.9046044577300802,
+          "truth": true
+        },
+        "policyNumber": {
+          "p": 0.004643765872863865,
+          "truth": false
+        },
+        "phone": {
+          "p": 0.004028735057636676,
+          "truth": false
+        },
+        "fullName": {
+          "p": 0.1457757056063042,
+          "truth": false
+        },
+        "policeReport": {
+          "p": 0.004840058494054815,
+          "truth": false
+        },
+        "forcedEntry": {
+          "p": 0.46134339441412126,
+          "truth": false
+        },
+        "photos": {
+          "p": 0.028471770767451325,
+          "truth": false
+        }
+      }
+    },
+    {
+      "scenario": "t4-handbag",
+      "branch": {
+        "truth": "theft",
+        "choice": "theft",
+        "p": 0.9198360873582127
+      },
+      "covered": {
+        "itemsStolen": {
+          "p": 0.9902745190393901,
+          "truth": true
+        },
+        "incidentDate": {
+          "p": 0.966925074085317,
+          "truth": true
+        },
+        "fullName": {
+          "p": 0.9589549377622734,
+          "truth": true
+        },
+        "location": {
+          "p": 0.9582444920171131,
+          "truth": true
+        },
+        "policyNumber": {
+          "p": 0.6938100876421309,
+          "truth": false
+        },
+        "phone": {
+          "p": 0.42218405859213737,
+          "truth": true
+        },
+        "policeReport": {
+          "p": 0.07210083218341282,
+          "truth": true
+        },
+        "forcedEntry": {
+          "p": 0.17906726357862912,
+          "truth": false
+        },
+        "photos": {
+          "p": 0.27112739815494785,
+          "truth": false
+        }
+      }
+    },
+    {
+      "scenario": "t5-car-window",
+      "branch": {
+        "truth": "theft",
+        "choice": "vehicle",
+        "p": 0.3803543212191187
+      },
+      "covered": {
+        "incidentDate": {
+          "p": 0.935350261445668,
+          "truth": true
+        },
+        "location": {
+          "p": 0.8491567386981104,
+          "truth": false
+        },
+        "policyNumber": {
+          "p": 0.6401253157032581,
+          "truth": false
+        },
+        "fullName": {
+          "p": 0.09445739199193004,
+          "truth": false
+        },
+        "phone": {
+          "p": 0.1197970903639579,
+          "truth": false
+        },
+        "photos": {
+          "p": 0.09697365547989081,
+          "truth": false
+        },
+        "policeReport": {
+          "p": 0.24037353613618623,
+          "truth": false
+        },
+        "forcedEntry": {
+          "p": 0.9604048222857127,
+          "truth": true
+        },
+        "itemsStolen": {
+          "p": 0.9933508689752877,
+          "truth": true
+        }
+      }
+    }
+  ],
+  "runs": [
+    {
+      "scenario": "v1-car-park",
+      "policy": "static",
+      "turns": 10,
+      "foldedTurns": 10,
+      "asks": 10,
+      "confirms": 0,
+      "redundant": 6,
+      "phantom": 0,
+      "wrongBranch": 0,
+      "branchSettledAt": 4,
+      "stepSwitches": 3,
+      "classifierCalls": 0,
+      "classifierMs": 0,
+      "log": [
+        "ask fullName (already said)",
+        "ask policyNumber",
+        "ask phone",
+        "ask incidentType (already said)",
+        "ask incidentDate (already said)",
+        "ask location (already said)",
+        "ask vehicleReg",
+        "ask otherParty (already said)",
+        "ask driveable (already said)",
+        "ask photos"
+      ]
+    },
+    {
+      "scenario": "v1-car-park",
+      "policy": "oracle",
+      "turns": 5,
+      "foldedTurns": 4,
+      "asks": 4,
+      "confirms": 1,
+      "redundant": 0,
+      "phantom": 0,
+      "wrongBranch": 0,
+      "branchSettledAt": 1,
+      "stepSwitches": 2,
+      "classifierCalls": 0,
+      "classifierMs": 0,
+      "log": [
+        "confirm fullName, location, incidentDate, otherParty, driveable, incidentType=vehicle",
+        "ask policyNumber",
+        "ask phone",
+        "ask vehicleReg",
+        "ask photos"
+      ]
+    },
+    {
+      "scenario": "v1-car-park",
+      "policy": "advisory",
+      "turns": 7,
+      "foldedTurns": 4,
+      "asks": 4,
+      "confirms": 3,
+      "redundant": 0,
+      "phantom": 2,
+      "wrongBranch": 0,
+      "branchSettledAt": 1,
+      "stepSwitches": 2,
+      "classifierCalls": 11,
+      "classifierMs": 311,
+      "log": [
+        "confirm fullName, driveable, otherParty, incidentDate, location, incidentType=vehicle",
+        "ask vehicleReg",
+        "confirm policyNumber?",
+        "ask policyNumber",
+        "confirm phone?",
+        "ask phone",
+        "ask photos"
+      ]
+    },
+    {
+      "scenario": "v1-car-park",
+      "policy": "steered",
+      "turns": 7,
+      "foldedTurns": 4,
+      "asks": 4,
+      "confirms": 3,
+      "redundant": 0,
+      "phantom": 2,
+      "wrongBranch": 0,
+      "branchSettledAt": 1,
+      "stepSwitches": 2,
+      "classifierCalls": 20,
+      "classifierMs": 784,
+      "log": [
+        "confirm fullName, driveable, otherParty, incidentDate, location, incidentType=vehicle",
+        "ask vehicleReg",
+        "confirm policyNumber?",
+        "ask policyNumber",
+        "confirm phone?",
+        "ask phone",
+        "ask photos"
+      ]
+    },
+    {
+      "scenario": "v2-accident",
+      "policy": "static",
+      "turns": 10,
+      "foldedTurns": 10,
+      "asks": 10,
+      "confirms": 0,
+      "redundant": 1,
+      "phantom": 0,
+      "wrongBranch": 0,
+      "branchSettledAt": 4,
+      "stepSwitches": 3,
+      "classifierCalls": 0,
+      "classifierMs": 0,
+      "log": [
+        "ask fullName",
+        "ask policyNumber",
+        "ask phone",
+        "ask incidentType",
+        "ask incidentDate",
+        "ask location",
+        "ask vehicleReg",
+        "ask otherParty (already said)",
+        "ask driveable",
+        "ask photos"
+      ]
+    },
+    {
+      "scenario": "v2-accident",
+      "policy": "oracle",
+      "turns": 10,
+      "foldedTurns": 9,
+      "asks": 9,
+      "confirms": 1,
+      "redundant": 0,
+      "phantom": 0,
+      "wrongBranch": 0,
+      "branchSettledAt": 4,
+      "stepSwitches": 3,
+      "classifierCalls": 0,
+      "classifierMs": 0,
+      "log": [
+        "ask fullName",
+        "ask policyNumber",
+        "ask phone",
+        "ask incidentType",
+        "confirm otherParty",
+        "ask incidentDate",
+        "ask location",
+        "ask vehicleReg",
+        "ask driveable",
+        "ask photos"
+      ]
+    },
+    {
+      "scenario": "v2-accident",
+      "policy": "advisory",
+      "turns": 13,
+      "foldedTurns": 10,
+      "asks": 10,
+      "confirms": 3,
+      "redundant": 0,
+      "phantom": 6,
+      "wrongBranch": 1,
+      "branchSettledAt": 1,
+      "stepSwitches": 6,
+      "classifierCalls": 23,
+      "classifierMs": 652,
+      "log": [
+        "confirm incidentType=vehicle (guessed injury), incidentDate?, injuredPerson?, location?",
+        "ask incidentDate",
+        "ask injuredPerson",
+        "ask location",
+        "ask vehicleReg",
+        "confirm fullName?, policyNumber?",
+        "ask fullName",
+        "ask policyNumber",
+        "confirm phone?",
+        "ask phone",
+        "ask driveable",
+        "ask otherParty",
+        "ask photos"
+      ]
+    },
+    {
+      "scenario": "v2-accident",
+      "policy": "steered",
+      "turns": 13,
+      "foldedTurns": 10,
+      "asks": 10,
+      "confirms": 3,
+      "redundant": 0,
+      "phantom": 6,
+      "wrongBranch": 1,
+      "branchSettledAt": 1,
+      "stepSwitches": 6,
+      "classifierCalls": 26,
+      "classifierMs": 676,
+      "log": [
+        "confirm incidentType=vehicle (guessed injury), incidentDate?, injuredPerson?, location?",
+        "ask incidentDate",
+        "ask injuredPerson",
+        "ask location",
+        "ask vehicleReg",
+        "confirm fullName?, policyNumber?",
+        "ask fullName",
+        "ask policyNumber",
+        "confirm phone?",
+        "ask phone",
+        "ask otherParty",
+        "ask driveable",
+        "ask photos"
+      ]
+    },
+    {
+      "scenario": "v3-lorry",
+      "policy": "static",
+      "turns": 10,
+      "foldedTurns": 10,
+      "asks": 10,
+      "confirms": 0,
+      "redundant": 6,
+      "phantom": 0,
+      "wrongBranch": 0,
+      "branchSettledAt": 4,
+      "stepSwitches": 3,
+      "classifierCalls": 0,
+      "classifierMs": 0,
+      "log": [
+        "ask fullName",
+        "ask policyNumber (already said)",
+        "ask phone",
+        "ask incidentType (already said)",
+        "ask incidentDate (already said)",
+        "ask location (already said)",
+        "ask vehicleReg (already said)",
+        "ask otherParty (already said)",
+        "ask driveable",
+        "ask photos"
+      ]
+    },
+    {
+      "scenario": "v3-lorry",
+      "policy": "oracle",
+      "turns": 5,
+      "foldedTurns": 4,
+      "asks": 4,
+      "confirms": 1,
+      "redundant": 0,
+      "phantom": 0,
+      "wrongBranch": 0,
+      "branchSettledAt": 1,
+      "stepSwitches": 2,
+      "classifierCalls": 0,
+      "classifierMs": 0,
+      "log": [
+        "confirm policyNumber, otherParty, location, incidentDate, vehicleReg, incidentType=vehicle",
+        "ask fullName",
+        "ask phone",
+        "ask driveable",
+        "ask photos"
+      ]
+    },
+    {
+      "scenario": "v3-lorry",
+      "policy": "advisory",
+      "turns": 8,
+      "foldedTurns": 6,
+      "asks": 6,
+      "confirms": 2,
+      "redundant": 2,
+      "phantom": 2,
+      "wrongBranch": 0,
+      "branchSettledAt": 1,
+      "stepSwitches": 3,
+      "classifierCalls": 13,
+      "classifierMs": 321,
+      "log": [
+        "confirm policyNumber, otherParty, phone?, incidentType=vehicle, fullName?",
+        "ask phone",
+        "confirm incidentDate",
+        "ask fullName",
+        "ask driveable",
+        "ask vehicleReg (already said)",
+        "ask location (already said)",
+        "ask photos"
+      ]
+    },
+    {
+      "scenario": "v3-lorry",
+      "policy": "steered",
+      "turns": 8,
+      "foldedTurns": 6,
+      "asks": 6,
+      "confirms": 2,
+      "redundant": 2,
+      "phantom": 2,
+      "wrongBranch": 0,
+      "branchSettledAt": 1,
+      "stepSwitches": 4,
+      "classifierCalls": 20,
+      "classifierMs": 622,
+      "log": [
+        "confirm policyNumber, otherParty, phone?, incidentType=vehicle, fullName?",
+        "ask phone",
+        "confirm incidentDate",
+        "ask fullName",
+        "ask vehicleReg (already said)",
+        "ask location (already said)",
+        "ask driveable",
+        "ask photos"
+      ]
+    },
+    {
+      "scenario": "v4-tree",
+      "policy": "static",
+      "turns": 10,
+      "foldedTurns": 10,
+      "asks": 10,
+      "confirms": 0,
+      "redundant": 4,
+      "phantom": 0,
+      "wrongBranch": 0,
+      "branchSettledAt": 4,
+      "stepSwitches": 3,
+      "classifierCalls": 0,
+      "classifierMs": 0,
+      "log": [
+        "ask fullName",
+        "ask policyNumber",
+        "ask phone",
+        "ask incidentType (already said)",
+        "ask incidentDate (already said)",
+        "ask location (already said)",
+        "ask vehicleReg",
+        "ask otherParty",
+        "ask driveable (already said)",
+        "ask photos"
+      ]
+    },
+    {
+      "scenario": "v4-tree",
+      "policy": "oracle",
+      "turns": 7,
+      "foldedTurns": 6,
+      "asks": 6,
+      "confirms": 1,
+      "redundant": 0,
+      "phantom": 0,
+      "wrongBranch": 0,
+      "branchSettledAt": 1,
+      "stepSwitches": 2,
+      "classifierCalls": 0,
+      "classifierMs": 0,
+      "log": [
+        "confirm incidentDate, location, driveable, incidentType=vehicle",
+        "ask fullName",
+        "ask policyNumber",
+        "ask phone",
+        "ask vehicleReg",
+        "ask otherParty",
+        "ask photos"
+      ]
+    },
+    {
+      "scenario": "v4-tree",
+      "policy": "advisory",
+      "turns": 9,
+      "foldedTurns": 6,
+      "asks": 6,
+      "confirms": 3,
+      "redundant": 0,
+      "phantom": 3,
+      "wrongBranch": 0,
+      "branchSettledAt": 1,
+      "stepSwitches": 3,
+      "classifierCalls": 11,
+      "classifierMs": 316,
+      "log": [
+        "confirm driveable, incidentDate, location, incidentType=vehicle",
+        "ask vehicleReg",
+        "confirm fullName?, policyNumber?",
+        "ask fullName",
+        "ask policyNumber",
+        "confirm phone?",
+        "ask phone",
+        "ask otherParty",
+        "ask photos"
+      ]
+    },
+    {
+      "scenario": "v4-tree",
+      "policy": "steered",
+      "turns": 9,
+      "foldedTurns": 6,
+      "asks": 6,
+      "confirms": 3,
+      "redundant": 0,
+      "phantom": 3,
+      "wrongBranch": 0,
+      "branchSettledAt": 1,
+      "stepSwitches": 3,
+      "classifierCalls": 22,
+      "classifierMs": 700,
+      "log": [
+        "confirm driveable, incidentDate, location, incidentType=vehicle",
+        "ask vehicleReg",
+        "confirm fullName?, policyNumber?",
+        "ask fullName",
+        "ask policyNumber",
+        "confirm phone?",
+        "ask phone",
+        "ask otherParty",
+        "ask photos"
+      ]
+    },
+    {
+      "scenario": "v5-skid",
+      "policy": "static",
+      "turns": 10,
+      "foldedTurns": 10,
+      "asks": 10,
+      "confirms": 0,
+      "redundant": 2,
+      "phantom": 0,
+      "wrongBranch": 0,
+      "branchSettledAt": 4,
+      "stepSwitches": 3,
+      "classifierCalls": 0,
+      "classifierMs": 0,
+      "log": [
+        "ask fullName (already said)",
+        "ask policyNumber",
+        "ask phone (already said)",
+        "ask incidentType",
+        "ask incidentDate",
+        "ask location",
+        "ask vehicleReg",
+        "ask otherParty",
+        "ask driveable",
+        "ask photos"
+      ]
+    },
+    {
+      "scenario": "v5-skid",
+      "policy": "oracle",
+      "turns": 9,
+      "foldedTurns": 8,
+      "asks": 8,
+      "confirms": 1,
+      "redundant": 0,
+      "phantom": 0,
+      "wrongBranch": 0,
+      "branchSettledAt": 3,
+      "stepSwitches": 3,
+      "classifierCalls": 0,
+      "classifierMs": 0,
+      "log": [
+        "confirm fullName, phone",
+        "ask policyNumber",
+        "ask incidentType",
+        "ask incidentDate",
+        "ask location",
+        "ask vehicleReg",
+        "ask otherParty",
+        "ask driveable",
+        "ask photos"
+      ]
+    },
+    {
+      "scenario": "v5-skid",
+      "policy": "advisory",
+      "turns": 9,
+      "foldedTurns": 7,
+      "asks": 7,
+      "confirms": 2,
+      "redundant": 0,
+      "phantom": 3,
+      "wrongBranch": 0,
+      "branchSettledAt": 1,
+      "stepSwitches": 3,
+      "classifierCalls": 12,
+      "classifierMs": 292,
+      "log": [
+        "confirm incidentDate?, phone, location?, fullName, incidentType=vehicle",
+        "ask incidentDate",
+        "ask location",
+        "ask driveable",
+        "ask otherParty",
+        "ask vehicleReg",
+        "confirm policyNumber?",
+        "ask policyNumber",
+        "ask photos"
+      ]
+    },
+    {
+      "scenario": "v5-skid",
+      "policy": "steered",
+      "turns": 9,
+      "foldedTurns": 7,
+      "asks": 7,
+      "confirms": 2,
+      "redundant": 0,
+      "phantom": 3,
+      "wrongBranch": 0,
+      "branchSettledAt": 1,
+      "stepSwitches": 4,
+      "classifierCalls": 24,
+      "classifierMs": 706,
+      "log": [
+        "confirm incidentDate?, phone, location?, fullName, incidentType=vehicle",
+        "ask incidentDate",
+        "ask location",
+        "ask vehicleReg",
+        "confirm policyNumber?",
+        "ask policyNumber",
+        "ask otherParty",
+        "ask driveable",
+        "ask photos"
+      ]
+    },
+    {
+      "scenario": "p1-pipe",
+      "policy": "static",
+      "turns": 10,
+      "foldedTurns": 10,
+      "asks": 10,
+      "confirms": 0,
+      "redundant": 5,
+      "phantom": 0,
+      "wrongBranch": 0,
+      "branchSettledAt": 4,
+      "stepSwitches": 3,
+      "classifierCalls": 0,
+      "classifierMs": 0,
+      "log": [
+        "ask fullName",
+        "ask policyNumber",
+        "ask phone",
+        "ask incidentType (already said)",
+        "ask incidentDate (already said)",
+        "ask location",
+        "ask damageCause (already said)",
+        "ask damagedAreas (already said)",
+        "ask habitable (already said)",
+        "ask photos"
+      ]
+    },
+    {
+      "scenario": "p1-pipe",
+      "policy": "oracle",
+      "turns": 6,
+      "foldedTurns": 5,
+      "asks": 5,
+      "confirms": 1,
+      "redundant": 0,
+      "phantom": 0,
+      "wrongBranch": 0,
+      "branchSettledAt": 1,
+      "stepSwitches": 2,
+      "classifierCalls": 0,
+      "classifierMs": 0,
+      "log": [
+        "confirm damageCause, incidentDate, damagedAreas, habitable, incidentType=property",
+        "ask fullName",
+        "ask policyNumber",
+        "ask phone",
+        "ask location",
+        "ask photos"
+      ]
+    },
+    {
+      "scenario": "p1-pipe",
+      "policy": "advisory",
+      "turns": 9,
+      "foldedTurns": 7,
+      "asks": 7,
+      "confirms": 2,
+      "redundant": 2,
+      "phantom": 2,
+      "wrongBranch": 0,
+      "branchSettledAt": 1,
+      "stepSwitches": 3,
+      "classifierCalls": 16,
+      "classifierMs": 403,
+      "log": [
+        "confirm damagedAreas, location?, incidentDate, incidentType=property",
+        "ask location",
+        "ask fullName",
+        "ask policyNumber",
+        "confirm phone?",
+        "ask phone",
+        "ask damageCause (already said)",
+        "ask habitable (already said)",
+        "ask photos"
+      ]
+    },
+    {
+      "scenario": "p1-pipe",
+      "policy": "steered",
+      "turns": 9,
+      "foldedTurns": 7,
+      "asks": 7,
+      "confirms": 2,
+      "redundant": 2,
+      "phantom": 2,
+      "wrongBranch": 0,
+      "branchSettledAt": 1,
+      "stepSwitches": 3,
+      "classifierCalls": 21,
+      "classifierMs": 637,
+      "log": [
+        "confirm damagedAreas, location?, incidentDate, incidentType=property",
+        "ask location",
+        "ask fullName",
+        "ask policyNumber",
+        "confirm phone?",
+        "ask phone",
+        "ask damageCause (already said)",
+        "ask habitable (already said)",
+        "ask photos"
+      ]
+    },
+    {
+      "scenario": "p2-damage",
+      "policy": "static",
+      "turns": 10,
+      "foldedTurns": 10,
+      "asks": 10,
+      "confirms": 0,
+      "redundant": 1,
+      "phantom": 0,
+      "wrongBranch": 0,
+      "branchSettledAt": 4,
+      "stepSwitches": 3,
+      "classifierCalls": 0,
+      "classifierMs": 0,
+      "log": [
+        "ask fullName",
+        "ask policyNumber",
+        "ask phone",
+        "ask incidentType (already said)",
+        "ask incidentDate",
+        "ask location",
+        "ask damageCause",
+        "ask damagedAreas",
+        "ask habitable",
+        "ask photos"
+      ]
+    },
+    {
+      "scenario": "p2-damage",
+      "policy": "oracle",
+      "turns": 10,
+      "foldedTurns": 9,
+      "asks": 9,
+      "confirms": 1,
+      "redundant": 0,
+      "phantom": 0,
+      "wrongBranch": 0,
+      "branchSettledAt": 1,
+      "stepSwitches": 3,
+      "classifierCalls": 0,
+      "classifierMs": 0,
+      "log": [
+        "confirm incidentType=property",
+        "ask fullName",
+        "ask policyNumber",
+        "ask phone",
+        "ask incidentDate",
+        "ask location",
+        "ask damageCause",
+        "ask damagedAreas",
+        "ask habitable",
+        "ask photos"
+      ]
+    },
+    {
+      "scenario": "p2-damage",
+      "policy": "advisory",
+      "turns": 11,
+      "foldedTurns": 9,
+      "asks": 9,
+      "confirms": 2,
+      "redundant": 0,
+      "phantom": 4,
+      "wrongBranch": 0,
+      "branchSettledAt": 1,
+      "stepSwitches": 5,
+      "classifierCalls": 19,
+      "classifierMs": 424,
+      "log": [
+        "confirm location?, fullName?, incidentType=property, incidentDate?",
+        "ask location",
+        "ask fullName",
+        "ask incidentDate",
+        "ask policyNumber",
+        "confirm phone?",
+        "ask phone",
+        "ask damageCause",
+        "ask damagedAreas",
+        "ask habitable",
+        "ask photos"
+      ]
+    },
+    {
+      "scenario": "p2-damage",
+      "policy": "steered",
+      "turns": 11,
+      "foldedTurns": 9,
+      "asks": 9,
+      "confirms": 2,
+      "redundant": 0,
+      "phantom": 4,
+      "wrongBranch": 0,
+      "branchSettledAt": 1,
+      "stepSwitches": 5,
+      "classifierCalls": 23,
+      "classifierMs": 520,
+      "log": [
+        "confirm location?, fullName?, incidentType=property, incidentDate?",
+        "ask location",
+        "ask fullName",
+        "ask incidentDate",
+        "ask policyNumber",
+        "confirm phone?",
+        "ask phone",
+        "ask damageCause",
+        "ask damagedAreas",
+        "ask habitable",
+        "ask photos"
+      ]
+    },
+    {
+      "scenario": "p3-fire",
+      "policy": "static",
+      "turns": 10,
+      "foldedTurns": 10,
+      "asks": 10,
+      "confirms": 0,
+      "redundant": 7,
+      "phantom": 0,
+      "wrongBranch": 0,
+      "branchSettledAt": 4,
+      "stepSwitches": 3,
+      "classifierCalls": 0,
+      "classifierMs": 0,
+      "log": [
+        "ask fullName (already said)",
+        "ask policyNumber (already said)",
+        "ask phone",
+        "ask incidentType (already said)",
+        "ask incidentDate (already said)",
+        "ask location (already said)",
+        "ask damageCause (already said)",
+        "ask damagedAreas (already said)",
+        "ask habitable",
+        "ask photos"
+      ]
+    },
+    {
+      "scenario": "p3-fire",
+      "policy": "oracle",
+      "turns": 4,
+      "foldedTurns": 3,
+      "asks": 3,
+      "confirms": 1,
+      "redundant": 0,
+      "phantom": 0,
+      "wrongBranch": 0,
+      "branchSettledAt": 1,
+      "stepSwitches": 2,
+      "classifierCalls": 0,
+      "classifierMs": 0,
+      "log": [
+        "confirm fullName, policyNumber, damageCause, incidentDate, location, damagedAreas, incidentType=property",
+        "ask phone",
+        "ask habitable",
+        "ask photos"
+      ]
+    },
+    {
+      "scenario": "p3-fire",
+      "policy": "advisory",
+      "turns": 5,
+      "foldedTurns": 4,
+      "asks": 4,
+      "confirms": 1,
+      "redundant": 1,
+      "phantom": 0,
+      "wrongBranch": 0,
+      "branchSettledAt": 1,
+      "stepSwitches": 2,
+      "classifierCalls": 7,
+      "classifierMs": 224,
+      "log": [
+        "confirm policyNumber, location, incidentDate, incidentType=property, fullName, damagedAreas",
+        "ask phone",
+        "ask damageCause (already said)",
+        "ask habitable",
+        "ask photos"
+      ]
+    },
+    {
+      "scenario": "p3-fire",
+      "policy": "steered",
+      "turns": 5,
+      "foldedTurns": 4,
+      "asks": 4,
+      "confirms": 1,
+      "redundant": 1,
+      "phantom": 0,
+      "wrongBranch": 0,
+      "branchSettledAt": 1,
+      "stepSwitches": 2,
+      "classifierCalls": 20,
+      "classifierMs": 750,
+      "log": [
+        "confirm policyNumber, location, incidentDate, incidentType=property, fullName, damagedAreas",
+        "ask phone",
+        "ask damageCause (already said)",
+        "ask habitable",
+        "ask photos"
+      ]
+    },
+    {
+      "scenario": "p4-roof",
+      "policy": "static",
+      "turns": 10,
+      "foldedTurns": 10,
+      "asks": 10,
+      "confirms": 0,
+      "redundant": 4,
+      "phantom": 0,
+      "wrongBranch": 0,
+      "branchSettledAt": 4,
+      "stepSwitches": 3,
+      "classifierCalls": 0,
+      "classifierMs": 0,
+      "log": [
+        "ask fullName",
+        "ask policyNumber",
+        "ask phone",
+        "ask incidentType (already said)",
+        "ask incidentDate (already said)",
+        "ask location",
+        "ask damageCause (already said)",
+        "ask damagedAreas (already said)",
+        "ask habitable",
+        "ask photos"
+      ]
+    },
+    {
+      "scenario": "p4-roof",
+      "policy": "oracle",
+      "turns": 7,
+      "foldedTurns": 6,
+      "asks": 6,
+      "confirms": 1,
+      "redundant": 0,
+      "phantom": 0,
+      "wrongBranch": 0,
+      "branchSettledAt": 1,
+      "stepSwitches": 3,
+      "classifierCalls": 0,
+      "classifierMs": 0,
+      "log": [
+        "confirm damageCause, incidentDate, damagedAreas, incidentType=property",
+        "ask fullName",
+        "ask policyNumber",
+        "ask phone",
+        "ask location",
+        "ask habitable",
+        "ask photos"
+      ]
+    },
+    {
+      "scenario": "p4-roof",
+      "policy": "advisory",
+      "turns": 8,
+      "foldedTurns": 6,
+      "asks": 6,
+      "confirms": 2,
+      "redundant": 0,
+      "phantom": 2,
+      "wrongBranch": 0,
+      "branchSettledAt": 1,
+      "stepSwitches": 3,
+      "classifierCalls": 10,
+      "classifierMs": 248,
+      "log": [
+        "confirm damageCause, location?, damagedAreas, incidentDate, incidentType=property",
+        "ask location",
+        "ask policyNumber",
+        "confirm phone?",
+        "ask phone",
+        "ask fullName",
+        "ask habitable",
+        "ask photos"
+      ]
+    },
+    {
+      "scenario": "p4-roof",
+      "policy": "steered",
+      "turns": 8,
+      "foldedTurns": 6,
+      "asks": 6,
+      "confirms": 2,
+      "redundant": 0,
+      "phantom": 2,
+      "wrongBranch": 0,
+      "branchSettledAt": 1,
+      "stepSwitches": 3,
+      "classifierCalls": 19,
+      "classifierMs": 529,
+      "log": [
+        "confirm damageCause, location?, damagedAreas, incidentDate, incidentType=property",
+        "ask location",
+        "ask fullName",
+        "ask policyNumber",
+        "confirm phone?",
+        "ask phone",
+        "ask habitable",
+        "ask photos"
+      ]
+    },
+    {
+      "scenario": "p5-wall",
+      "policy": "static",
+      "turns": 10,
+      "foldedTurns": 10,
+      "asks": 10,
+      "confirms": 0,
+      "redundant": 3,
+      "phantom": 0,
+      "wrongBranch": 0,
+      "branchSettledAt": 4,
+      "stepSwitches": 3,
+      "classifierCalls": 0,
+      "classifierMs": 0,
+      "log": [
+        "ask fullName",
+        "ask policyNumber",
+        "ask phone",
+        "ask incidentType",
+        "ask incidentDate (already said)",
+        "ask location",
+        "ask damageCause (already said)",
+        "ask damagedAreas (already said)",
+        "ask habitable",
+        "ask photos"
+      ]
+    },
+    {
+      "scenario": "p5-wall",
+      "policy": "oracle",
+      "turns": 8,
+      "foldedTurns": 7,
+      "asks": 7,
+      "confirms": 1,
+      "redundant": 0,
+      "phantom": 0,
+      "wrongBranch": 0,
+      "branchSettledAt": 5,
+      "stepSwitches": 3,
+      "classifierCalls": 0,
+      "classifierMs": 0,
+      "log": [
+        "confirm incidentDate, damagedAreas, damageCause",
+        "ask fullName",
+        "ask policyNumber",
+        "ask phone",
+        "ask incidentType",
+        "ask location",
+        "ask habitable",
+        "ask photos"
+      ]
+    },
+    {
+      "scenario": "p5-wall",
+      "policy": "advisory",
+      "turns": 10,
+      "foldedTurns": 7,
+      "asks": 7,
+      "confirms": 3,
+      "redundant": 0,
+      "phantom": 3,
+      "wrongBranch": 1,
+      "branchSettledAt": 1,
+      "stepSwitches": 4,
+      "classifierCalls": 12,
+      "classifierMs": 326,
+      "log": [
+        "confirm otherParty?, location?, incidentDate, incidentType=property (guessed vehicle)",
+        "confirm damageCause, damagedAreas",
+        "ask otherParty",
+        "ask location",
+        "ask policyNumber",
+        "confirm phone?",
+        "ask phone",
+        "ask fullName",
+        "ask habitable",
+        "ask photos"
+      ]
+    },
+    {
+      "scenario": "p5-wall",
+      "policy": "steered",
+      "turns": 10,
+      "foldedTurns": 7,
+      "asks": 7,
+      "confirms": 3,
+      "redundant": 0,
+      "phantom": 3,
+      "wrongBranch": 1,
+      "branchSettledAt": 1,
+      "stepSwitches": 4,
+      "classifierCalls": 23,
+      "classifierMs": 651,
+      "log": [
+        "confirm otherParty?, location?, incidentDate, incidentType=property (guessed vehicle)",
+        "confirm damageCause, damagedAreas",
+        "ask otherParty",
+        "ask location",
+        "ask fullName",
+        "ask policyNumber",
+        "confirm phone?",
+        "ask phone",
+        "ask habitable",
+        "ask photos"
+      ]
+    },
+    {
+      "scenario": "i1-slip",
+      "policy": "static",
+      "turns": 9,
+      "foldedTurns": 9,
+      "asks": 9,
+      "confirms": 0,
+      "redundant": 5,
+      "phantom": 0,
+      "wrongBranch": 0,
+      "branchSettledAt": 4,
+      "stepSwitches": 3,
+      "classifierCalls": 0,
+      "classifierMs": 0,
+      "log": [
+        "ask fullName",
+        "ask policyNumber",
+        "ask phone",
+        "ask incidentType (already said)",
+        "ask incidentDate (already said)",
+        "ask location (already said)",
+        "ask injuredPerson (already said)",
+        "ask treatment (already said)",
+        "ask photos"
+      ]
+    },
+    {
+      "scenario": "i1-slip",
+      "policy": "oracle",
+      "turns": 5,
+      "foldedTurns": 4,
+      "asks": 4,
+      "confirms": 1,
+      "redundant": 0,
+      "phantom": 0,
+      "wrongBranch": 0,
+      "branchSettledAt": 1,
+      "stepSwitches": 1,
+      "classifierCalls": 0,
+      "classifierMs": 0,
+      "log": [
+        "confirm incidentDate, location, injuredPerson, treatment, incidentType=injury",
+        "ask fullName",
+        "ask policyNumber",
+        "ask phone",
+        "ask photos"
+      ]
+    },
+    {
+      "scenario": "i1-slip",
+      "policy": "advisory",
+      "turns": 6,
+      "foldedTurns": 4,
+      "asks": 4,
+      "confirms": 2,
+      "redundant": 0,
+      "phantom": 2,
+      "wrongBranch": 0,
+      "branchSettledAt": 1,
+      "stepSwitches": 1,
+      "classifierCalls": 7,
+      "classifierMs": 192,
+      "log": [
+        "confirm treatment, incidentDate, injuredPerson, incidentType=injury, location, fullName?",
+        "ask fullName",
+        "ask policyNumber",
+        "confirm phone?",
+        "ask phone",
+        "ask photos"
+      ]
+    },
+    {
+      "scenario": "i1-slip",
+      "policy": "steered",
+      "turns": 6,
+      "foldedTurns": 4,
+      "asks": 4,
+      "confirms": 2,
+      "redundant": 0,
+      "phantom": 2,
+      "wrongBranch": 0,
+      "branchSettledAt": 1,
+      "stepSwitches": 1,
+      "classifierCalls": 16,
+      "classifierMs": 540,
+      "log": [
+        "confirm treatment, incidentDate, injuredPerson, incidentType=injury, location, fullName?",
+        "ask fullName",
+        "ask policyNumber",
+        "confirm phone?",
+        "ask phone",
+        "ask photos"
+      ]
+    },
+    {
+      "scenario": "i2-son",
+      "policy": "static",
+      "turns": 9,
+      "foldedTurns": 9,
+      "asks": 9,
+      "confirms": 0,
+      "redundant": 2,
+      "phantom": 0,
+      "wrongBranch": 0,
+      "branchSettledAt": 4,
+      "stepSwitches": 3,
+      "classifierCalls": 0,
+      "classifierMs": 0,
+      "log": [
+        "ask fullName",
+        "ask policyNumber",
+        "ask phone",
+        "ask incidentType (already said)",
+        "ask incidentDate",
+        "ask location",
+        "ask injuredPerson (already said)",
+        "ask treatment",
+        "ask photos"
+      ]
+    },
+    {
+      "scenario": "i2-son",
+      "policy": "oracle",
+      "turns": 8,
+      "foldedTurns": 7,
+      "asks": 7,
+      "confirms": 1,
+      "redundant": 0,
+      "phantom": 0,
+      "wrongBranch": 0,
+      "branchSettledAt": 1,
+      "stepSwitches": 3,
+      "classifierCalls": 0,
+      "classifierMs": 0,
+      "log": [
+        "confirm injuredPerson, incidentType=injury",
+        "ask fullName",
+        "ask policyNumber",
+        "ask phone",
+        "ask incidentDate",
+        "ask location",
+        "ask treatment",
+        "ask photos"
+      ]
+    },
+    {
+      "scenario": "i2-son",
+      "policy": "advisory",
+      "turns": 9,
+      "foldedTurns": 7,
+      "asks": 7,
+      "confirms": 2,
+      "redundant": 0,
+      "phantom": 2,
+      "wrongBranch": 0,
+      "branchSettledAt": 1,
+      "stepSwitches": 4,
+      "classifierCalls": 16,
+      "classifierMs": 408,
+      "log": [
+        "confirm injuredPerson, incidentDate?, incidentType=injury",
+        "ask incidentDate",
+        "ask policyNumber",
+        "confirm phone?",
+        "ask phone",
+        "ask fullName",
+        "ask location",
+        "ask treatment",
+        "ask photos"
+      ]
+    },
+    {
+      "scenario": "i2-son",
+      "policy": "steered",
+      "turns": 9,
+      "foldedTurns": 7,
+      "asks": 7,
+      "confirms": 2,
+      "redundant": 0,
+      "phantom": 2,
+      "wrongBranch": 0,
+      "branchSettledAt": 1,
+      "stepSwitches": 4,
+      "classifierCalls": 19,
+      "classifierMs": 504,
+      "log": [
+        "confirm injuredPerson, incidentDate?, incidentType=injury",
+        "ask incidentDate",
+        "ask fullName",
+        "ask policyNumber",
+        "confirm phone?",
+        "ask phone",
+        "ask location",
+        "ask treatment",
+        "ask photos"
+      ]
+    },
+    {
+      "scenario": "i3-paving",
+      "policy": "static",
+      "turns": 9,
+      "foldedTurns": 9,
+      "asks": 9,
+      "confirms": 0,
+      "redundant": 6,
+      "phantom": 0,
+      "wrongBranch": 0,
+      "branchSettledAt": 4,
+      "stepSwitches": 3,
+      "classifierCalls": 0,
+      "classifierMs": 0,
+      "log": [
+        "ask fullName (already said)",
+        "ask policyNumber (already said)",
+        "ask phone",
+        "ask incidentType (already said)",
+        "ask incidentDate (already said)",
+        "ask location (already said)",
+        "ask injuredPerson (already said)",
+        "ask treatment",
+        "ask photos"
+      ]
+    },
+    {
+      "scenario": "i3-paving",
+      "policy": "oracle",
+      "turns": 4,
+      "foldedTurns": 3,
+      "asks": 3,
+      "confirms": 1,
+      "redundant": 0,
+      "phantom": 0,
+      "wrongBranch": 0,
+      "branchSettledAt": 1,
+      "stepSwitches": 2,
+      "classifierCalls": 0,
+      "classifierMs": 0,
+      "log": [
+        "confirm fullName, policyNumber, injuredPerson, location, incidentDate, incidentType=injury",
+        "ask phone",
+        "ask treatment",
+        "ask photos"
+      ]
+    },
+    {
+      "scenario": "i3-paving",
+      "policy": "advisory",
+      "turns": 4,
+      "foldedTurns": 3,
+      "asks": 3,
+      "confirms": 1,
+      "redundant": 0,
+      "phantom": 1,
+      "wrongBranch": 0,
+      "branchSettledAt": 1,
+      "stepSwitches": 2,
+      "classifierCalls": 5,
+      "classifierMs": 161,
+      "log": [
+        "confirm injuredPerson, policyNumber, fullName, incidentDate, location, incidentType=injury, phone?",
+        "ask phone",
+        "ask treatment",
+        "ask photos"
+      ]
+    },
+    {
+      "scenario": "i3-paving",
+      "policy": "steered",
+      "turns": 4,
+      "foldedTurns": 3,
+      "asks": 3,
+      "confirms": 1,
+      "redundant": 0,
+      "phantom": 1,
+      "wrongBranch": 0,
+      "branchSettledAt": 1,
+      "stepSwitches": 2,
+      "classifierCalls": 18,
+      "classifierMs": 722,
+      "log": [
+        "confirm injuredPerson, policyNumber, fullName, incidentDate, location, incidentType=injury, phone?",
+        "ask phone",
+        "ask treatment",
+        "ask photos"
+      ]
+    },
+    {
+      "scenario": "i4-dog",
+      "policy": "static",
+      "turns": 9,
+      "foldedTurns": 9,
+      "asks": 9,
+      "confirms": 0,
+      "redundant": 5,
+      "phantom": 0,
+      "wrongBranch": 0,
+      "branchSettledAt": 4,
+      "stepSwitches": 3,
+      "classifierCalls": 0,
+      "classifierMs": 0,
+      "log": [
+        "ask fullName",
+        "ask policyNumber",
+        "ask phone",
+        "ask incidentType (already said)",
+        "ask incidentDate (already said)",
+        "ask location (already said)",
+        "ask injuredPerson (already said)",
+        "ask treatment (already said)",
+        "ask photos"
+      ]
+    },
+    {
+      "scenario": "i4-dog",
+      "policy": "oracle",
+      "turns": 5,
+      "foldedTurns": 4,
+      "asks": 4,
+      "confirms": 1,
+      "redundant": 0,
+      "phantom": 0,
+      "wrongBranch": 0,
+      "branchSettledAt": 1,
+      "stepSwitches": 1,
+      "classifierCalls": 0,
+      "classifierMs": 0,
+      "log": [
+        "confirm injuredPerson, location, incidentDate, treatment, incidentType=injury",
+        "ask fullName",
+        "ask policyNumber",
+        "ask phone",
+        "ask photos"
+      ]
+    },
+    {
+      "scenario": "i4-dog",
+      "policy": "advisory",
+      "turns": 6,
+      "foldedTurns": 4,
+      "asks": 4,
+      "confirms": 2,
+      "redundant": 0,
+      "phantom": 1,
+      "wrongBranch": 0,
+      "branchSettledAt": 1,
+      "stepSwitches": 1,
+      "classifierCalls": 7,
+      "classifierMs": 176,
+      "log": [
+        "confirm treatment, injuredPerson, location, incidentDate, incidentType=injury",
+        "ask policyNumber",
+        "confirm phone?",
+        "ask phone",
+        "ask fullName",
+        "ask photos"
+      ]
+    },
+    {
+      "scenario": "i4-dog",
+      "policy": "steered",
+      "turns": 6,
+      "foldedTurns": 4,
+      "asks": 4,
+      "confirms": 2,
+      "redundant": 0,
+      "phantom": 1,
+      "wrongBranch": 0,
+      "branchSettledAt": 1,
+      "stepSwitches": 1,
+      "classifierCalls": 17,
+      "classifierMs": 443,
+      "log": [
+        "confirm treatment, injuredPerson, location, incidentDate, incidentType=injury",
+        "ask fullName",
+        "ask policyNumber",
+        "confirm phone?",
+        "ask phone",
+        "ask photos"
+      ]
+    },
+    {
+      "scenario": "i5-physio",
+      "policy": "static",
+      "turns": 9,
+      "foldedTurns": 9,
+      "asks": 9,
+      "confirms": 0,
+      "redundant": 3,
+      "phantom": 0,
+      "wrongBranch": 0,
+      "branchSettledAt": 4,
+      "stepSwitches": 3,
+      "classifierCalls": 0,
+      "classifierMs": 0,
+      "log": [
+        "ask fullName",
+        "ask policyNumber",
+        "ask phone",
+        "ask incidentType",
+        "ask incidentDate (already said)",
+        "ask location",
+        "ask injuredPerson (already said)",
+        "ask treatment (already said)",
+        "ask photos"
+      ]
+    },
+    {
+      "scenario": "i5-physio",
+      "policy": "oracle",
+      "turns": 7,
+      "foldedTurns": 6,
+      "asks": 6,
+      "confirms": 1,
+      "redundant": 0,
+      "phantom": 0,
+      "wrongBranch": 0,
+      "branchSettledAt": 5,
+      "stepSwitches": 2,
+      "classifierCalls": 0,
+      "classifierMs": 0,
+      "log": [
+        "confirm incidentDate, injuredPerson, treatment",
+        "ask fullName",
+        "ask policyNumber",
+        "ask phone",
+        "ask incidentType",
+        "ask location",
+        "ask photos"
+      ]
+    },
+    {
+      "scenario": "i5-physio",
+      "policy": "advisory",
+      "turns": 8,
+      "foldedTurns": 5,
+      "asks": 5,
+      "confirms": 3,
+      "redundant": 0,
+      "phantom": 2,
+      "wrongBranch": 0,
+      "branchSettledAt": 3,
+      "stepSwitches": 2,
+      "classifierCalls": 12,
+      "classifierMs": 358,
+      "log": [
+        "confirm incidentDate, location?",
+        "ask location",
+        "confirm treatment, injuredPerson, incidentType=injury",
+        "ask policyNumber",
+        "confirm phone?",
+        "ask phone",
+        "ask fullName",
+        "ask photos"
+      ]
+    },
+    {
+      "scenario": "i5-physio",
+      "policy": "steered",
+      "turns": 8,
+      "foldedTurns": 5,
+      "asks": 5,
+      "confirms": 3,
+      "redundant": 0,
+      "phantom": 2,
+      "wrongBranch": 0,
+      "branchSettledAt": 3,
+      "stepSwitches": 2,
+      "classifierCalls": 21,
+      "classifierMs": 570,
+      "log": [
+        "confirm incidentDate, location?",
+        "ask location",
+        "confirm treatment, injuredPerson, incidentType=injury",
+        "ask fullName",
+        "ask policyNumber",
+        "confirm phone?",
+        "ask phone",
+        "ask photos"
+      ]
+    },
+    {
+      "scenario": "t1-burglary",
+      "policy": "static",
+      "turns": 10,
+      "foldedTurns": 10,
+      "asks": 10,
+      "confirms": 0,
+      "redundant": 5,
+      "phantom": 0,
+      "wrongBranch": 0,
+      "branchSettledAt": 4,
+      "stepSwitches": 3,
+      "classifierCalls": 0,
+      "classifierMs": 0,
+      "log": [
+        "ask fullName",
+        "ask policyNumber",
+        "ask phone",
+        "ask incidentType (already said)",
+        "ask incidentDate (already said)",
+        "ask location",
+        "ask itemsStolen (already said)",
+        "ask policeReport (already said)",
+        "ask forcedEntry (already said)",
+        "ask photos"
+      ]
+    },
+    {
+      "scenario": "t1-burglary",
+      "policy": "oracle",
+      "turns": 6,
+      "foldedTurns": 5,
+      "asks": 5,
+      "confirms": 1,
+      "redundant": 0,
+      "phantom": 0,
+      "wrongBranch": 0,
+      "branchSettledAt": 1,
+      "stepSwitches": 2,
+      "classifierCalls": 0,
+      "classifierMs": 0,
+      "log": [
+        "confirm forcedEntry, incidentDate, itemsStolen, policeReport, incidentType=theft",
+        "ask fullName",
+        "ask policyNumber",
+        "ask phone",
+        "ask location",
+        "ask photos"
+      ]
+    },
+    {
+      "scenario": "t1-burglary",
+      "policy": "advisory",
+      "turns": 8,
+      "foldedTurns": 6,
+      "asks": 6,
+      "confirms": 2,
+      "redundant": 1,
+      "phantom": 1,
+      "wrongBranch": 0,
+      "branchSettledAt": 3,
+      "stepSwitches": 2,
+      "classifierCalls": 13,
+      "classifierMs": 479,
+      "log": [
+        "confirm incidentDate, location?",
+        "ask location",
+        "ask incidentType (already said)",
+        "confirm itemsStolen, policeReport, forcedEntry",
+        "ask phone",
+        "ask fullName",
+        "ask policyNumber",
+        "ask photos"
+      ]
+    },
+    {
+      "scenario": "t1-burglary",
+      "policy": "steered",
+      "turns": 9,
+      "foldedTurns": 6,
+      "asks": 6,
+      "confirms": 3,
+      "redundant": 1,
+      "phantom": 2,
+      "wrongBranch": 0,
+      "branchSettledAt": 3,
+      "stepSwitches": 2,
+      "classifierCalls": 25,
+      "classifierMs": 897,
+      "log": [
+        "confirm incidentDate, location?",
+        "ask location",
+        "ask incidentType (already said)",
+        "confirm itemsStolen, policeReport, forcedEntry",
+        "ask fullName",
+        "ask policyNumber",
+        "confirm phone?",
+        "ask phone",
+        "ask photos"
+      ]
+    },
+    {
+      "scenario": "t2-burgled",
+      "policy": "static",
+      "turns": 10,
+      "foldedTurns": 10,
+      "asks": 10,
+      "confirms": 0,
+      "redundant": 1,
+      "phantom": 0,
+      "wrongBranch": 0,
+      "branchSettledAt": 4,
+      "stepSwitches": 3,
+      "classifierCalls": 0,
+      "classifierMs": 0,
+      "log": [
+        "ask fullName",
+        "ask policyNumber",
+        "ask phone",
+        "ask incidentType (already said)",
+        "ask incidentDate",
+        "ask location",
+        "ask itemsStolen",
+        "ask policeReport",
+        "ask forcedEntry",
+        "ask photos"
+      ]
+    },
+    {
+      "scenario": "t2-burgled",
+      "policy": "oracle",
+      "turns": 10,
+      "foldedTurns": 9,
+      "asks": 9,
+      "confirms": 1,
+      "redundant": 0,
+      "phantom": 0,
+      "wrongBranch": 0,
+      "branchSettledAt": 1,
+      "stepSwitches": 3,
+      "classifierCalls": 0,
+      "classifierMs": 0,
+      "log": [
+        "confirm incidentType=theft",
+        "ask fullName",
+        "ask policyNumber",
+        "ask phone",
+        "ask incidentDate",
+        "ask location",
+        "ask itemsStolen",
+        "ask policeReport",
+        "ask forcedEntry",
+        "ask photos"
+      ]
+    },
+    {
+      "scenario": "t2-burgled",
+      "policy": "advisory",
+      "turns": 11,
+      "foldedTurns": 9,
+      "asks": 9,
+      "confirms": 2,
+      "redundant": 0,
+      "phantom": 5,
+      "wrongBranch": 0,
+      "branchSettledAt": 1,
+      "stepSwitches": 6,
+      "classifierCalls": 19,
+      "classifierMs": 446,
+      "log": [
+        "confirm itemsStolen?, incidentType=theft, location?, forcedEntry?, incidentDate?",
+        "ask itemsStolen",
+        "ask location",
+        "ask forcedEntry",
+        "ask incidentDate",
+        "ask policyNumber",
+        "confirm phone?",
+        "ask phone",
+        "ask fullName",
+        "ask policeReport",
+        "ask photos"
+      ]
+    },
+    {
+      "scenario": "t2-burgled",
+      "policy": "steered",
+      "turns": 11,
+      "foldedTurns": 9,
+      "asks": 9,
+      "confirms": 2,
+      "redundant": 0,
+      "phantom": 5,
+      "wrongBranch": 0,
+      "branchSettledAt": 1,
+      "stepSwitches": 6,
+      "classifierCalls": 23,
+      "classifierMs": 623,
+      "log": [
+        "confirm itemsStolen?, incidentType=theft, location?, forcedEntry?, incidentDate?",
+        "ask itemsStolen",
+        "ask location",
+        "ask forcedEntry",
+        "ask incidentDate",
+        "ask fullName",
+        "ask policyNumber",
+        "confirm phone?",
+        "ask phone",
+        "ask policeReport",
+        "ask photos"
+      ]
+    },
+    {
+      "scenario": "t3-bike",
+      "policy": "static",
+      "turns": 10,
+      "foldedTurns": 10,
+      "asks": 10,
+      "confirms": 0,
+      "redundant": 4,
+      "phantom": 0,
+      "wrongBranch": 0,
+      "branchSettledAt": 4,
+      "stepSwitches": 3,
+      "classifierCalls": 0,
+      "classifierMs": 0,
+      "log": [
+        "ask fullName",
+        "ask policyNumber",
+        "ask phone",
+        "ask incidentType (already said)",
+        "ask incidentDate (already said)",
+        "ask location (already said)",
+        "ask itemsStolen (already said)",
+        "ask policeReport",
+        "ask forcedEntry",
+        "ask photos"
+      ]
+    },
+    {
+      "scenario": "t3-bike",
+      "policy": "oracle",
+      "turns": 7,
+      "foldedTurns": 6,
+      "asks": 6,
+      "confirms": 1,
+      "redundant": 0,
+      "phantom": 0,
+      "wrongBranch": 0,
+      "branchSettledAt": 1,
+      "stepSwitches": 2,
+      "classifierCalls": 0,
+      "classifierMs": 0,
+      "log": [
+        "confirm itemsStolen, location, incidentDate, incidentType=theft",
+        "ask fullName",
+        "ask policyNumber",
+        "ask phone",
+        "ask policeReport",
+        "ask forcedEntry",
+        "ask photos"
+      ]
+    },
+    {
+      "scenario": "t3-bike",
+      "policy": "advisory",
+      "turns": 8,
+      "foldedTurns": 6,
+      "asks": 6,
+      "confirms": 2,
+      "redundant": 0,
+      "phantom": 1,
+      "wrongBranch": 0,
+      "branchSettledAt": 1,
+      "stepSwitches": 2,
+      "classifierCalls": 14,
+      "classifierMs": 340,
+      "log": [
+        "confirm itemsStolen, incidentType=theft, location, incidentDate",
+        "ask policyNumber",
+        "confirm phone?",
+        "ask phone",
+        "ask fullName",
+        "ask policeReport",
+        "ask forcedEntry",
+        "ask photos"
+      ]
+    },
+    {
+      "scenario": "t3-bike",
+      "policy": "steered",
+      "turns": 8,
+      "foldedTurns": 6,
+      "asks": 6,
+      "confirms": 2,
+      "redundant": 0,
+      "phantom": 1,
+      "wrongBranch": 0,
+      "branchSettledAt": 1,
+      "stepSwitches": 2,
+      "classifierCalls": 19,
+      "classifierMs": 607,
+      "log": [
+        "confirm itemsStolen, incidentType=theft, location, incidentDate",
+        "ask fullName",
+        "ask policyNumber",
+        "confirm phone?",
+        "ask phone",
+        "ask policeReport",
+        "ask forcedEntry",
+        "ask photos"
+      ]
+    },
+    {
+      "scenario": "t4-handbag",
+      "policy": "static",
+      "turns": 10,
+      "foldedTurns": 10,
+      "asks": 10,
+      "confirms": 0,
+      "redundant": 7,
+      "phantom": 0,
+      "wrongBranch": 0,
+      "branchSettledAt": 4,
+      "stepSwitches": 3,
+      "classifierCalls": 0,
+      "classifierMs": 0,
+      "log": [
+        "ask fullName (already said)",
+        "ask policyNumber",
+        "ask phone (already said)",
+        "ask incidentType (already said)",
+        "ask incidentDate (already said)",
+        "ask location (already said)",
+        "ask itemsStolen (already said)",
+        "ask policeReport (already said)",
+        "ask forcedEntry",
+        "ask photos"
+      ]
+    },
+    {
+      "scenario": "t4-handbag",
+      "policy": "oracle",
+      "turns": 4,
+      "foldedTurns": 3,
+      "asks": 3,
+      "confirms": 1,
+      "redundant": 0,
+      "phantom": 0,
+      "wrongBranch": 0,
+      "branchSettledAt": 1,
+      "stepSwitches": 2,
+      "classifierCalls": 0,
+      "classifierMs": 0,
+      "log": [
+        "confirm fullName, phone, itemsStolen, location, incidentDate, policeReport, incidentType=theft",
+        "ask policyNumber",
+        "ask forcedEntry",
+        "ask photos"
+      ]
+    },
+    {
+      "scenario": "t4-handbag",
+      "policy": "advisory",
+      "turns": 6,
+      "foldedTurns": 4,
+      "asks": 4,
+      "confirms": 2,
+      "redundant": 1,
+      "phantom": 1,
+      "wrongBranch": 0,
+      "branchSettledAt": 1,
+      "stepSwitches": 2,
+      "classifierCalls": 7,
+      "classifierMs": 266,
+      "log": [
+        "confirm itemsStolen, incidentDate, fullName, location, incidentType=theft, policyNumber?",
+        "ask policyNumber",
+        "confirm phone",
+        "ask policeReport (already said)",
+        "ask forcedEntry",
+        "ask photos"
+      ]
+    },
+    {
+      "scenario": "t4-handbag",
+      "policy": "steered",
+      "turns": 6,
+      "foldedTurns": 4,
+      "asks": 4,
+      "confirms": 2,
+      "redundant": 1,
+      "phantom": 1,
+      "wrongBranch": 0,
+      "branchSettledAt": 1,
+      "stepSwitches": 2,
+      "classifierCalls": 20,
+      "classifierMs": 826,
+      "log": [
+        "confirm itemsStolen, incidentDate, fullName, location, incidentType=theft, policyNumber?",
+        "ask policyNumber",
+        "confirm phone",
+        "ask policeReport (already said)",
+        "ask forcedEntry",
+        "ask photos"
+      ]
+    },
+    {
+      "scenario": "t5-car-window",
+      "policy": "static",
+      "turns": 10,
+      "foldedTurns": 10,
+      "asks": 10,
+      "confirms": 0,
+      "redundant": 3,
+      "phantom": 0,
+      "wrongBranch": 0,
+      "branchSettledAt": 4,
+      "stepSwitches": 3,
+      "classifierCalls": 0,
+      "classifierMs": 0,
+      "log": [
+        "ask fullName",
+        "ask policyNumber",
+        "ask phone",
+        "ask incidentType",
+        "ask incidentDate (already said)",
+        "ask location",
+        "ask itemsStolen (already said)",
+        "ask policeReport",
+        "ask forcedEntry (already said)",
+        "ask photos"
+      ]
+    },
+    {
+      "scenario": "t5-car-window",
+      "policy": "oracle",
+      "turns": 8,
+      "foldedTurns": 7,
+      "asks": 7,
+      "confirms": 1,
+      "redundant": 0,
+      "phantom": 0,
+      "wrongBranch": 0,
+      "branchSettledAt": 5,
+      "stepSwitches": 3,
+      "classifierCalls": 0,
+      "classifierMs": 0,
+      "log": [
+        "confirm itemsStolen, forcedEntry, incidentDate",
+        "ask fullName",
+        "ask policyNumber",
+        "ask phone",
+        "ask incidentType",
+        "ask location",
+        "ask policeReport",
+        "ask photos"
+      ]
+    },
+    {
+      "scenario": "t5-car-window",
+      "policy": "advisory",
+      "turns": 12,
+      "foldedTurns": 8,
+      "asks": 8,
+      "confirms": 4,
+      "redundant": 0,
+      "phantom": 6,
+      "wrongBranch": 1,
+      "branchSettledAt": 4,
+      "stepSwitches": 7,
+      "classifierCalls": 19,
+      "classifierMs": 620,
+      "log": [
+        "confirm incidentDate, location?, policyNumber?",
+        "ask location",
+        "ask policyNumber",
+        "confirm otherParty?, phone?, incidentType=theft (guessed vehicle), vehicleReg?",
+        "confirm itemsStolen, forcedEntry",
+        "ask otherParty",
+        "ask phone",
+        "ask vehicleReg",
+        "confirm fullName?",
+        "ask fullName",
+        "ask policeReport",
+        "ask photos"
+      ]
+    },
+    {
+      "scenario": "t5-car-window",
+      "policy": "steered",
+      "turns": 12,
+      "foldedTurns": 8,
+      "asks": 8,
+      "confirms": 4,
+      "redundant": 0,
+      "phantom": 6,
+      "wrongBranch": 1,
+      "branchSettledAt": 4,
+      "stepSwitches": 7,
+      "classifierCalls": 30,
+      "classifierMs": 919,
+      "log": [
+        "confirm incidentDate, location?, policyNumber?",
+        "ask location",
+        "ask policyNumber",
+        "confirm otherParty?, phone?, incidentType=theft (guessed vehicle), vehicleReg?",
+        "confirm itemsStolen, forcedEntry",
+        "ask otherParty",
+        "ask phone",
+        "ask vehicleReg",
+        "confirm fullName?",
+        "ask fullName",
+        "ask policeReport",
+        "ask photos"
+      ]
+    }
+  ]
+}
