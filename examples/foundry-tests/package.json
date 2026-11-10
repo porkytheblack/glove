@@ -1,6 +1,6 @@
 {
   "name": "foundry-tests",
-  "version": "1.0.17",
+  "version": "1.0.18",
   "private": true,
   "description": "",
   "main": "index.js",
