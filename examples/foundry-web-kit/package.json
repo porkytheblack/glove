@@ -1,6 +1,6 @@
 {
   "name": "glove-foundry-web-kit",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "private": true,
   "type": "module",
   "description": "The shared web layer for the Foundry examples: sign-in, workspace guards, a live run relay, and chat, approval and apps components",
