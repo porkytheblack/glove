@@ -1,6 +1,6 @@
 {
   "name": "glove-foundry-postgres-example",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "private": true,
   "type": "module",
   "description": "Reference PostgreSQL persistence for Glove Foundry: a FoundryDataAdapter and a transcript StoreAdapter, with contract and restart tests",
