@@ -80,6 +80,12 @@ export interface FoundryApplicationOptions {
      */
     readonly url?: (approval: import("./approval.js").FoundryApproval) => string | undefined;
   };
+  /**
+   * The hosted mesh under your rules: peers across workspaces, a gate on
+   * every message, and threads bound and committed to your own record.
+   * Omitted, agents on the mesh see their own workspace, ungated.
+   */
+  readonly mesh?: import("./mesh.js").FoundryApplicationMesh;
   readonly services?: Layer.Layer<
     AccountDirectory | TopologyStore | EventStore,
     unknown

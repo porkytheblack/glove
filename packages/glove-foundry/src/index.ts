@@ -130,11 +130,21 @@ export {
   type FileFoundryDataAdapterOptions,
 } from "./file-data.js";
 export {
+  DEFAULT_MESH_REFUSAL,
   meshIdentity,
+  type FoundryApplicationMesh,
+  type FoundryMeshDecision,
+  type FoundryMeshHeldMessage,
+  type FoundryMeshHookContext,
   type FoundryMeshMessage,
   type FoundryMeshOptions,
+  type FoundryMeshOutgoing,
   type FoundryMeshParty,
+  type FoundryMeshPeer,
+  type FoundryMeshRecordedMessage,
+  type FoundryMeshSend,
   type FoundryMeshThread,
+  type FoundryMeshThreadStart,
   type FoundryMeshThreadStatus,
 } from "./mesh.js";
 export {
@@ -453,3 +463,11 @@ export {
 
 export { restrictApp, type AppRestrictions } from "./capabilities.js";
 export type { DurableSubagents, DurableSubagentOptions, DurableSubagentOwnership, AgentMessageReceipt } from "./durable-subagents.js";
+export {
+  builtinAllowed,
+  FOUNDRY_BUILTIN_TOOLS,
+  isFoundryBuiltin,
+  type FoundryBuiltinGroup,
+  type FoundryBuiltinsPolicy,
+  type FoundryBuiltinTool,
+} from "./builtins.js";

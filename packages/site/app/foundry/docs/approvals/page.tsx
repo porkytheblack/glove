@@ -123,6 +123,7 @@ export default defineTransmission({
           <tr><td><code>url?</code></td><td>Where a person decides it, from your <code>approvals.url</code>.</td></tr>
           <tr><td><code>suspendedAt?</code></td><td>When the run stopped waiting. A decision after this resumes the conversation.</td></tr>
           <tr><td><code>resumedAt?</code>, <code>resumeRunId?</code></td><td>When the decision was handed back, and the run that took it.</td></tr>
+          <tr><td><code>mesh?</code></td><td><code>{"{ threadId, messageId }"}</code> when the application&apos;s mesh gate <Link href="/foundry/docs/multi-agent#mesh-application">drafted a message</Link>. Approved, the message is committed and delivered; denied or expired, it is dropped. No run resumes and the sending agent is not told.</td></tr>
         </tbody>
       </table>
       <table>

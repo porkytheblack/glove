@@ -50,12 +50,31 @@ export function meshIdentity(agent: AgentInstance): AgentIdentity {
   };
 }
 
-export type FoundryMeshThreadStatus = "working" | "waiting" | "replied" | "failed" | "cancelled";
+export type FoundryMeshThreadStatus = "working" | "waiting" | "replied" | "failed" | "cancelled" | "taken-over";
 
 export interface FoundryMeshParty {
   readonly agentId: string;
   readonly name: string;
   readonly definitionId: string;
+  /** The party's workspace. Older records: the thread's `workspaceId`. */
+  readonly workspaceId?: string;
+}
+
+/** A message the application's gate held or drafted: stored, not delivered. */
+export interface FoundryMeshHeldMessage {
+  readonly message: FoundryMeshMessage;
+  readonly side: "recipient" | "starter";
+  readonly decision: "hold" | "draft";
+  /** The approval that decides a draft. */
+  readonly approvalId?: string;
+  /** What delivering it changes on the thread, such as a question the starter is now asked. */
+  readonly onDeliver?: { readonly status?: FoundryMeshThreadStatus; readonly question?: string; readonly reply?: string };
+}
+
+/** A message on its way: committed to the application's record (or about to be), not yet handed over. */
+export interface FoundryMeshOutgoing {
+  readonly message: FoundryMeshMessage;
+  readonly side: "recipient" | "starter";
 }
 
 /**
@@ -80,6 +99,14 @@ export interface FoundryMeshThread {
   /** The recipient's last reply. */
   readonly reply?: string;
   readonly error?: string;
+  /** The application's record this thread is bound to (`mesh.bindThread`). Default: the thread id. */
+  readonly record?: string;
+  /** Messages the application's gate held or drafted, until they are released or discarded. */
+  readonly held?: ReadonlyArray<FoundryMeshHeldMessage>;
+  /** Messages being committed to the application's record and handed over. Retried at start. */
+  readonly outbox?: ReadonlyArray<FoundryMeshOutgoing>;
+  /** Who took the thread over, and which agents left it. */
+  readonly takenOver?: { readonly by: string; readonly agentIds: ReadonlyArray<string>; readonly at: string };
   /**
    * Older records only: messages not handed over yet, for the starter's
    * conversation and for this one. On start Foundry moves them to the event
@@ -101,7 +128,11 @@ export interface FoundryMeshMessage {
   readonly kind: "message" | "reply" | "failed" | "ack";
   readonly id: string;
   readonly threadId: string;
-  readonly from: { readonly agentId: string; readonly name: string };
+  /**
+   * Who sent it. For a person (`kind: "human"`, entered with
+   * `runtime.meshHumanMessage`), `agentId` is the application's id for them.
+   */
+  readonly from: { readonly agentId: string; readonly name: string; readonly kind?: "agent" | "human" };
   readonly to: string;
   readonly content: string;
   readonly inReplyTo?: string;
@@ -146,6 +177,11 @@ export function isOpenThread(thread: FoundryMeshThread): boolean {
   return thread.status === "working" || thread.status === "waiting";
 }
 
+/** Whether an agent has left a thread because a person took it over. */
+export function isTakenOverBy(thread: FoundryMeshThread, agentId: string): boolean {
+  return Boolean(thread.takenOver?.agentIds.includes(agentId));
+}
+
 function clip(text: string, max: number): string {
   const flat = text.replace(/\s+/g, " ").trim();
   return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat;
@@ -160,13 +196,18 @@ function escapeAttribute(value: string): string {
 }
 
 /** How a message reads when it arrives in a conversation. */
-export function renderMeshMessage(message: FoundryMeshMessage, side: "recipient" | "starter"): string {
+export function renderMeshMessage(message: FoundryMeshMessage, side: "recipient" | "starter", peer?: string): string {
   const who = `${message.from.name} (${message.from.agentId})`;
   const status = message.kind === "message" ? "" : ` status="${message.kind === "reply" ? "replied" : message.kind}"`;
-  const open = `<mesh-message id="${escapeAttribute(message.id)}" thread="${escapeAttribute(message.threadId)}" from="${escapeAttribute(message.from.agentId)}" name="${escapeAttribute(message.from.name)}"${status}>`;
+  const human = message.from.kind === "human";
+  const open = `<mesh-message id="${escapeAttribute(message.id)}" thread="${escapeAttribute(message.threadId)}" from="${escapeAttribute(message.from.agentId)}" name="${escapeAttribute(message.from.name)}"${human ? ' party="human"' : ""}${status}>`;
   const body = message.kind === "failed" ? `It stopped: ${message.content}` : message.content;
   const lines = [open, body, "</mesh-message>"];
-  if (side === "recipient") {
+  if (human) {
+    lines.push(side === "recipient"
+      ? `${message.from.name} is a person in this thread, not an agent. Your final reply goes to the thread on its own.`
+      : `${message.from.name} is a person in your thread${peer ? ` with ${peer}` : ""}. To answer in the thread, use glove_mesh_send_message${peer ? ` to "${peer}"` : ""} with in_reply_to "${message.id}".`);
+  } else if (side === "recipient") {
     lines.push(
       `${who} is another agent, not the user. Your final reply goes back to them on its own, so make it the answer itself.`,
       `If you cannot go on without something only they or their user know, ask with glove_mesh_send_message to "${message.from.agentId}".`,
@@ -416,4 +457,129 @@ export function createMeshTools(context: MeshToolContext): ReadonlyArray<GloveFo
       },
     },
   ];
+}
+
+// ── The application's rules ─────────────────────────────────────────────────
+//
+// An application with its own record of conversations sets
+// `defineApplication({ mesh })`. Foundry still hosts the threads, but the
+// application decides who an agent can see (in any workspace), whether each
+// message is delivered, held, drafted or refused, which record a thread is
+// bound to, and it commits every message to that record before Foundry hands
+// it over. Without it, the mesh is the workspace's, ungated.
+
+/** An agent the application lets a sender see. Name and description default to the instance's. */
+export interface FoundryMeshPeer {
+  readonly agentId: string;
+  readonly name?: string;
+  readonly description?: string;
+}
+
+/** What the application's hooks get besides their input. */
+export interface FoundryMeshHookContext {
+  readonly data: import("./primitives.js").FoundryDataAdapter;
+  /** The run that sent it, when an agent did. */
+  readonly runId?: string;
+}
+
+/**
+ * One message on its way, for the gate. The sender is the run's own
+ * instance, checked by the controller: never what the model claimed.
+ */
+export interface FoundryMeshSend {
+  /** "message": sent with glove_mesh_send_message. "reply": the recipient's final answer. "ack": a read receipt. */
+  readonly kind: "message" | "reply" | "ack";
+  /** Stable across retries. */
+  readonly messageId: string;
+  /** The thread it continues. Absent when it would start one. */
+  readonly thread?: FoundryMeshThread;
+  readonly sender: AgentInstance;
+  /** The sender's conversation it was sent from. */
+  readonly senderConversationId: string;
+  readonly recipient: AgentInstance;
+  readonly content: string;
+  readonly inReplyTo?: string;
+}
+
+/**
+ * What happens to a message. To the sender, "deliver", "hold" and "draft"
+ * look the same. "refuse" fails the send with `message`, your wording.
+ */
+export type FoundryMeshDecision =
+  | { readonly decision: "deliver" }
+  /** Stored, not delivered, until `runtime.releaseMeshMessage`. */
+  | { readonly decision: "hold" }
+  /**
+   * Stored, not delivered, behind a Foundry approval: approved, it is
+   * delivered; denied, it is dropped. Pass `approvalId` (`approval_<uuid>`)
+   * to choose its id.
+   */
+  | { readonly decision: "draft"; readonly approvalId?: string }
+  | { readonly decision: "refuse"; readonly message: string };
+
+/** A thread about to start, for the application to bind to its record. */
+export interface FoundryMeshThreadStart {
+  /** The id Foundry would use. */
+  readonly proposedId: string;
+  readonly sender: AgentInstance;
+  readonly senderConversationId: string;
+  readonly recipient: AgentInstance;
+  readonly messageId: string;
+  readonly content: string;
+}
+
+/** A message for the application's record, before it is delivered. */
+export interface FoundryMeshRecordedMessage {
+  readonly thread: FoundryMeshThread;
+  readonly message: FoundryMeshMessage;
+  /** The side it goes to. */
+  readonly side: "recipient" | "starter";
+}
+
+type MeshResolvable<T> = T | Promise<T> | import("effect").Effect.Effect<T, unknown, never>;
+
+export interface FoundryApplicationMesh {
+  /**
+   * Who `sender` can see and message, in any workspace. Replaces the
+   * workspace's agents when set; a definition's own `mesh.peers` still
+   * narrows it. Asked again for every list and every new thread, so a block
+   * takes effect at once.
+   */
+  readonly peers?: (sender: AgentInstance, context: FoundryMeshHookContext) => MeshResolvable<ReadonlyArray<FoundryMeshPeer>>;
+  /**
+   * The gate, asked before every message is delivered: new threads, replies
+   * in open threads (both ways), recipients' final answers and read
+   * receipts. Default: deliver.
+   */
+  readonly authorize?: (send: FoundryMeshSend, context: FoundryMeshHookContext) => MeshResolvable<FoundryMeshDecision>;
+  /**
+   * Name a new thread after your record, such as your conversation id.
+   * `threadId` is the recipient's conversation id in Foundry, so it is new
+   * per direction; `record` (default `threadId`) is what `commit` gets.
+   * Returning the id of a thread between the same two agents, in the same
+   * direction, continues that thread.
+   */
+  readonly bindThread?: (start: FoundryMeshThreadStart, context: FoundryMeshHookContext) => MeshResolvable<{ readonly threadId: string; readonly record?: string }>;
+  /**
+   * Write a message to your record before it is delivered. Must be
+   * idempotent on `message.id`: after a crash Foundry commits again, then
+   * delivers. A person's message (`runtime.meshHumanMessage`) came from your
+   * record and is not committed again.
+   */
+  readonly commit?: (recorded: FoundryMeshRecordedMessage, context: FoundryMeshHookContext) => MeshResolvable<{ readonly recordId?: string } | void>;
+  /**
+   * What a sender reads when Foundry itself refuses: an agent it cannot
+   * reach, or a thread it was taken off. Default: "Your message could not be sent."
+   */
+  readonly refusal?: string;
+}
+
+/** The default wording when the application's mesh refuses a send. */
+export const DEFAULT_MESH_REFUSAL = "Your message could not be sent.";
+
+const RECORD_ID = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,199}$/;
+
+/** Whether an id from `bindThread` can name a conversation. */
+export function isBindableThreadId(value: string): boolean {
+  return RECORD_ID.test(value) && !value.includes("..");
 }

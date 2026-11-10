@@ -14,6 +14,7 @@ import type {
 } from "glove-core";
 import { Glove, isTurnSuspended } from "glove-core";
 import { isGenericDelivery, type FoundryHandledEvent } from "./event-delivery.js";
+import { builtinAllowed, FOUNDRY_BUILTINS_MOUNTED_EVENT, isFoundryBuiltin, type FoundryBuiltinsPolicy } from "./builtins.js";
 import { mountFoundryGuidance } from "./guidance.js";
 import { mountMesh } from "glove-mesh";
 import { Effect } from "effect";
@@ -61,6 +62,7 @@ import {
 import {
   createMeshTools,
   isOpenThread,
+  isTakenOverBy,
   renderOpenThreads,
   renderOwnThread,
   threadFromContext,
@@ -693,10 +695,21 @@ async function executeDefinition(
       data: { count: desiredSchedules.length, names: desiredSchedules.map((item) => item.name) },
     });
     const effectiveInstallations = [...installations];
+    // Which built-ins this run gets. A withheld built-in is never folded, so
+    // the model never sees it; the controller is told what was mounted and
+    // refuses commands only a withheld tool could send.
+    const builtinsPolicy = await resolveOptional<FoundryBuiltinsPolicy | undefined>("builtins", definition.builtins, undefined);
+    const builtinOn = builtinAllowed(builtinsPolicy);
+    const mountedBuiltins: string[] = [];
+    const foldBuiltin = (tool: GloveFoldArgs<any>): void => {
+      if (!builtinOn(tool.name)) return;
+      if (isFoundryBuiltin(tool.name)) mountedBuiltins.push(tool.name);
+      base.fold(tool);
+    };
     for (const tool of createFoundryCoreTools(assemblyContext, desiredSchedules, {
       playbooks: desiredPlaybooks,
       applications: registry.capabilities.applications,
-    })) base.fold(tool);
+    })) foldBuiltin(tool);
     assembly.mark("foundry-core", "Foundry core tools");
     const applicationTransmissionTools = createInstalledApplicationTransmissionTools(
       assemblyContext,
@@ -848,7 +861,7 @@ async function executeDefinition(
       ...delegates,
       ...durableNames.filter((name) => !delegates.some((item) => (typeof item === "string" ? item : item.agent) === name)).map((name) => ({ agent: name, description: definition.durableSubagents![name]!.description ?? `Persistent ${name} worker.` })),
     ]);
-    if (durableNames.length || envelope.agent.durableSubagent) base.fold(createAgentMessagingTool(assemblyContext, durableNames, Boolean(envelope.agent.durableSubagent)));
+    if (durableNames.length || envelope.agent.durableSubagent) foldBuiltin(createAgentMessagingTool(assemblyContext, durableNames, Boolean(envelope.agent.durableSubagent)));
     const onReplied = (delegationId: string): void => {
       heard.set(delegationId, "replied");
     };
@@ -865,7 +878,7 @@ async function executeDefinition(
         createdAt: now,
         updatedAt: now,
       });
-    }, onReplied)) base.fold(tool);
+    }, onReplied)) foldBuiltin(tool);
     if (normalizedDelegates.length > 0 || assemblyContext.delegations.length > 0) {
       base.addContextProvider(() =>
         renderOpenDelegations(
@@ -893,7 +906,7 @@ async function executeDefinition(
         answerWaitMs,
         pending: pendingQuestion,
         waitForReply,
-      })) base.fold(tool);
+      })) foldBuiltin(tool);
     }
     // The mesh Foundry hosts: message peers (existing instances in the
     // workspace) by id, and hear back through this run's mailbox.
@@ -929,7 +942,9 @@ async function executeDefinition(
     const ownThread = assemblyContext.thread;
     const hostedMesh = hostedMeshOptions(definition.mesh);
     if (ownDelegation || normalizedDelegates.length || durableNames.length) assembly.mark("delegation", "Delegation");
-    const meshHosted = Boolean(hostedMesh && (hostedMesh.mount?.(assemblyContext) ?? true));
+    // A person took this agent's side of its thread over: it has no mesh here.
+    const meshHosted = Boolean(hostedMesh && (hostedMesh.mount?.(assemblyContext) ?? true))
+      && !(ownThread && isTakenOverBy(ownThread, request.agentId));
     if (hostedMesh && meshHosted) {
       for (const tool of createMeshTools({
         definitionId: id,
@@ -940,12 +955,18 @@ async function executeDefinition(
         call: callMesh,
         waitFrom,
         pending: pendingReply,
-      })) base.fold(tool);
+      })) foldBuiltin(tool);
       controls.emit({
         type: "foundry.mesh.mounted",
         data: { open: assemblyContext.threads.length, thread: ownThread?.id ?? null },
       });
       assembly.mark("mesh", "Hosted mesh");
+    }
+    if (builtinsPolicy !== undefined) {
+      controls.emit({
+        type: FOUNDRY_BUILTINS_MOUNTED_EVENT,
+        data: { tools: mountedBuiltins, transmissionTools: applicationTransmissionTools.map((tool) => tool.name) },
+      });
     }
     if (hostedMesh || assemblyContext.threads.length > 0 || ownThread) {
       base.addContextProvider(() => [
