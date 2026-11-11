@@ -214,9 +214,12 @@ Anthropic defaults are wired in via `VOICE_PROVIDER=anthropic`.
 Click **Mic** in the dock to go hands-free. Then:
 
 - **Mic in** — your speech is captured, VAD-segmented, and transcribed by
-  ElevenLabs Scribe. Each finalized utterance is sent as the **currently selected
+  ElevenLabs Scribe v3 Live. Each finalized utterance is sent as the **currently selected
   speaker** (the chip you have highlighted is "who's at the mic"), so switch
-  speakers to play the operator vs. the customer.
+  speakers to play the operator vs. the customer. Scribe v3 Live can also label
+  speakers itself (`diarize: true` on `ElevenLabsSTTAdapter`), but its labels
+  arrive after Scribe commits, so using them would give up the ~0ms dispatch
+  from the live partial; this demo keeps the chip.
 - **TTS out (streaming, genuinely realtime)** — Nova's parsed `<speech>` tokens
   stream RAW into an ElevenLabs `stream-input` WebSocket as they arrive over
   SSE (text up, PCM down, one socket per spoken turn). Two mechanics make
@@ -312,6 +315,7 @@ five legs; each was attacked separately. Where it stands, per leg:
 | --- | --- | --- | --- |
 | end-of-speech detection | 700ms fixed | **450ms** for questions; +600ms for `.` endings; +900ms mid-thought | three-tier semantic endpointing: `?`/`!` dispatches at the VAD boundary; a trailing `.` is only weak evidence (Scribe auto-punctuates partials) so it gets a medium hold (`NEXT_PUBLIC_ENDPOINT_HOLD_SOFT_MS`); no punctuation gets the hard hold (`NEXT_PUBLIC_ENDPOINT_HOLD_MS`). Resumed speech cancels any hold and merges (`endpoint_hold` metric) |
 | STT finalize | ~350ms commit round-trip | **~0ms** | dispatch straight from the live partial at endpoint time; Scribe's commit is fired only to reset state and its confirm is swallowed (`stt_final_mismatch` logs the rare disagreements) |
+| turn signal | text only | text + Scribe v3 Live's end-of-turn probability | `ProviderTurnDetector` wraps the detector: Scribe's `turn_probability` (from the audio as well as the words, sent with every partial even with manual commits) caps the hold at 400ms when P ≥ 0.9 and raises it to ≥1500ms when P < 0.2. `NEXT_PUBLIC_SCRIBE_TURN_SIGNAL=off` disables it; `NEXT_PUBLIC_SCRIBE_MODEL=scribe_v2_realtime` switches models |
 | LLM first spoken token | 1000–2000ms | **160–600ms** | same model (gpt-oss-120b), different serving: OpenRouter `provider.sort=throughput` routes to Cerebras — measured 979ms → 160ms TTFT on identical prompts. Tool calls verified through the fast route. |
 | TTS first audio | ~250–300ms (turbo) | **~75–150ms** | `eleven_flash_v2_5` by default + the existing `flush: true` triggers, prewarmed socket (with idle keepalive), 60-char first-generation schedule |
 | audio gate (§5) | 0 when idle | 0 | unchanged — plus the noise watchdog so it can't be pinned shut |

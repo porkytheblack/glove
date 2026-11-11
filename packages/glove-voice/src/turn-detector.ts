@@ -227,3 +227,96 @@ export class RemoteTurnDetector implements TurnDetectorAdapter {
     }
   }
 }
+
+/** Anything that reports the provider's latest end-of-turn probability. */
+export interface TurnProbabilitySource {
+  /**
+   * P(speaker finished) for the latest partial transcript, or null when the
+   * provider has not reported one (e.g. not Scribe v3 Live, or just after a
+   * commit). `ElevenLabsSTTAdapter` implements this.
+   */
+  readonly turnProbability?: number | null;
+}
+
+export interface ProviderTurnDetectorConfig {
+  /** Where the probability comes from, e.g. an `ElevenLabsSTTAdapter` on `scribe_v3_live`. */
+  source: TurnProbabilitySource;
+  /** Detector whose decision is adjusted (default: `HeuristicTurnDetector`). */
+  inner?: TurnDetectorAdapter;
+  /** At or above this, the provider says the speaker is done (default 0.9, Scribe's own commit threshold). */
+  doneAt?: number;
+  /**
+   * Longest hold once the provider says done (default 400ms). Keep it above
+   * the VAD's resume-detection latency (~250ms), for the same reason as
+   * `RemoteTurnDetector`'s `minHoldMs`.
+   */
+  doneHoldMs?: number;
+  /** Below this, the provider says the speaker is not done (default 0.2). */
+  unfinishedBelow?: number;
+  /** Shortest hold while the provider says not done (default 1500ms). */
+  unfinishedHoldMs?: number;
+}
+
+/**
+ * Adds the STT provider's own end-of-turn prediction to another detector.
+ *
+ * Scribe v3 Live sends `turn_probability` on every partial under every commit
+ * strategy, including `"manual"`, judged from the audio as well as the words.
+ * This keeps the caller in charge of commits (unlike `commitStrategy:
+ * "turn_prediction"`, where Scribe commits by itself) and uses that
+ * probability to adjust the inner detector's hold at each VAD boundary:
+ *
+ *   P ≥ doneAt           → hold at most `doneHoldMs` (a dictation hold from
+ *                          the inner detector is kept)
+ *   P < unfinishedBelow  → hold at least `unfinishedHoldMs`
+ *   otherwise, or no P   → the inner decision unchanged
+ *
+ * @example
+ * const stt = new ElevenLabsSTTAdapter({ getToken });
+ * const detector = new ProviderTurnDetector({
+ *   source: stt,
+ *   inner: new RemoteTurnDetector({ url: "/api/turn" }),
+ * });
+ */
+export class ProviderTurnDetector implements TurnDetectorAdapter {
+  private readonly source: TurnProbabilitySource;
+  private readonly inner: TurnDetectorAdapter;
+  private readonly doneAt: number;
+  private readonly doneHoldMs: number;
+  private readonly unfinishedBelow: number;
+  private readonly unfinishedHoldMs: number;
+
+  constructor(config: ProviderTurnDetectorConfig) {
+    this.source = config.source;
+    this.inner = config.inner ?? new HeuristicTurnDetector();
+    this.doneAt = config.doneAt ?? 0.9;
+    this.doneHoldMs = config.doneHoldMs ?? 400;
+    this.unfinishedBelow = config.unfinishedBelow ?? 0.2;
+    this.unfinishedHoldMs = config.unfinishedHoldMs ?? 1500;
+  }
+
+  async decide(transcript: string, context?: TurnContextMessage[]): Promise<TurnDecision> {
+    // Read before awaiting the inner detector: that is the probability for
+    // the transcript being decided.
+    const raw = this.source.turnProbability;
+    const inner = await this.inner.decide(transcript, context);
+    if (typeof raw !== "number" || !Number.isFinite(raw)) return inner;
+    const p = Math.min(Math.max(raw, 0), 1);
+    const tag = p.toFixed(2);
+
+    if (p >= this.doneAt) {
+      if (inner.reason === "dictation") return { ...inner, reason: `dictation|turn:${tag}` };
+      return {
+        holdMs: Math.min(inner.holdMs, this.doneHoldMs),
+        reason: `turn-done:${tag}|${inner.reason}`,
+      };
+    }
+    if (p < this.unfinishedBelow) {
+      return {
+        holdMs: Math.max(inner.holdMs, this.unfinishedHoldMs),
+        reason: `turn-wait:${tag}|${inner.reason}`,
+      };
+    }
+    return { ...inner, reason: `${inner.reason}|turn:${tag}` };
+  }
+}

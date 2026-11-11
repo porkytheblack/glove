@@ -41,7 +41,7 @@
   },
   "peerDependencies": {
     "react": ">=18.0.0",
-    "glove-voice": "workspace:*"
+    "glove-voice": "workspace:^"
   },
   "peerDependenciesMeta": {
     "glove-voice": {

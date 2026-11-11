@@ -22,6 +22,7 @@
 import {
   ElevenLabsSTTAdapter,
   ElevenLabsTTSAdapter,
+  ProviderTurnDetector,
   type TurnContextMessage,
 } from "glove-voice";
 import { createElevenLabsSTTToken, createElevenLabsTTSToken } from "glove-voice/server";
@@ -42,6 +43,20 @@ import { LocalTurnDetector } from "./turn-detector-local";
 import { TurnEngine } from "./turn-engine";
 import { SileroVADNode } from "./silero-vad-node";
 import { PROVIDER, frontProviderSort, modelFor } from "./models";
+
+// Speech-to-text: ElevenLabs Scribe v3 Live by default; SCRIBE_MODEL=
+// scribe_v2_realtime switches back. The engine keeps committing itself
+// (manual commit strategy), but Scribe v3 Live also sends an end-of-turn
+// probability with every partial, judged from the audio as well as the words.
+// ProviderTurnDetector folds it into the in-process EOU decision; set
+// SCRIBE_TURN_SIGNAL=off to use the EOU model alone. SCRIBE_KEYTERMS
+// (comma-separated) biases recognition toward names and jargon.
+const SCRIBE_MODEL = process.env.SCRIBE_MODEL || "scribe_v3_live";
+const SCRIBE_TURN_SIGNAL = process.env.SCRIBE_TURN_SIGNAL !== "off";
+const SCRIBE_KEYTERMS = (process.env.SCRIBE_KEYTERMS ?? "")
+  .split(",")
+  .map((t) => t.trim())
+  .filter(Boolean);
 import type { ServerMessage, SpeakerRole } from "./protocol";
 
 /** Rough speaking rate used to estimate how much of a cut line was heard. */
@@ -299,6 +314,8 @@ export class VoiceSession {
       // Server-side, the "token" step is a local function call against the API
       // key this process already holds — no route, no round trip to a browser.
       getToken: () => createElevenLabsSTTToken(this.deps.elevenLabsApiKey),
+      model: SCRIBE_MODEL,
+      ...(SCRIBE_KEYTERMS.length > 0 ? { keyterms: SCRIBE_KEYTERMS } : {}),
     });
     this.stt.on("error", (e) => this.deps.send({ t: "error", message: e.message }));
     // The adapter gives up after its own retries. A room that outlives its
@@ -312,10 +329,7 @@ export class VoiceSession {
       vadSilenceMs: this.deps.endpointing?.vadSilenceMs,
       vadThreshold: this.deps.endpointing?.vadThreshold,
       farFieldRatio: this.deps.endpointing?.farFieldRatio,
-      detector: new LocalTurnDetector({
-        minHoldMs: this.deps.endpointing?.minHoldMs,
-        maxHoldMs: this.deps.endpointing?.maxHoldMs,
-      }),
+      detector: this.buildTurnDetector(),
       hooks: {
         onUtterance: (text) => this.onUtterance(text),
         onPartial: (text) => this.deps.send({ t: "partial", text }),
@@ -398,7 +412,10 @@ export class VoiceSession {
         front: modelFor("front") ?? "(default)",
         worker: modelFor("worker") ?? "(default)",
         tts: this.deps.ttsModel,
-        turnDetector: "livekit-eou (in-process)",
+        turnDetector: SCRIBE_TURN_SIGNAL
+          ? "livekit-eou (in-process) + scribe turn probability"
+          : "livekit-eou (in-process)",
+        stt: SCRIBE_MODEL,
         vad: this.vadKind,
         endpointing: `vad ${this.deps.endpointing?.vadSilenceMs ?? 450}ms / hold ${
           this.deps.endpointing?.minHoldMs ?? 400
@@ -516,6 +533,15 @@ export class VoiceSession {
    * — but whatever Scribe held is gone with the session, so the local buffer
    * is reset rather than left to glue itself onto the next utterance.
    */
+  /** The in-process EOU detector, plus Scribe's turn probability unless SCRIBE_TURN_SIGNAL=off. */
+  private buildTurnDetector() {
+    const eou = new LocalTurnDetector({
+      minHoldMs: this.deps.endpointing?.minHoldMs,
+      maxHoldMs: this.deps.endpointing?.maxHoldMs,
+    });
+    return SCRIBE_TURN_SIGNAL ? new ProviderTurnDetector({ source: this.stt, inner: eou }) : eou;
+  }
+
   private reviveStt(): void {
     if (this.closed || this.sttReviving) return;
     this.sttReviving = true;

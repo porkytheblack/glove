@@ -2944,7 +2944,7 @@ importers:
         specifier: workspace:*
         version: link:../glove
       glove-voice:
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../glove-voice
       react:
         specifier: '>=18.0.0'

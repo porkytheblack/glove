@@ -41,6 +41,9 @@ export { SpeechGate, type SpeechGateOptions } from "./speech-gate";
 export {
   HeuristicTurnDetector,
   RemoteTurnDetector,
+  ProviderTurnDetector,
+  type ProviderTurnDetectorConfig,
+  type TurnProbabilitySource,
   type HeuristicTurnDetectorConfig,
   type RemoteTurnDetectorConfig,
   type TurnContextMessage,

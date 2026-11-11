@@ -247,6 +247,8 @@ export class ElevenLabsSTTAdapter
   private pendingAudio = false;
   /** The kind of the last commit when its timed/plain twin may still follow. */
   private unpairedCommit: "plain" | "timed" | null = null;
+  /** Scribe's latest end-of-turn probability, for the current partial. */
+  private latestTurnProbability: number | null = null;
   /** Speaker merges Scribe announced, from → to. */
   private readonly merges = new Map<string, string>();
 
@@ -312,6 +314,7 @@ export class ElevenLabsSTTAdapter
       this.sentFirstChunk = false;
       this.pendingAudio = false;
       this.unpairedCommit = null;
+      this.latestTurnProbability = null;
       this.ws = new WebSocket(url);
       this.ws.binaryType = "arraybuffer";
 
@@ -381,6 +384,7 @@ export class ElevenLabsSTTAdapter
       case "partial_transcript": {
         const text = typeof data.text === "string" ? data.text : "";
         if (typeof data.turn_probability === "number") {
+          this.latestTurnProbability = data.turn_probability;
           this.scribe.emit("turn_probability", data.turn_probability);
         }
         // Repeated partials (Scribe re-sends the current text while audio
@@ -418,6 +422,7 @@ export class ElevenLabsSTTAdapter
         console.debug(`[ElevenLabsSTT] committed: "${raw}"${raw ? "" : ` (using partial: "${text}")`}`);
         this.partial = "";
         this.pendingAudio = false;
+        this.latestTurnProbability = null;
         this.scribe.emit("committed", { ...commit, text });
         this.emit("final", text);
         return;
@@ -567,6 +572,16 @@ export class ElevenLabsSTTAdapter
 
   get currentPartial(): string {
     return this.partial;
+  }
+
+  /**
+   * Scribe v3 Live's end-of-turn probability for the current partial, or null
+   * before the first partial of an utterance and on models that do not send
+   * one. Sent under every commit strategy, so `ProviderTurnDetector` can use
+   * it while commits stay manual.
+   */
+  get turnProbability(): number | null {
+    return this.latestTurnProbability;
   }
 
   /**

@@ -24,6 +24,7 @@ import {
   AudioCapture,
   AudioPlayer,
   HeuristicTurnDetector,
+  ProviderTurnDetector,
   RemoteTurnDetector,
   VAD,
   type TurnContextMessage,
@@ -86,6 +87,22 @@ const TURN_DETECTOR: TurnDetectorAdapter =
         maxHoldMs: Number(process.env.NEXT_PUBLIC_TURN_MAX_HOLD_MS) || 2800,
         fallback: HEURISTIC_DETECTOR,
       });
+
+// Speech-to-text: ElevenLabs Scribe v3 Live by default. Commits stay manual —
+// this engine dispatches from the partial and commits itself — but Scribe v3
+// Live also sends an end-of-turn probability with every partial, judged from
+// the audio as well as the words. ProviderTurnDetector folds it into the
+// detector above: a confident "done" shortens the hold, a confident "not done"
+// lengthens it. NEXT_PUBLIC_SCRIBE_TURN_SIGNAL=off uses the detector alone.
+// NEXT_PUBLIC_SCRIBE_MODEL=scribe_v2_realtime switches back to the previous
+// model (no turn probability). NEXT_PUBLIC_SCRIBE_KEYTERMS biases recognition
+// toward names and jargon (comma-separated).
+const SCRIBE_MODEL = process.env.NEXT_PUBLIC_SCRIBE_MODEL || "scribe_v3_live";
+const SCRIBE_TURN_SIGNAL = process.env.NEXT_PUBLIC_SCRIBE_TURN_SIGNAL !== "off";
+const SCRIBE_KEYTERMS = (process.env.NEXT_PUBLIC_SCRIBE_KEYTERMS ?? "")
+  .split(",")
+  .map((t) => t.trim())
+  .filter(Boolean);
 
 async function fetchToken(path: string): Promise<string> {
   const res = await fetch(path);
@@ -199,6 +216,8 @@ export function useVoice(args: UseVoiceArgs) {
   // Audio objects live outside React render.
   const captureRef = useRef<AudioCapture | null>(null);
   const sttRef = useRef<ElevenLabsSTTAdapter | null>(null);
+  // TURN_DETECTOR, wrapped with Scribe's turn probability once STT exists.
+  const detectorRef = useRef<TurnDetectorAdapter>(TURN_DETECTOR);
   const vadRef = useRef<VADAdapter | null>(null);
   const playerRef = useRef<AudioPlayer | null>(null);
 
@@ -750,9 +769,16 @@ export function useVoice(args: UseVoiceArgs) {
       playerRef.current = player;
 
       const capture = new AudioCapture(16_000);
-      const stt = new ElevenLabsSTTAdapter({ getToken: () => fetchToken("/api/voice/stt-token") });
+      const stt = new ElevenLabsSTTAdapter({
+        getToken: () => fetchToken("/api/voice/stt-token"),
+        model: SCRIBE_MODEL,
+        ...(SCRIBE_KEYTERMS.length > 0 ? { keyterms: SCRIBE_KEYTERMS } : {}),
+      });
       captureRef.current = capture;
       sttRef.current = stt;
+      detectorRef.current = SCRIBE_TURN_SIGNAL
+        ? new ProviderTurnDetector({ source: stt, inner: TURN_DETECTOR })
+        : TURN_DETECTOR;
 
       // VAD choice. DEFAULT: the neural Silero adapter. An RMS-energy VAD
       // systematically misreads natural speech — soft trailing words, "uh…",
@@ -881,7 +907,7 @@ export function useVoice(args: UseVoiceArgs) {
           holdTimerRef.current = null;
         }
         void Promise.resolve(
-          TURN_DETECTOR.decide(partial, argsRef.current.getTurnContext?.()),
+          detectorRef.current.decide(partial, argsRef.current.getTurnContext?.()),
         ).then(({ holdMs, reason }) => {
           if (id !== decideSeq) return; // superseded by growth / a new boundary
           if (!enabledRef.current || !gateOpenRef.current) return;
@@ -939,7 +965,7 @@ export function useVoice(args: UseVoiceArgs) {
             if (!vadRef.current?.isSpeaking) return; // speech_end will handle it
             if (livePartial() !== live) return; // grew — its own timer is running
             void Promise.resolve(
-              TURN_DETECTOR.decide(live, argsRef.current.getTurnContext?.()),
+              detectorRef.current.decide(live, argsRef.current.getTurnContext?.()),
             ).then(({ holdMs, reason }) => {
               if (!enabledRef.current || !gateOpenRef.current) return;
               if (livePartial() !== live) return;

@@ -105,6 +105,12 @@ export interface STTAdapter extends EventEmitter<STTAdapterEvents> {
    * `turnMode: "stt"`.
    */
   readonly detectsTurns?: boolean;
+
+  /**
+   * The provider's end-of-turn probability for the current partial, when it
+   * reports one (e.g. Scribe v3 Live). Feed it to `ProviderTurnDetector`.
+   */
+  readonly turnProbability?: number | null;
 }
 
 // ─── TTS ───────────────────────────────────────────────────────────────────
