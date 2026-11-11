@@ -158,15 +158,15 @@ test("without diarize the adapter is not a speaker source", () => {
 class FakeSTT extends EventEmitter<STTAdapterEvents> {
   currentPartial = "";
   isConnected = true;
-  private listeners = new Set<SpeakerListener>();
+  private speakerListeners = new Set<SpeakerListener>();
   private next: PendingSpeakers = { draft: null, settled: Promise.resolve(null) };
   private settle: ((turns: SpeakerTurn[] | null) => void) | null = null;
   readonly speakers: SpeakerSource = {
     enabled: true,
     forFinal: () => this.next,
     subscribe: (l) => {
-      this.listeners.add(l);
-      return () => this.listeners.delete(l);
+      this.speakerListeners.add(l);
+      return () => this.speakerListeners.delete(l);
     },
   };
   async connect() {}
@@ -181,10 +181,10 @@ class FakeSTT extends EventEmitter<STTAdapterEvents> {
   }
   diarize(turns: SpeakerTurn[]) {
     this.settle?.(turns);
-    for (const l of this.listeners) l.segment?.(turns);
+    for (const l of this.speakerListeners) l.segment?.(turns);
   }
   merge(from: string, to: string) {
-    for (const l of this.listeners) l.merged?.(from, to);
+    for (const l of this.speakerListeners) l.merged?.(from, to);
   }
 }
 

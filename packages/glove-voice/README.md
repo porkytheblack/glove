@@ -68,6 +68,12 @@ stt.scribe.on("diarized", (seg) => {
 
 Other options: `includeTimestamps`, `includeLanguageDetection`, `secondaryLanguages`, `noVerbatim`, `filterBackgroundAudio`, `previousText`, `keepaliveIntervalMs`, `extraParams`. `stt.scribe` also emits `speakers_merged`, `turn_probability`, `committed`, `session_started` and `warning`. Set `model: "scribe_v2_realtime"` for the previous model (it has no `diarize` or `turn_prediction`).
 
+To check your key, network and the live API behaviour (turn probabilities, speaker labels and how fast they arrive), run the live check from this repo. It synthesizes a short two-voice clip, or takes a 16 kHz mono WAV:
+
+```bash
+ELEVENLABS_API_KEY=... pnpm --filter glove-voice scribe:check [clip.wav]
+```
+
 For recordings, use batch **Scribe v3** on the server:
 
 ```ts

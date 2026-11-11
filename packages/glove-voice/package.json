@@ -27,7 +27,8 @@
   "scripts": {
     "build": "tsup",
     "typecheck": "tsc --noEmit",
-    "test": "node --test --import tsx tests/*.test.ts"
+    "test": "node --test --import tsx tests/*.test.ts",
+    "scribe:check": "node --import tsx scripts/scribe-live-check.ts"
   },
   "keywords": [],
   "packageManager": "pnpm@10.28.2",
