@@ -17,5 +17,13 @@ export {
 } from "./voice-ptt-button";
 
 // Re-export voice types for convenience so consumers don't need to import glove-voice directly
-export type { VoiceMode, TurnMode, GloveVoiceConfig, TTSFactory } from "glove-voice";
+export type {
+  VoiceMode,
+  TurnMode,
+  GloveVoiceConfig,
+  VoiceSpeakersConfig,
+  SpeakerInfo,
+  LabeledSpeakerTurn,
+  TTSFactory,
+} from "glove-voice";
 export type { IGloveRunnable } from "glove-core/glove";

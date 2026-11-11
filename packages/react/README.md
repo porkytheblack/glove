@@ -179,6 +179,14 @@ const voice = useGloveVoice({
 
 With `turnMode: "stt"` the VAD still gates audio and handles barge-in, and `start()` throws unless the adapter ends turns itself (`stt.detectsTurns`). For `useGlovePTT` (push-to-talk), keep the adapter on the default `commitStrategy: "manual"`.
 
+With `stt: { diarize: true }`, the agent is told who said what once a second speaker is heard, and the hook returns the people in the room:
+
+```tsx
+voice.speakers;                          // [{ label, name?, share, talkMs, ... }]
+voice.dominantSpeaker(60_000);           // most of the talking in the last minute
+voice.nameSpeaker("Speaker A", "Sarah"); // their lines become "[Sarah] ..."
+```
+
 ### Async session ID
 
 When your session ID comes from a backend (auth tokens, server-assigned IDs, etc.), use `getSessionId` instead of a static `sessionId`:

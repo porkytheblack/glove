@@ -1069,6 +1069,12 @@ const voice = new GloveVoice(gloveRunnable, {
                                       //   (Scribe v3 Live commitStrategy "turn_prediction");
                                       //   VAD only gates audio + barge-in. Needs stt.detectsTurns.
   sttTurnTimeoutMs?: number,          // "stt" mode: fallback commit after VAD speech end. Default: 2500
+  speakers?: boolean | {              // Speaker awareness; on by default when stt.speakers.enabled (diarize: true)
+    label?: "auto" | "always" | "never", // "auto": label the agent's lines once a 2nd speaker is heard
+    waitMs?: number,                  // Wait for settled labels after a final. Default: 350
+    names?: Record<string, string>,   // Provider id → name, e.g. { speaker_0: "Sarah" }
+    format?: (turns: LabeledSpeakerTurn[], plainText: string) => string,
+  },
   vad?: VADAdapter,                   // Override default VAD ("vad" and "stt" modes)
   vadConfig?: VADConfig,              // Built-in VAD config (only used if no custom vad)
   speechGating?: boolean,             // Default: true in "vad" and "stt" modes — only stream confirmed speech to STT
@@ -1094,6 +1100,18 @@ voice.commitTurn();        // Manual turn commit: flush utterance to STT
 
 // Narration — speak text through TTS without involving the model
 await voice.narrate("Here is your order summary.");  // Resolves when audio finishes
+
+// Speakers — only when the STT adapter labels them (ElevenLabsSTTAdapter({ diarize: true }))
+voice.speakers;                          // SpeakerInfo[]: { id, label, name?, talkMs, words, turns, share, lastSpokeAt }
+voice.dominantSpeaker(windowMs?);        // SpeakerInfo | null — most of the talking, overall or in the window
+voice.nameSpeaker("Speaker A", "Sarah"); // boolean — label or provider id; lines become "[Sarah] ..."
+// Events: "speakers" (SpeakerInfo[]), "speaker_turns" (LabeledSpeakerTurn[], plainText)
+// The agent reads "[Speaker A] ..." lines once a second speaker is heard, plus a transient
+// <voice-speakers> context note (request delivery). The "transcript" event stays plain.
+// glove.fold(createNameSpeakerTool((speaker, name) => voice.nameSpeaker(speaker, name)))
+// SpeakerTracker (exported) does the labelling/stats and works standalone:
+//   observe(turns) record(turns) merge(from,to) name(idOrLabel,name) list() dominant(windowMs?)
+//   labelTurns(turns) format(turns) describe()
 
 // Mic control — gate audio forwarding to STT/VAD
 voice.mute();              // Stop forwarding audio to STT/VAD (audio_chunk still emitted)
@@ -1126,6 +1144,7 @@ interface STTAdapter extends EventEmitter<STTAdapterEvents> {
   readonly isConnected: boolean;
   readonly currentPartial: string;
   readonly detectsTurns?: boolean;   // provider commits on its own; required by turnMode "stt"
+  readonly speakers?: SpeakerSource; // diarization: { enabled, forFinal(): { draft, settled }, subscribe({ segment, merged }) }
   readonly turnProbability?: number | null; // provider end-of-turn probability (Scribe v3 Live); feed ProviderTurnDetector
 }
 // Events: partial(text), final(text), error(Error), close()
@@ -1353,6 +1372,9 @@ voice.commitTurn();  // () => void
 voice.mute();        // () => void — stop forwarding mic to STT/VAD
 voice.unmute();      // () => void — resume forwarding mic to STT/VAD
 voice.narrate(text); // (text: string) => Promise<void> — speak without model
+voice.speakers;      // SpeakerInfo[] — people heard on the mic (needs stt diarize: true)
+voice.dominantSpeaker(windowMs?); // SpeakerInfo | null
+voice.nameSpeaker(idOrLabel, name); // boolean
 ```
 
 ### useGlovePTT (glove-react/voice)

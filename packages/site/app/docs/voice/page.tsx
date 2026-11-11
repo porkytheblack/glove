@@ -607,7 +607,7 @@ function App() {
           [
             "diarize",
             "boolean",
-            "Live speaker labels (v3 Live only). Each commit is followed by a diarized event with speaker turns. Cannot be combined with filterBackgroundAudio.",
+            "Live speaker labels (v3 Live only). GloveVoice then tells the agent who said what (see Speakers); each commit is also followed by a diarized event with speaker turns. Cannot be combined with filterBackgroundAudio.",
           ],
           [
             "multilangMode",
@@ -702,6 +702,120 @@ transcript.turns;  // [{ speakerId: "speaker_0", text, start, end }, ...]`}
         filename="app/api/transcribe/route.ts"
         language="typescript"
       />
+
+      <h3 id="speakers">Speakers: Several People on One Microphone</h3>
+
+      <p>
+        With <code>diarize: true</code>, Scribe v3 Live labels who is speaking
+        and <code>GloveVoice</code> passes that on to the agent. There is
+        nothing else to configure.
+      </p>
+
+      <CodeBlock
+        code={`const { stt, createTTS } = createElevenLabsAdapters({
+  getSTTToken, getTTSToken, voiceId,
+  stt: { diarize: true },
+});
+
+const voice = useGloveVoice({ runnable, voice: { stt, createTTS } });`}
+        language="typescript"
+      />
+
+      <ul>
+        <li>
+          <strong>One speaker:</strong> the agent gets plain text, as before.
+        </li>
+        <li>
+          <strong>From the moment a second speaker is heard,</strong> each line
+          the agent reads starts with who said it, and stays that way:
+          <CodeBlock
+            code={`[Speaker A] Can you book a table for seven?
+[Speaker B] Make it seven thirty.`}
+            language="text"
+          />
+          The agent also gets a short note with every turn (never saved to
+          history) that says how to read the labels, who is in the room, each
+          speaker&apos;s share of the talking, and any labels that turned out
+          to be the same person.
+        </li>
+        <li>
+          <strong>Captions stay clean.</strong> The <code>transcript</code>{" "}
+          event carries plain text; <code>speaker_turns</code> carries the
+          labelled turns for the same utterance.
+        </li>
+        <li>
+          <strong>Latency.</strong> Scribe sends settled labels just after each
+          commit. GloveVoice waits up to <code>waitMs</code> (350ms) for them,
+          then uses the draft labels from the live partial, then plain text.
+          While one known speaker is the only one talking, it does not wait.
+        </li>
+      </ul>
+
+      <CodeBlock
+        code={`voice.speakers;                          // [{ id, label, name?, talkMs, words, turns, share, lastSpokeAt }]
+voice.dominantSpeaker();                 // most of the talking overall
+voice.dominantSpeaker(60_000);           // ...over the last minute
+voice.nameSpeaker("Speaker A", "Sarah"); // their lines become "[Sarah] ..."
+
+// Let the agent record names when people introduce themselves:
+glove.fold(createNameSpeakerTool((speaker, name) => voice.nameSpeaker(speaker, name)));`}
+        language="typescript"
+      />
+
+      <PropTable
+        headers={["speakers option", "Type", "Description"]}
+        rows={[
+          [
+            "label",
+            '"auto" | "always" | "never"',
+            'When the agent\'s lines carry labels. "auto" (default): from the second speaker on. "always": from the first utterance. "never": track speakers without changing what the agent reads.',
+          ],
+          [
+            "waitMs",
+            "number",
+            "How long to wait for settled labels after an utterance is finalized. Default: 350.",
+          ],
+          [
+            "names",
+            "Record<string, string>",
+            'Names for provider speaker ids known ahead of time, e.g. { speaker_0: "Sarah" }.',
+          ],
+          [
+            "format",
+            "(turns, plainText) => string",
+            "Build the agent's text yourself from the labelled turns.",
+          ],
+        ]}
+      />
+
+      <p>
+        Pass <code>speakers: false</code> to ignore the labels entirely. A few
+        things to keep in mind:
+      </p>
+
+      <ul>
+        <li>
+          Talking the most is not the same as talking to the agent. Treat{" "}
+          <code>dominantSpeaker()</code> as a hint.
+        </li>
+        <li>
+          With several people in the room the agent hears every line,
+          including people talking to each other. Say in your system prompt
+          when it should stay quiet.
+        </li>
+        <li>
+          Speaker ids are anonymous and start over when the STT session
+          reconnects. <code>diarize</code> cannot be combined with{" "}
+          <code>filterBackgroundAudio</code>.
+        </li>
+        <li>
+          Any STT adapter can take part by exposing a{" "}
+          <code>speakers</code> source (<code>SpeakerSource</code>).{" "}
+          <code>SpeakerTracker</code> is exported for use on its own, for
+          example over the <code>turns</code> that{" "}
+          <code>transcribeWithElevenLabs</code> returns.
+        </li>
+      </ul>
 
       {/* ------------------------------------------------------------------ */}
       <h2 id="security">Security: Token-based Auth</h2>
@@ -1678,6 +1792,11 @@ function ChatPanel() {
             'turnMode "stt" only. How long after the VAD hears speech end to wait for the provider to commit before GloveVoice commits itself. Default: 2500.',
           ],
           [
+            "speakers?",
+            "boolean | VoiceSpeakersConfig",
+            "Speaker awareness when the STT adapter labels speakers. On by default with diarize: true: the agent is told who said what once a second speaker is heard. false ignores the labels. See Speakers.",
+          ],
+          [
             "vad?",
             "VADAdapter",
             'Override the VAD implementation. Used when turnMode is "vad" or "stt". Pass a SileroVADAdapter for ML-based detection.',
@@ -1789,6 +1908,21 @@ function ChatPanel() {
             "narrate(text)",
             "(text: string) => Promise<void>",
             "Speak arbitrary text through TTS without involving the model. Auto-mutes mic during playback. Resolves when all audio finishes playing. Safe to call from pushAndWait tool handlers.",
+          ],
+          [
+            "speakers",
+            "SpeakerInfo[]",
+            "Everyone heard on the microphone, with label, optional name and share of the talking. Empty unless the STT adapter labels speakers (diarize: true).",
+          ],
+          [
+            "dominantSpeaker(windowMs?)",
+            "(windowMs?: number) => SpeakerInfo | null",
+            "Who has done most of the talking, overall or over the last windowMs.",
+          ],
+          [
+            "nameSpeaker(idOrLabel, name)",
+            "(idOrLabel: string, name: string) => boolean",
+            'Give a speaker a name; their lines are labelled with it from then on. Accepts the label ("Speaker A") or the provider id.',
           ],
         ]}
       />

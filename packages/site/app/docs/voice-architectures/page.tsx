@@ -470,20 +470,22 @@ vad.on("speech_end", async () => {
       </p>
 
       <ul>
-        <li><strong>Labels arrive after each commit</strong>, on the <code>stt.scribe</code> <code>diarized</code> event. When Scribe decides two IDs are one person it emits <code>speakers_merged</code>; the IDs in <code>diarized</code> already follow merges, and <code>stt.resolveSpeaker(id)</code> resolves any ID you stored earlier.</li>
-        <li><strong>GloveVoice does not send them to the agent.</strong> It sends the model the commit&apos;s plain text. Use the <code>diarized</code> event yourself, for captions or to frame your own requests.</li>
-        <li><strong>Engines that dispatch from the partial</strong> (layered-voice, server-voice) would lose their latency win if they waited for labels, which is why they keep the speaker chip.</li>
-        <li><strong>Labels are anonymous.</strong> Mapping <code>speaker_0</code> to a name is up to your app.</li>
+        <li><strong>GloveVoice tells the agent who said what.</strong> While one person talks the agent gets plain text. From the moment a second speaker is heard, each line it reads starts with the speaker (<code>[Speaker A] &hellip;</code>), and a short per-turn note says who is in the room and each speaker&apos;s share of the talking. See <a href="/docs/voice#speakers">Speakers</a>.</li>
+        <li><strong>Settled labels arrive just after each commit.</strong> GloveVoice waits up to 350ms for them, then falls back to the draft labels on the live partial, then to plain text. While one known speaker is the only one talking it does not wait.</li>
+        <li><strong>Engines that dispatch from the partial</strong> (layered-voice, server-voice) send the line before Scribe commits, so they keep the speaker chip.</li>
+        <li><strong>Labels are anonymous</strong> (<code>speaker_0</code> becomes &ldquo;Speaker A&rdquo;). Name people with <code>voice.nameSpeaker()</code>, or let the agent do it with <code>createNameSpeakerTool</code>. When Scribe decides two IDs are one person, the tracker merges them and tells the agent.</li>
+        <li><strong>The most talkative speaker is not always the one addressing the agent.</strong> <code>voice.dominantSpeaker()</code> is a hint. With several people in the room the agent hears every line, so say in the system prompt when it should stay quiet.</li>
         <li><strong>It cannot be combined with <code>filterBackgroundAudio</code>.</strong></li>
       </ul>
 
-      <CodeBlock filename="captions.ts" language="typescript" code={`const stt = new ElevenLabsSTTAdapter({ getToken, diarize: true });
+      <CodeBlock filename="lib/voice.ts" language="typescript" code={`const { stt, createTTS } = createElevenLabsAdapters({
+  getSTTToken, getTTSToken, voiceId,
+  stt: { diarize: true },
+});
+const voice = new GloveVoice(glove, { stt, createTTS });
 
-stt.scribe.on("diarized", (segment) => {
-  for (const turn of segment.turns) {
-    captions.add(\`[\${turn.speakerId ?? "unknown"}] \${turn.text}\`);
-  }
-});`} />
+voice.on("speakers", (list) => roster.render(list)); // labels, names, share of the talking
+voice.dominantSpeaker(60_000);                        // most of the talking in the last minute`} />
 
       <h3 id="speakers-rooms">Room examples today</h3>
 

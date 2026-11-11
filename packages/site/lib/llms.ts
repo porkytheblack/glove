@@ -1011,8 +1011,9 @@ server-side; API keys never reach the browser.
 
 \`ElevenLabsSTTAdapter\` defaults to Scribe v3 Live (\`scribe_v3_live\`): options
 include \`commitStrategy\` ("manual" | "vad" | "turn_prediction"), \`diarize\`
-(speaker labels on \`stt.scribe\` "diarized" after each commit; GloveVoice does
-not send them to the agent), \`multilangMode\` and \`keyterms\`. Custom engines
+(GloveVoice then tells the agent who said what: \`[Speaker A] ...\` lines from the
+second speaker on, with \`voice.speakers\`, \`voice.dominantSpeaker()\` and
+\`voice.nameSpeaker()\`), \`multilangMode\` and \`keyterms\`. Custom engines
 that commit turns themselves use a \`TurnDetectorAdapter\`
 (\`HeuristicTurnDetector\`, \`RemoteTurnDetector\` + \`LiveKitEouScorer\`, or
 \`ProviderTurnDetector\`, which adds Scribe's turn probability while commits stay

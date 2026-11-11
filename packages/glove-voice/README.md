@@ -106,13 +106,17 @@ const voice = useGloveVoice({ runnable, voice: { stt, createTTS } });
 ```tsx
 import { useGlovePTT } from "glove-react/voice";
 
-const ptt = useGlovePTT(voice, {
-  holdThresholdMs: 300,   // hold > 300ms = PTT, shorter = toggle
-  minDurationMs: 600,     // minimum recording duration
-  hotkey: " ",            // spacebar
+const ptt = useGlovePTT({
+  runnable,                       // from useGlove()
+  voice: { stt, createTTS },      // turnMode is forced to "manual"
+  hotkey: "Space",                // KeyboardEvent.code, or false to disable
+  holdThreshold: 300,             // hold >= 300ms = push-to-talk, a quick click toggles voice
+  minRecordingMs: 350,            // shortest recording that is committed
 });
-// ptt.active, ptt.onPointerDown, ptt.onPointerUp
+// ptt.enabled, ptt.recording, ptt.mode, ptt.transcript, ptt.bind
 ```
+
+Keep the STT adapter on `commitStrategy: "manual"` (the default) for push-to-talk.
 
 Or use the headless `VoicePTTButton` component:
 
@@ -120,8 +124,8 @@ Or use the headless `VoicePTTButton` component:
 import { VoicePTTButton } from "glove-react/voice";
 
 <VoicePTTButton ptt={ptt}>
-  {({ active, handlers }) => (
-    <button {...handlers}>{active ? "Recording..." : "Hold to talk"}</button>
+  {({ enabled, recording }) => (
+    <button>{recording ? "Recording..." : enabled ? "Hold to talk" : "Turn voice on"}</button>
   )}
 </VoicePTTButton>
 ```
@@ -133,10 +137,48 @@ import { VoicePTTButton } from "glove-react/voice";
 | `startMuted` | `boolean` | Start the pipeline with mic muted (useful for manual mode) |
 | `turnMode` | `"vad" \| "manual" \| "stt"` | VAD for hands-free, manual for push-to-talk, stt to let the STT provider detect turns |
 | `sttTurnTimeoutMs` | `number` | `"stt"` mode: commit anyway if the provider hasn't this long after the VAD hears speech end (default: 2500) |
+| `speakers` | `boolean \| VoiceSpeakersConfig` | Speaker awareness when the STT adapter labels speakers (on by default with `diarize: true`). See "Several speakers on one microphone" |
 | `speechGating` | `boolean` | Only forward mic audio to STT during speech segments (default: `true` in vad and stt modes). Background noise never reaches the STT provider. |
 | `speechGatePrerollMs` | `number` | Pre-roll flushed to STT when a speech segment opens, so the first syllable isn't clipped (default: 800) |
 | `micConstraints` | `MediaTrackConstraints` | Extra `getUserMedia` constraints merged over the defaults (pick a device, disable a default, etc.) |
 | `audio` | `AudioIO` | Platform audio backends (mic capture + PCM playback). Defaults to the browser implementations; pass `createNativeAudioIO()` from `glove-voice-native` on React Native / Expo. |
+
+## Several speakers on one microphone
+
+With `diarize: true`, Scribe v3 Live labels who is speaking, and `GloveVoice` passes that on to the agent. Nothing else to configure:
+
+```ts
+const { stt, createTTS } = createElevenLabsAdapters({
+  getSTTToken, getTTSToken, voiceId,
+  stt: { diarize: true },
+});
+const voice = new GloveVoice(glove, { stt, createTTS });
+```
+
+- **One speaker:** the agent gets plain text, as before.
+- **From the moment a second speaker is heard**, each line the agent reads starts with who said it, and stays that way:
+  ```
+  [Speaker A] Can you book a table for seven?
+  [Speaker B] Make it seven thirty.
+  ```
+  The agent also gets a short note each turn (never saved to history) saying how to read the labels, who is in the room, each speaker's share of the talking, and any labels that turned out to be the same person.
+- **The `transcript` event stays plain**, for captions. `speaker_turns` carries the labelled turns for the same utterance.
+- **Latency:** Scribe sends settled labels just after each commit. GloveVoice waits up to `waitMs` (350ms) for them, then uses the draft labels from the live partial, then plain text. While one known speaker is the only one talking, it does not wait.
+
+```ts
+voice.speakers;                 // [{ id, label, name?, talkMs, words, turns, share, lastSpokeAt }]
+voice.dominantSpeaker();        // most of the talking overall
+voice.dominantSpeaker(60_000);  // ...over the last minute
+voice.nameSpeaker("Speaker A", "Sarah"); // lines become "[Sarah] ..."
+voice.on("speakers", (list) => render(list));
+
+// Let the agent name people when they introduce themselves:
+glove.fold(createNameSpeakerTool((speaker, name) => voice.nameSpeaker(speaker, name)));
+```
+
+`speakers` in the config tunes it: `false` ignores the labels, or pass `{ label: "auto" | "always" | "never", waitMs, names: { speaker_0: "Sarah" }, format }`. `"never"` tracks speakers without changing what the agent reads.
+
+Talking the most is not the same as talking to the agent, so treat `dominantSpeaker()` as a hint. With several people in the room the agent hears every line, including people talking to each other; say in your system prompt when it should stay quiet. `diarize` cannot be combined with `filterBackgroundAudio`, and speaker ids start over when the STT session reconnects. `SpeakerTracker` is exported for use on its own, for example over the `turns` from `transcribeWithElevenLabs`.
 
 ## Turn Modes
 
