@@ -417,7 +417,7 @@ export const docsSections: DocsNavSection[] = [
         href: "/docs/voice",
         badge: "voice",
         summary:
-          "The cascade — VAD → STT → agent → TTS — with barge-in, push-to-talk and React Native.",
+          "The cascade — VAD → STT → agent → TTS — with barge-in, push-to-talk, provider turn detection, live diarization and React Native.",
         packages: ["glove-voice", "glove-voice-native"],
       },
       {

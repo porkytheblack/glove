@@ -1009,6 +1009,16 @@ modes mic audio is speech-gated — it only reaches the STT provider once the VA
 confirms speech, so background noise is never transcribed. Tokens are minted
 server-side; API keys never reach the browser.
 
+\`ElevenLabsSTTAdapter\` defaults to Scribe v3 Live (\`scribe_v3_live\`): options
+include \`commitStrategy\` ("manual" | "vad" | "turn_prediction"), \`diarize\`
+(speaker labels on \`stt.scribe\` "diarized" after each commit; GloveVoice does
+not send them to the agent), \`multilangMode\` and \`keyterms\`. Custom engines
+that commit turns themselves use a \`TurnDetectorAdapter\`
+(\`HeuristicTurnDetector\`, \`RemoteTurnDetector\` + \`LiveKitEouScorer\`, or
+\`ProviderTurnDetector\`, which adds Scribe's turn probability while commits stay
+manual); GloveVoice uses \`turnMode: "stt"\` instead. Batch transcription of
+recordings: \`transcribeWithElevenLabs\` from \`glove-voice/server\`.
+
 React Native / Expo: \`withNativeAudio({ stt, createTTS, vad })\` from
 \`glove-voice-native\`, with \`SileroVADNativeAdapter\` for on-device VAD.
 

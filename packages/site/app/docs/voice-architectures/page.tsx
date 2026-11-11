@@ -976,7 +976,7 @@ export function buildAgent(id: string, model: ModelAdapter, systemPrompt: string
 
       <h2 id="related">Related</h2>
       <ul>
-        <li><Link href="/docs/voice">Voice pipeline</Link>: <code>GloveVoice</code>, VAD, speech gating, push-to-talk</li>
+        <li><Link href="/docs/voice">Voice pipeline</Link>: <code>GloveVoice</code>, VAD, speech gating, push-to-talk, Scribe v3 Live, turn detectors</li>
         <li><Link href="/docs/realtime-voice">Realtime voice</Link>: <code>RealtimeAgent</code>, providers, live context, avatars, LiveKit</li>
         <li><Link href="/docs/realtime">Realtime agents</Link>: <code>RealtimeSession</code>, the whole agent on a realtime model</li>
         <li><Link href="/docs/mesh">Mesh</Link>: <code>mountMesh</code>, blocking sends, replies</li>

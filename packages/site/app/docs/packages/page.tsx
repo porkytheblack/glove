@@ -285,7 +285,9 @@ export const POST = createChatHandler({
           The classic pipeline — VAD → STT → agent → TTS — with barge-in,
           push-to-talk, narration control and speech-gated noise robustness (mic
           audio only reaches the STT provider once the VAD confirms speech).
-          ElevenLabs adapters ship in the box; the contracts are open.
+          ElevenLabs adapters ship in the box, including Scribe v3 Live
+          speech-to-text with turn prediction and live diarization, and batch
+          Scribe v3 transcription of recordings; the contracts are open.
         </p>
         <CodeBlock
           filename="terminal"

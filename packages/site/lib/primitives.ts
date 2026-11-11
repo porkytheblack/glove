@@ -554,7 +554,7 @@ export const primitives: Primitive[] = [
     part: "surface",
     api: "new GloveVoice(glove, { stt, createTTS, vad }) · useGloveVoice(…) · useGlovePTT(…)",
     pkg: "glove-voice",
-    gives: "VAD → STT → agent → TTS with barge-in, push-to-talk and React Native backends.",
+    gives: "VAD → STT → agent → TTS with barge-in, push-to-talk, provider turn detection, live diarization and React Native backends.",
     insteadOf: "stitching speech-to-text, the agent and text-to-speech together",
     href: "/docs/voice",
   },
