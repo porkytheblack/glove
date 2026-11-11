@@ -315,3 +315,11 @@ test("multichannel responses are flattened", () => {
   assert.equal(t.text, "left\nright");
   assert.equal(t.turns.length, 2);
 });
+
+test("detectsTurns follows the commit strategy", () => {
+  const make = (cfg: Partial<ConstructorParameters<typeof ElevenLabsSTTAdapter>[0]>) =>
+    new ElevenLabsSTTAdapter({ getToken: async () => "t", ...cfg });
+  assert.equal(make({}).detectsTurns, false);
+  assert.equal(make({ commitStrategy: "turn_prediction" }).detectsTurns, true);
+  assert.equal(make({ vadSilenceThreshold: 0.6 }).detectsTurns, true);
+});

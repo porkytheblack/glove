@@ -1065,8 +1065,11 @@ import { GloveVoice } from "glove-voice";
 const voice = new GloveVoice(gloveRunnable, {
   stt: STTAdapter,                    // Required — streaming STT adapter
   createTTS: () => TTSAdapter,        // Required — factory, called per turn
-  turnMode?: "vad" | "manual",       // Default: "vad"
-  vad?: VADAdapter,                   // Override default VAD (only used in "vad" mode)
+  turnMode?: "vad" | "manual" | "stt", // Default: "vad". "stt" = the STT provider ends turns
+                                      //   (Scribe v3 Live commitStrategy "turn_prediction");
+                                      //   VAD only gates audio + barge-in. Needs stt.detectsTurns.
+  sttTurnTimeoutMs?: number,          // "stt" mode: fallback commit after VAD speech end. Default: 2500
+  vad?: VADAdapter,                   // Override default VAD ("vad" and "stt" modes)
   vadConfig?: VADConfig,              // Built-in VAD config (only used if no custom vad)
   speechGating?: boolean,             // Default: true in "vad" mode — only stream confirmed speech to STT
   speechGatePrerollMs?: number,       // Default: 800 — pre-roll flushed when a speech segment opens

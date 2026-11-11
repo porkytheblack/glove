@@ -23,6 +23,9 @@ export type ElevenLabsRealtimeModel =
  *   speaker's turn from what was said and how, and commits when its
  *   `turn_probability` reaches 0.9. Each partial carries the probability,
  *   emitted here as `turn_probability`.
+ *
+ * With GloveVoice, pair "turn_prediction" (or "vad") with `turnMode: "stt"`,
+ * or GloveVoice's own VAD will commit first and override Scribe.
  */
 export type ElevenLabsCommitStrategy = "manual" | "vad" | "turn_prediction";
 
@@ -565,6 +568,14 @@ export class ElevenLabsSTTAdapter
 
   get currentPartial(): string {
     return this.partial;
+  }
+
+  /**
+   * True when Scribe commits on its own (`commitStrategy` "turn_prediction"
+   * or "vad"), so GloveVoice can use `turnMode: "stt"`.
+   */
+  get detectsTurns(): boolean {
+    return this.commitStrategy !== "manual";
   }
 }
 

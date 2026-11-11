@@ -131,7 +131,8 @@ import { VoicePTTButton } from "glove-react/voice";
 | Option | Type | Description |
 |--------|------|-------------|
 | `startMuted` | `boolean` | Start the pipeline with mic muted (useful for manual mode) |
-| `turnMode` | `"vad" \| "manual"` | VAD for hands-free, manual for push-to-talk |
+| `turnMode` | `"vad" \| "manual" \| "stt"` | VAD for hands-free, manual for push-to-talk, stt to let the STT provider detect turns |
+| `sttTurnTimeoutMs` | `number` | `"stt"` mode: commit anyway if the provider hasn't this long after the VAD hears speech end (default: 2500) |
 | `speechGating` | `boolean` | Only forward mic audio to STT during speech segments (default: `true` in vad mode). Background noise never reaches the STT provider. |
 | `speechGatePrerollMs` | `number` | Pre-roll flushed to STT when a speech segment opens, so the first syllable isn't clipped (default: 800) |
 | `micConstraints` | `MediaTrackConstraints` | Extra `getUserMedia` constraints merged over the defaults (pick a device, disable a default, etc.) |
@@ -143,6 +144,19 @@ import { VoicePTTButton } from "glove-react/voice";
 |------|----------|
 | `"vad"` (default) | Hands-free. VAD auto-detects speech boundaries + barge-in |
 | `"manual"` | Push-to-talk. Call `commitTurn()` to end user's turn |
+| `"stt"` | Hands-free, but the STT provider decides when the turn is over (e.g. Scribe v3 Live turn prediction). The VAD still gates audio and handles barge-in |
+
+To use ElevenLabs' turn detection, set both:
+
+```ts
+const { stt, createTTS } = createElevenLabsAdapters({
+  getSTTToken, getTTSToken, voiceId,
+  stt: { commitStrategy: "turn_prediction" },
+});
+const voice = new GloveVoice(glove, { stt, createTTS, turnMode: "stt" });
+```
+
+With `turnMode: "vad"`, the local VAD commits after its silence window and overrides the provider. In `"stt"` mode audio keeps flowing after the VAD hears silence so Scribe can judge the pause; if Scribe hasn't committed within `sttTurnTimeoutMs`, GloveVoice commits. `start()` throws unless the adapter reports `detectsTurns: true`.
 
 ## Voice Activity Detection & Noise Robustness
 

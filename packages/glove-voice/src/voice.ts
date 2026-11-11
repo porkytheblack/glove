@@ -19,7 +19,7 @@ import type { VADConfig } from "./vad";
 
 export type VoiceMode = "idle" | "listening" | "thinking" | "speaking";
 
-export type TurnMode = "vad" | "manual";
+export type TurnMode = "vad" | "manual" | "stt";
 
 export type TTSFactory = () => TTSAdapter;
 
@@ -38,14 +38,28 @@ export interface GloveVoiceConfig {
    * - "manual": Push-to-talk. Call `commitTurn()` to end the user's turn.
    *             No VAD is used — the consumer controls turn boundaries.
    *             Call `interrupt()` explicitly for barge-in behavior.
+   * - "stt": The STT provider decides where the turn ends, e.g. ElevenLabs
+   *          Scribe v3 Live with `commitStrategy: "turn_prediction"`. The
+   *          local VAD still drives barge-in and speech gating, but it never
+   *          commits: audio keeps flowing to STT after the speaker pauses so
+   *          the provider can judge whether they are done. If the provider
+   *          has not committed `sttTurnTimeoutMs` after the VAD heard speech
+   *          end, GloveVoice commits as a fallback. Needs an adapter with
+   *          `detectsTurns: true`.
    */
   turnMode?: TurnMode;
 
-  /** Override VAD — only used when turnMode is "vad" (default). */
+  /**
+   * `turnMode: "stt"` only. How long after the local VAD hears speech end to
+   * wait for the provider's commit before committing anyway (default: 2500).
+   */
+  sttTurnTimeoutMs?: number;
+
+  /** Override VAD — used when turnMode is "vad" (default) or "stt". */
   vad?: VADAdapter;
 
   /**
-   * VAD configuration — only used when turnMode is "vad" and no custom vad is provided.
+   * VAD configuration — used when turnMode is "vad" or "stt" and no custom vad is provided.
    * Increase silentFrames for longer pauses before ending speech (default: 40 frames ~= 1600ms).
    */
   vadConfig?: VADConfig;
@@ -136,6 +150,13 @@ type GloveVoiceEvents = {
  * voice.on("mode", mode => updateUI(mode));
  * await voice.start();
  *
+ * @example Provider turn detection — Scribe v3 Live decides when you're done
+ * const voice = new GloveVoice(glove, {
+ *   stt: new ElevenLabsSTTAdapter({ getToken: ..., commitStrategy: "turn_prediction" }),
+ *   createTTS: () => new ElevenLabsTTSAdapter({ getToken: ..., voiceId: "..." }),
+ *   turnMode: "stt",
+ * });
+ *
  * @example Manual mode — push-to-talk
  * const voice = new GloveVoice(glove, {
  *   stt: new ElevenLabsSTTAdapter({ getToken: ... }),
@@ -159,6 +180,10 @@ export class GloveVoice extends EventEmitter<GloveVoiceEvents> {
   private muted = false;
   private narrateAbort: (() => void) | null = null;
   private gate: SpeechGate | null = null;
+  /** turnMode "stt": fallback commit if the provider never ends the turn. */
+  private sttTurnTimer: ReturnType<typeof setTimeout> | null = null;
+  /** turnMode "stt": the provider committed since the speaker last started. */
+  private providerCommitted = false;
 
   // Bound handlers for listener cleanup
   private sttHandlers: { partial: (t: string) => void; final: (t: string) => void; error: (e: Error) => void } | null = null;
@@ -183,6 +208,12 @@ export class GloveVoice extends EventEmitter<GloveVoiceEvents> {
 
   async start(): Promise<void> {
     if (this.mode !== "idle") throw new Error("GloveVoice already started");
+    if (this.turnMode === "stt" && !this.cfg.stt.detectsTurns) {
+      throw new Error(
+        'GloveVoice turnMode "stt" needs an STT adapter that detects turns ' +
+          '(detectsTurns: true), e.g. ElevenLabsSTTAdapter with commitStrategy: "turn_prediction".',
+      );
+    }
 
     this.player = this.cfg.audio
       ? this.cfg.audio.createPlayer(this.sampleRate)
@@ -197,6 +228,7 @@ export class GloveVoice extends EventEmitter<GloveVoiceEvents> {
       },
       final: (text) => {
         console.debug(`[GloveVoice] STT final: "${text}"`);
+        if (this.turnMode === "stt") this.onProviderCommit();
         if (!text.trim()) return;
         this.emit("transcript", text, false);
         void this.handleTurn(text);
@@ -211,8 +243,10 @@ export class GloveVoice extends EventEmitter<GloveVoiceEvents> {
     this.cfg.stt.on("final", this.sttHandlers.final);
     this.cfg.stt.on("error", this.sttHandlers.error);
 
-    // VAD mode: auto-detect speech boundaries + barge-in
-    if (this.turnMode === "vad") {
+    // VAD mode: auto-detect speech boundaries + barge-in.
+    // STT mode: the same VAD gates audio and drives barge-in; the provider commits.
+    if (this.turnMode === "vad" || this.turnMode === "stt") {
+      const providerTurns = this.turnMode === "stt";
       if (this.cfg.vad) {
         this.vad = this.cfg.vad;
       } else {
@@ -253,6 +287,11 @@ export class GloveVoice extends EventEmitter<GloveVoiceEvents> {
 
       this.vadHandlers = {
         speech_start: () => {
+          // The speaker resumed: the provider is still judging this turn.
+          if (providerTurns) {
+            this.clearSttTurnTimer();
+            this.providerCommitted = false;
+          }
           if (this.gate) {
             // Tentative-capable VADs hold audio until confirmation;
             // others open the gate immediately.
@@ -262,6 +301,20 @@ export class GloveVoice extends EventEmitter<GloveVoiceEvents> {
           if (!confirms) bargeIn();
         },
         speech_end: () => {
+          if (providerTurns) {
+            if (this.gate && !this.gate.isOpen) return;
+            // The provider already ended this turn and has heard nothing
+            // since: the segment is done.
+            if (this.providerCommitted && !this.cfg.stt.currentPartial.trim()) {
+              this.gate?.close();
+              return;
+            }
+            // Keep streaming: the provider needs the pause to decide the
+            // turn is over. The gate closes when it commits, or the fallback
+            // commits for it.
+            this.armSttTurnTimer();
+            return;
+          }
           // Only finalize when STT actually received this segment.
           if (!this.gate || this.gate.isOpen) this.cfg.stt.flushUtterance();
           this.gate?.close();
@@ -279,9 +332,10 @@ export class GloveVoice extends EventEmitter<GloveVoiceEvents> {
           if (this.gate) {
             // STT never saw the audio — drop it silently.
             this.gate.cancel();
-          } else {
+          } else if (!providerTurns) {
             // Ungated: STT has the audio; keep the old behavior of
             // finalizing so short utterances still get transcribed.
+            // (In "stt" mode the provider decides.)
             this.cfg.stt.flushUtterance();
           }
         };
@@ -330,6 +384,7 @@ export class GloveVoice extends EventEmitter<GloveVoiceEvents> {
 
   async stop(): Promise<void> {
     this.interrupt();
+    this.clearSttTurnTimer();
 
     // Remove all listeners we registered
     if (this.sttHandlers) {
@@ -505,6 +560,34 @@ export class GloveVoice extends EventEmitter<GloveVoiceEvents> {
 
   get isActive(): boolean {
     return this.mode !== "idle";
+  }
+
+  // ─── Provider turn detection (turnMode "stt") ──────────────────────────────
+
+  /** The provider ended the turn: stop the fallback and close the gate if the speaker is quiet. */
+  private onProviderCommit(): void {
+    this.clearSttTurnTimer();
+    this.providerCommitted = true;
+    if (this.gate?.isOpen && !this.vad?.isSpeaking) this.gate.close();
+  }
+
+  private armSttTurnTimer(): void {
+    this.clearSttTurnTimer();
+    const ms = this.cfg.sttTurnTimeoutMs ?? 2500;
+    this.sttTurnTimer = setTimeout(() => {
+      this.sttTurnTimer = null;
+      if (this.mode === "idle") return;
+      console.debug(`[GloveVoice] provider did not commit within ${ms}ms — committing`);
+      this.cfg.stt.flushUtterance();
+      this.gate?.close();
+    }, ms);
+  }
+
+  private clearSttTurnTimer(): void {
+    if (this.sttTurnTimer) {
+      clearTimeout(this.sttTurnTimer);
+      this.sttTurnTimer = null;
+    }
   }
 
   // ─── Core pipeline ────────────────────────────────────────────────────────

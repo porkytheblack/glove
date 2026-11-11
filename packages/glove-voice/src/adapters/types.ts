@@ -98,6 +98,13 @@ export interface STTAdapter extends EventEmitter<STTAdapterEvents> {
 
   /** The current in-progress partial transcript (for immediate UI). */
   readonly currentPartial: string;
+
+  /**
+   * True when the provider decides where a turn ends and emits `final` on
+   * its own, without `flushUtterance()`. Required by GloveVoice's
+   * `turnMode: "stt"`.
+   */
+  readonly detectsTurns?: boolean;
 }
 
 // ─── TTS ───────────────────────────────────────────────────────────────────

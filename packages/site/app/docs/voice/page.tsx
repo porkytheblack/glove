@@ -174,7 +174,7 @@ export default function VoicePage() {
       <h3>Turn Modes</h3>
 
       <p>
-        GloveVoice supports two turn detection modes that control how the
+        GloveVoice supports three turn detection modes that control how the
         pipeline decides when the user has finished speaking:
       </p>
 
@@ -192,6 +192,12 @@ export default function VoicePage() {
           automatic barge-in &mdash; call <code>interrupt()</code> explicitly
           when needed. Ideal for noisy environments or when precise control is
           required.
+        </li>
+        <li>
+          <strong>STT mode</strong> &mdash; The speech-to-text provider decides
+          when the turn is over, e.g. ElevenLabs Scribe v3 Live&apos;s turn
+          prediction. The local VAD still handles barge-in and speech gating.
+          See <a href="#stt-turn-mode">STT Mode</a>.
         </li>
       </ul>
 
@@ -1104,6 +1110,47 @@ const voice = useGloveVoice({
         language="typescript"
       />
 
+      <h3 id="stt-turn-mode">STT Mode (Provider Turn Detection)</h3>
+
+      <p>
+        A VAD only knows that the audio went quiet. Scribe v3 Live&apos;s turn
+        prediction listens to <em>what</em> was said and how, so it can tell a
+        thinking pause (&ldquo;I&apos;d like to book&hellip; um&hellip;&rdquo;)
+        from a finished request. Set{" "}
+        <code>commitStrategy: &quot;turn_prediction&quot;</code> on the adapter
+        and <code>turnMode: &quot;stt&quot;</code> on the pipeline:
+      </p>
+
+      <CodeBlock
+        code={`const { stt, createTTS } = createElevenLabsAdapters({
+  getSTTToken, getTTSToken, voiceId,
+  stt: { commitStrategy: "turn_prediction" },
+});
+
+const voice = useGloveVoice({
+  runnable,
+  voice: { stt, createTTS, turnMode: "stt" },
+});`}
+        language="typescript"
+      />
+
+      <p>
+        In this mode the local VAD never commits. When it hears speech end,
+        audio keeps flowing to Scribe so it can judge the pause, and the speech
+        gate closes once Scribe commits. Barge-in works as in VAD mode. If
+        Scribe has not committed <code>sttTurnTimeoutMs</code> (default 2500)
+        after the VAD heard speech end, GloveVoice commits anyway. With{" "}
+        <code>turnMode: &quot;vad&quot;</code> the local VAD still commits after
+        its silence window, which overrides the provider&apos;s turn detection.
+      </p>
+
+      <p>
+        <code>start()</code> throws if the adapter can&apos;t detect turns. An
+        adapter declares it with <code>detectsTurns: true</code>; the ElevenLabs
+        adapter does when <code>commitStrategy</code> is{" "}
+        <code>&quot;turn_prediction&quot;</code> or <code>&quot;vad&quot;</code>.
+      </p>
+
       <h3>Manual Mode (Push-to-Talk)</h3>
 
       <p>
@@ -1426,18 +1473,23 @@ function ChatPanel() {
           ],
           [
             "turnMode?",
-            '"vad" | "manual"',
-            'Turn detection mode. Default: "vad". In "manual" mode, no VAD is used and the consumer calls commitTurn().',
+            '"vad" | "manual" | "stt"',
+            'Turn detection mode. Default: "vad". In "manual" mode, no VAD is used and the consumer calls commitTurn(). In "stt" mode the STT provider decides when the turn ends (e.g. Scribe v3 Live turn prediction); the VAD only gates audio and handles barge-in.',
+          ],
+          [
+            "sttTurnTimeoutMs?",
+            "number",
+            'turnMode "stt" only. How long after the VAD hears speech end to wait for the provider to commit before GloveVoice commits itself. Default: 2500.',
           ],
           [
             "vad?",
             "VADAdapter",
-            'Override the VAD implementation. Only used when turnMode is "vad". Pass a SileroVADAdapter for ML-based detection.',
+            'Override the VAD implementation. Used when turnMode is "vad" or "stt". Pass a SileroVADAdapter for ML-based detection.',
           ],
           [
             "vadConfig?",
             "VADConfig",
-            'Configuration for the built-in energy-based VAD. Only used when turnMode is "vad" and no custom vad is provided. Default silenceMs: 1600.',
+            'Configuration for the built-in energy-based VAD. Used when turnMode is "vad" or "stt" and no custom vad is provided. Default silenceMs: 1600.',
           ],
           [
             "speechGating?",

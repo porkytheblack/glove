@@ -1,0 +1,207 @@
+import { test, mock, beforeEach, afterEach } from "node:test";
+import assert from "node:assert/strict";
+import EventEmitter from "eventemitter3";
+import { GloveVoice, type TurnMode } from "../src/voice";
+import type {
+  AudioIO,
+  STTAdapterEvents,
+  VADAdapterEvents,
+  TTSAdapterEvents,
+} from "../src/adapters/types";
+
+console.debug = () => {};
+
+// ─── Fakes ─────────────────────────────────────────────────────────────────
+
+class FakeSTT extends EventEmitter<STTAdapterEvents> {
+  sent = 0;
+  flushes = 0;
+  currentPartial = "";
+  isConnected = true;
+  constructor(public detectsTurns = true) {
+    super();
+  }
+  async connect() {}
+  sendAudio() {
+    this.sent++;
+  }
+  flushUtterance() {
+    this.flushes++;
+  }
+  disconnect() {}
+  /** The provider ends the turn on its own. */
+  commit(text: string) {
+    this.currentPartial = "";
+    this.emit("final", text);
+  }
+}
+
+class FakeVAD extends EventEmitter<VADAdapterEvents> {
+  isSpeaking = false;
+  process() {}
+  reset() {}
+  start() {
+    this.isSpeaking = true;
+    this.emit("speech_start");
+  }
+  end() {
+    this.isSpeaking = false;
+    this.emit("speech_end");
+  }
+}
+
+class FakeCapture extends EventEmitter<{ chunk: [Int16Array]; error: [Error] }> {
+  async init() {}
+  async destroy() {}
+  frame() {
+    this.emit("chunk", new Int16Array(320));
+  }
+}
+
+class FakeTTS extends EventEmitter<TTSAdapterEvents> {
+  isReady = true;
+  async open() {}
+  sendText() {}
+  flush() {
+    this.emit("done");
+  }
+  destroy() {}
+}
+
+function setup(turnMode: TurnMode, stt = new FakeSTT()) {
+  const capture = new FakeCapture();
+  const vad = new FakeVAD();
+  const audio: AudioIO = {
+    createCapture: () => capture,
+    createPlayer: () => ({
+      async init() {},
+      enqueue() {},
+      onDrained(cb: () => void) {
+        cb();
+      },
+      stop() {},
+      async destroy() {},
+    }),
+  };
+  const requests: string[] = [];
+  const glove = {
+    displayManager: { resolverStore: new Map(), clearStack: async () => {} },
+    addSubscriber() {},
+    removeSubscriber() {},
+    async processRequest(text: string) {
+      requests.push(text);
+      return {};
+    },
+  };
+  const voice = new GloveVoice(glove as never, {
+    stt,
+    createTTS: () => new FakeTTS(),
+    turnMode,
+    vad,
+    audio,
+  });
+  return { voice, stt, vad, capture, requests };
+}
+
+beforeEach(() => mock.timers.enable({ apis: ["setTimeout"] }));
+afterEach(() => mock.timers.reset());
+
+// ─── turnMode "stt" ────────────────────────────────────────────────────────
+
+test('turnMode "stt" refuses an adapter that cannot detect turns', async () => {
+  const { voice } = setup("stt", new FakeSTT(false));
+  await assert.rejects(voice.start(), /detectsTurns/);
+});
+
+test("the provider ends the turn; the local VAD never commits", async () => {
+  const { voice, stt, vad, capture, requests } = setup("stt");
+  await voice.start();
+
+  capture.frame(); // before speech: held back as pre-roll
+  assert.equal(stt.sent, 0);
+
+  vad.start();
+  capture.frame();
+  vad.end();
+  capture.frame(); // after the pause: still streaming so the provider can judge
+  assert.equal(stt.flushes, 0);
+  assert.ok(stt.sent >= 2);
+
+  stt.commit("Book a table for two.");
+  await new Promise((r) => setImmediate(r));
+  assert.deepEqual(requests, ["Book a table for two."]);
+
+  // Committed while the VAD is quiet: the gate closes, audio stops.
+  const sent = stt.sent;
+  capture.frame();
+  assert.equal(stt.sent, sent);
+
+  mock.timers.tick(10_000);
+  assert.equal(stt.flushes, 0);
+  await voice.stop();
+});
+
+test("falls back to committing when the provider stays silent", async () => {
+  const { voice, stt, vad, capture } = setup("stt");
+  await voice.start();
+  vad.start();
+  capture.frame();
+  stt.currentPartial = "and then";
+  vad.end();
+
+  mock.timers.tick(2499);
+  assert.equal(stt.flushes, 0);
+  mock.timers.tick(1);
+  assert.equal(stt.flushes, 1);
+
+  // The gate closed with the fallback commit.
+  const sent = stt.sent;
+  capture.frame();
+  assert.equal(stt.sent, sent);
+  await voice.stop();
+});
+
+test("a speaker who resumes cancels the fallback", async () => {
+  const { voice, stt, vad, capture } = setup("stt");
+  await voice.start();
+  vad.start();
+  capture.frame();
+  vad.end();
+  mock.timers.tick(1000);
+  vad.start(); // "...um, actually"
+  mock.timers.tick(5000);
+  assert.equal(stt.flushes, 0);
+  await voice.stop();
+});
+
+test("a commit before the VAD hears silence needs no fallback", async () => {
+  const { voice, stt, vad, capture, requests } = setup("stt");
+  await voice.start();
+  vad.start();
+  capture.frame();
+  stt.commit("Yes."); // Scribe predicts the turn end before the VAD's silence window
+  await new Promise((r) => setImmediate(r));
+  assert.deepEqual(requests, ["Yes."]);
+
+  capture.frame(); // VAD still in speech: gate open, provider keeps listening
+  vad.end();
+  mock.timers.tick(10_000);
+  assert.equal(stt.flushes, 0);
+
+  const sent = stt.sent;
+  capture.frame();
+  assert.equal(stt.sent, sent);
+  await voice.stop();
+});
+
+// ─── turnMode "vad" is unchanged ──────────────────────────────────────────
+
+test('turnMode "vad" still commits on the local VAD', async () => {
+  const { voice, stt, vad, capture } = setup("vad");
+  await voice.start();
+  vad.start();
+  capture.frame();
+  vad.end();
+  assert.equal(stt.flushes, 1);
+  await voice.stop();
+});
