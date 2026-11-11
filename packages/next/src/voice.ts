@@ -106,6 +106,10 @@ const voiceProviders: Record<VoiceTokenProvider, ProviderTokenDef> = {
  *
  * Supported providers: elevenlabs, deepgram, cartesia.
  *
+ * The ElevenLabs `"stt"` token (single-use, type `realtime_scribe`) works for
+ * Scribe v3 Live (`scribe_v3_live`, the `glove-voice` default) and Scribe v2
+ * Realtime (`scribe_v2_realtime`); the model is chosen by the STT adapter.
+ *
  * API key resolution: `config.apiKey` → `process.env[PROVIDER_API_KEY]`.
  * Returns `{ token: string }` on success, `{ error: string }` with status 500 on failure.
  */

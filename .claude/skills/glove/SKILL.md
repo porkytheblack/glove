@@ -81,7 +81,7 @@ Loop ends when the model answers with text.
 | a side channel from tools to the UI and a pause/resume protocol | Display stack | `display.pushAndForget({ renderer, input })` · `await display.pushAndWait({ renderer, input })` | `glove-core` |
 | a chat UI state machine | React bindings | `defineTool({ …, render, renderResult })` · `useGlove()` · `<Render />` | `glove-react` |
 | an SSE protocol between server and client | Streaming route | `export const POST = createChatHandler({...})` | `glove-next` |
-| STT + agent + TTS glue | Voice pipeline | `new GloveVoice(glove, { stt, createTTS, vad })` · `useGloveVoice` · `useGlovePTT` | `glove-voice` |
+| STT + agent + TTS glue | Voice pipeline | `new GloveVoice(glove, { stt, createTTS, vad, turnMode })` (`"vad"` · `"manual"` · `"stt"`) · `useGloveVoice` · `useGlovePTT` | `glove-voice` |
 | rewriting an existing S2S avatar or LiveKit integration | Compatibility voice runtime | `new RealtimeAgent({ agent })` with `model: s2sDrivenModel({ provider })` | `glove-voice-s2s` · `-avatar` · `-livekit` |
 | permissions, persistence, context and reconnects re-built for a realtime provider | Realtime agents | `new RealtimeSession({ agent })` with `model: realtimeModel({ provider })` | `glove-realtime` |
 | a router that calls other agents by hand | Subagents | `glove.defineSubAgent({ name, description, factory })` → `glove_invoke_subagent` | `glove-core` |
@@ -174,7 +174,7 @@ The full list (74 items) is in [references/gotchas.md](references/gotchas.md). T
 - **Jev (`glove-classifier`) is not a chat model.** Never pass a classifier to `createAdapter`.
 - **Working environment packages must stay external to bundlers** (`serverExternalPackages` in Next, plus an explicit webpack external in pnpm monorepos). Synchronous libraries go through `definePureModule`, not `defineAdapter`.
 - **Realtime agents** (`glove-realtime`): goals and forms prepare through `addTurnPreparer`, which the session runs at each user turn. Module code that prepares per-turn state should register a turn preparer too, not wrap `processRequest`, which a session never calls. `say()` doesn't parse `/hook` or `/skill` directives.
-- **Voice**: `createTTS` is a factory; import `glove-voice/silero-vad` dynamically; `GloveVoice` speaks every `text_delta` (a `<speech>` filter is an example-level parser, not an option); GPT-Live (`provider: "openai-live"`) has continuous transcripts and host-owned playback boundaries, so Realtime VAD/final-turn assumptions don't apply.
+- **Voice**: `createTTS` is a factory; import `glove-voice/silero-vad` dynamically; `GloveVoice` speaks every `text_delta` (a `<speech>` filter is an example-level parser, not an option); `turnMode: "stt"` (Scribe v3 Live `commitStrategy: "turn_prediction"`) needs `stt.detectsTurns`, while push-to-talk keeps `commitStrategy: "manual"`; Scribe `diarize` labels reach only `stt.scribe` `"diarized"`, not the agent; GPT-Live (`provider: "openai-live"`) has continuous transcripts and host-owned playback boundaries, so Realtime VAD/final-turn assumptions don't apply.
 - **In Foundry every run is a fresh process**: a store factory that returns `new MemoryStore(...)` forgets earlier turns. Use a durable store (see the `glove-foundry` skill).
 
 ## Reference files
@@ -191,7 +191,7 @@ Read the one that matches the task; each starts with when to read it.
 | [references/mcp.md](references/mcp.md) | glove-mcp: `mountMcp`, catalogue, adapter, discovery, auth, OAuth |
 | [references/execution-and-workspace.md](references/execution-and-workspace.md) | Scratchpad, REPLs, VFS, working environment and `glove-env-*` adapters, browsers and sandboxes |
 | [references/classifier.md](references/classifier.md) | glove-classifier models, tools, cascades, REPL/env/browser/Foundry integrations |
-| [references/voice.md](references/voice.md) | glove-voice pipeline, push-to-talk, React Native, realtime S2S, GPT-Live, avatars, LiveKit, realtime multimodal sessions (glove-realtime) |
+| [references/voice.md](references/voice.md) | glove-voice pipeline, turn modes and endpointing (Scribe v3 Live, turn detectors), push-to-talk, React Native, realtime S2S, GPT-Live, avatars, LiveKit, realtime multimodal sessions (glove-realtime) |
 | [references/media.md](references/media.md) | glove-image (and glove-video) pipelines, characters, scenes, lineage, cost |
 | [references/multi-agent.md](references/multi-agent.md) | glove-mesh messaging and glove-continuum-signal supervision |
 | [references/packages.md](references/packages.md) | Choosing a package: every package with a one-paragraph summary and install line |

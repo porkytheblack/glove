@@ -95,7 +95,9 @@ const voice = useGloveVoice({
 
 No neural VAD? Skip `onnxruntime-react-native` entirely — `GloveVoice` falls back to the built-in adaptive energy VAD from `glove-voice` (pure JS, runs anywhere). Speech gating still applies; you lose the tentative→confirmed noise filtering.
 
-Push-to-talk (`turnMode: "manual"`, `useGlovePTT`) works too — wire `ptt.bind`'s pointer handlers to a `Pressable`.
+Push-to-talk (`turnMode: "manual"`, `useGlovePTT`) works too — wire `ptt.bind`'s pointer handlers to a `Pressable`. Keep the STT adapter on the default `commitStrategy: "manual"` for push-to-talk.
+
+`turnMode: "stt"` works the same way: create the ElevenLabs adapters with `stt: { commitStrategy: "turn_prediction" }` and Scribe v3 Live ends the turn, while the VAD (Silero or energy) still gates audio and handles barge-in. The other Scribe v3 Live options (`diarize`, `multilangMode`, `keyterms`, ...) and the `stt.scribe` events behave as on the web; see the [glove-voice README](../glove-voice/README.md#scribe-v3-live-options).
 
 ## Options
 

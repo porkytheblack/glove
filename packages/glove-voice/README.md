@@ -133,7 +133,7 @@ import { VoicePTTButton } from "glove-react/voice";
 | `startMuted` | `boolean` | Start the pipeline with mic muted (useful for manual mode) |
 | `turnMode` | `"vad" \| "manual" \| "stt"` | VAD for hands-free, manual for push-to-talk, stt to let the STT provider detect turns |
 | `sttTurnTimeoutMs` | `number` | `"stt"` mode: commit anyway if the provider hasn't this long after the VAD hears speech end (default: 2500) |
-| `speechGating` | `boolean` | Only forward mic audio to STT during speech segments (default: `true` in vad mode). Background noise never reaches the STT provider. |
+| `speechGating` | `boolean` | Only forward mic audio to STT during speech segments (default: `true` in vad and stt modes). Background noise never reaches the STT provider. |
 | `speechGatePrerollMs` | `number` | Pre-roll flushed to STT when a speech segment opens, so the first syllable isn't clipped (default: 800) |
 | `micConstraints` | `MediaTrackConstraints` | Extra `getUserMedia` constraints merged over the defaults (pick a device, disable a default, etc.) |
 | `audio` | `AudioIO` | Platform audio backends (mic capture + PCM playback). Defaults to the browser implementations; pass `createNativeAudioIO()` from `glove-voice-native` on React Native / Expo. |
@@ -227,6 +227,17 @@ A VAD knows when *audio* stopped; it can't know whether the *speaker* is done.
 end-of-speech boundary it inspects the live transcript and returns how much
 longer to hold before committing the utterance — `0` for "commit now".
 
+Turn detectors are for engines that own the commit themselves (see
+`examples/layered-voice` and `examples/server-voice`). `GloveVoice` does not
+use them. Which to pick:
+
+- **Using `GloveVoice`?** Let the STT provider end turns with
+  `turnMode: "stt"` and `commitStrategy: "turn_prediction"` (see
+  [Turn Modes](#turn-modes)).
+- **Running your own commit engine?** Use a turn detector. Wrap it in
+  `ProviderTurnDetector` to add Scribe v3 Live's own end-of-turn probability
+  while commits stay with you.
+
 `HeuristicTurnDetector` is the zero-dependency baseline, with tiered holds:
 
 | transcript ends with | tier | default hold |
@@ -255,10 +266,11 @@ server-side, thin client):
   inject the module). ~25ms per score on CPU after warmup; transcripts are
   normalized internally (the model was trained on lowercased, unpunctuated
   text — raw punctuated input inverts the signal).
-- `RemoteTurnDetector` (browser) POSTs the transcript to your scoring
-  endpoint at each VAD boundary: P ≥ threshold → commit now; below → the
-  fallback heuristic picks the hold (dictation/unfinished tiers still
-  apply); endpoint error or >350ms → fallback decides alone.
+- `RemoteTurnDetector` (browser) POSTs `{ transcript, context }` to your
+  scoring endpoint at each VAD boundary and maps the returned probability to
+  a hold between `minHoldMs` (400ms, P ≈ 1) and `maxHoldMs` (2800ms, P ≈ 0).
+  The fallback heuristic's dictation tier still floors the hold; on endpoint
+  error or after `timeoutMs` (350ms) the fallback decides alone.
 
 ```ts
 // app/api/turn/route.ts
@@ -271,14 +283,37 @@ export async function POST(req: Request) {
 }
 
 // client
-const turns = new RemoteTurnDetector({ url: "/api/turn", threshold: 0.5 });
+const turns = new RemoteTurnDetector({ url: "/api/turn" });
+```
+
+**Provider turn probability.** Scribe v3 Live sends an end-of-turn
+probability with every partial, under every commit strategy (including
+`"manual"`), judged from the audio as well as the words.
+`ElevenLabsSTTAdapter` exposes the latest value as `stt.turnProbability`
+(`null` before the first partial of an utterance, after a commit, and on
+`scribe_v2_realtime`). `ProviderTurnDetector` adds it to another detector:
+
+| Provider probability | Hold |
+|---|---|
+| P ≥ `doneAt` (0.9) | at most `doneHoldMs` (400ms); a dictation hold is kept |
+| P < `unfinishedBelow` (0.2) | at least `unfinishedHoldMs` (1500ms) |
+| otherwise, or no probability | the inner detector's decision |
+
+```ts
+import { ElevenLabsSTTAdapter, ProviderTurnDetector, RemoteTurnDetector } from "glove-voice";
+
+const stt = new ElevenLabsSTTAdapter({ getToken });   // commitStrategy stays "manual"
+const turns = new ProviderTurnDetector({
+  source: stt,                                         // anything with turnProbability
+  inner: new RemoteTurnDetector({ url: "/api/turn" }), // default: HeuristicTurnDetector
+});
 ```
 
 ## Adapter Contracts
 
 All adapters implement typed interfaces. Build your own by implementing:
 
-- `STTAdapter` — Streaming speech-to-text
+- `STTAdapter` — Streaming speech-to-text (optional `detectsTurns` for `turnMode: "stt"`, `turnProbability` for `ProviderTurnDetector`)
 - `TTSAdapter` — Streaming text-to-speech
 - `VADAdapter` — Voice activity detection
 - `TurnDetectorAdapter` — Semantic endpointing (is the speaker done?)

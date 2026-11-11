@@ -40,6 +40,21 @@ attachRealtime(rt, transport);       // mics → model, model → track, interru
 await rt.start();
 ```
 
+### Several people in one room
+
+`LiveKitTransport` reports who is speaking: `transport.on("audio", (pcm,
+sampleRate, identity) => ...)` fires per remote participant. `attachRealtime`
+does not use that identity. It feeds every remote participant's audio into
+the one model input, so a speech-to-speech model hears everyone unlabelled and
+cannot tell who said what.
+
+If the agent needs per-speaker labels, build on the identity per track
+instead: for example a cascade pipeline with one STT stream per participant,
+framing each transcript with that participant's name before it reaches the
+agent. Speaker diarization (such as ElevenLabs Scribe v3 Live `diarize`) is
+for a single mixed microphone; in a LiveKit room each participant already has
+their own track.
+
 ## GPT-Live hosts
 
 `createS2SAdapter({ provider: "openai-live" })` uses the same transport contract,

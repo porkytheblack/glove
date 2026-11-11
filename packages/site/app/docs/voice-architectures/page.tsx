@@ -24,7 +24,7 @@ export default function VoiceArchitecturesPage() {
       <h2 id="shapes">The four shapes</h2>
 
       <ol>
-        <li><strong>Single-agent pipeline.</strong> VAD → STT → agent → TTS. <code>GloveVoice</code> (<code>glove-voice</code>) or <code>useGloveVoice</code> (<code>glove-react/voice</code>). See <Link href="/docs/voice">Voice pipeline</Link>.</li>
+        <li><strong>Single-agent pipeline.</strong> VAD → STT → agent → TTS. <code>GloveVoice</code> (<code>glove-voice</code>) or <code>useGloveVoice</code> (<code>glove-react/voice</code>). The local VAD ends turns, or the STT provider does (<code>turnMode: &quot;stt&quot;</code>). See <Link href="/docs/voice">Voice pipeline</Link>.</li>
         <li><strong>Single-agent realtime.</strong> A speech-to-speech (S2S) model hears the caller, speaks, and calls the agent&apos;s tools. <code>RealtimeAgent</code> + <code>s2sDrivenModel</code> (<code>glove-voice-s2s</code>), or <code>RealtimeSession</code> + <code>realtimeModel</code> (<code>glove-realtime</code>) when the call should keep the agent&apos;s permissions, store, goals and context, or take camera and screen input. See <Link href="/docs/realtime-voice#which-package">Realtime voice</Link> and <Link href="/docs/realtime">Realtime agents</Link>.</li>
         <li><strong>Layered, realtime front.</strong> An S2S front agent stays in the conversation and delegates real work to a text worker.</li>
         <li><strong>Layered, pipeline front.</strong> STT → a fast text front agent → TTS. The front delegates to a heavy worker over <Link href="/docs/mesh">glove-mesh</Link>.</li>
@@ -39,8 +39,8 @@ export default function VoiceArchitecturesPage() {
           <tr><td>Voice quality and control</td><td>Any <code>TTSAdapter</code> (ElevenLabs built in). Everything the model writes is spoken</td><td>The provider&apos;s voices (<code>marin</code> on OpenAI). Words and audio come from one model</td><td>Same as single-agent realtime</td><td>Any TTS. <code>&lt;speech&gt;</code> tags decide exactly what is spoken</td></tr>
           <tr><td>Models</td><td>Any glove-core model, which must be fast and capable at once</td><td>S2S providers: <code>openai</code>, <code>openai-webrtc</code>, <code>openai-live</code>, <code>gemini</code></td><td>Front: an S2S provider. Worker: any glove-core model</td><td>Front: a fast streaming text model. Worker: any heavy model</td></tr>
           <tr><td>Tool-heavy work</td><td>Runs inside the spoken turn; the caller waits</td><td>Runs through <code>Tool.run</code> with no Executor: <code>requiresPermission</code> is not enforced, <code>pushAndWait</code> throws</td><td>Delegated; the front keeps talking; the result is injected with <code>rt.inject(…, &#123; respond: true &#125;)</code></td><td>Delegated; the front&apos;s turn ends after a spoken acknowledgement; a relay turn speaks the result</td></tr>
-          <tr><td>Interruptions</td><td>Built in: VAD barge-in calls <code>interrupt()</code></td><td>Provider-native; the OpenAI WebSocket adapter truncates context to what was heard</td><td>Provider-native; the worker keeps running</td><td>You build it; the front is told what was heard via <code>&lt;user-interruption&gt;</code></td></tr>
-          <tr><td>Cost and complexity</td><td>Least code: one hook</td><td>Little code; the whole call runs on a realtime model</td><td>Two agents, a mesh and <code>inject</code>; the heavy model runs only for delegated work</td><td>Most code (STT, endpointing, TTS streaming, a parser, a relay queue); a cheap front on every turn</td></tr>
+          <tr><td>Interruptions</td><td>Built in: VAD barge-in calls <code>interrupt()</code> (VAD and STT turn modes)</td><td>Provider-native; the OpenAI WebSocket adapter truncates context to what was heard</td><td>Provider-native; the worker keeps running</td><td>You build it; the front is told what was heard via <code>&lt;user-interruption&gt;</code></td></tr>
+          <tr><td>Cost and complexity</td><td>Least code: one hook. Provider turn detection is one option (<code>turnMode: &quot;stt&quot;</code>)</td><td>Little code; the whole call runs on a realtime model</td><td>Two agents, a mesh and <code>inject</code>; the heavy model runs only for delegated work</td><td>Most code (STT, endpointing, TTS streaming, a parser, a relay queue); a cheap front on every turn. <code>glove-voice</code> turn detectors, including provider turn detection, cover endpointing</td></tr>
           <tr><td>Reference example</td><td><code>coffee</code>, <code>lola</code></td><td><code>s2s-agent</code></td><td><code>s2s-rooms</code>, <code>layered-voice</code> <code>/s2s</code>, <code>foundry-braind-storm</code></td><td><code>layered-voice</code>, <code>server-voice</code></td></tr>
         </tbody>
       </table>
@@ -52,7 +52,7 @@ export default function VoiceArchitecturesPage() {
         <li><strong>Start with the single-agent pipeline</strong> when tools are quick and a second before the answer is fine. It is one hook.</li>
         <li><strong>Use single-agent realtime</strong> when tools are fast and the provider&apos;s voice and turn-taking are good enough. You give up control of the exact words for latency. Run it on <code>glove-realtime</code> when gated tools must still ask, the call must land in the store, or goals and forms drive the conversation.</li>
         <li><strong>Layer</strong> as soon as a turn needs multi-step tool work such as lookups, research or bookings. The caller hears an acknowledgement at once and the answer when it is ready.</li>
-        <li><strong>Pick a realtime front</strong> for the lowest latency and provider barge-in with the least code. <strong>Pick a pipeline front</strong> for your own TTS voice, control over exactly what is said, a free choice of front model, and a metric for every leg of latency.</li>
+        <li><strong>Pick a realtime front</strong> for the lowest latency and provider barge-in with the least code. <strong>Pick a pipeline front</strong> for your own TTS voice, control over exactly what is said, a free choice of front model, a metric for every leg of latency, and your own endpointing: provider turn detection from Scribe v3 Live alongside a text model, and live diarization of one shared microphone. See <a href="#endpointing">Endpointing</a> and <a href="#speakers">Who is speaking</a>.</li>
       </ul>
 
       {/* ------------------------------------------------------------------ */}
@@ -352,6 +352,163 @@ export class LayeredVoiceSession {
         <li><strong>Errored.</strong> Stale <code>mesh:waiting</code> items are marked consumed and a <code>&lt;worker-trouble&gt;</code> turn runs, so the caller is not told &ldquo;still checking&rdquo; forever.</li>
         <li><strong>Wrong envelope.</strong> server-voice&apos;s <code>salvageWrappedSpeech</code> reclaims a reply wrapped in a tag named after a room participant instead of <code>&lt;speech&gt;</code>, because a silent malformed turn in history teaches the model to repeat it.</li>
       </ul>
+
+      {/* ------------------------------------------------------------------ */}
+      <h2 id="endpointing">Endpointing: when is the turn over</h2>
+
+      <p>
+        A VAD knows when the audio went quiet. It cannot know whether the
+        speaker is done. Commit too early and you cut people off in the middle
+        of a thought; commit too late and every reply starts with dead air. A
+        realtime model makes this call for you. A pipeline front has to make
+        it itself, and there are four ways to do it:
+      </p>
+
+      <table>
+        <thead>
+          <tr><th>Approach</th><th>Who ends the turn</th><th>Used by</th><th>Notes</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>VAD silence (<code>turnMode: &quot;vad&quot;</code>, the default)</td><td>The local VAD, after its silence window (about 1600 ms by default)</td><td><code>GloveVoice</code></td><td>Simplest. One fixed window: long enough for thinking pauses is slow for quick questions</td></tr>
+          <tr><td>Turn detector</td><td>The caller, at a VAD boundary plus a hold from a <code>TurnDetectorAdapter</code>: <code>HeuristicTurnDetector</code> (punctuation and dictation tiers), <code>RemoteTurnDetector</code> + <code>LiveKitEouScorer</code> (LiveKit&apos;s end-of-utterance text model), <code>ProviderTurnDetector</code> (adds the STT provider&apos;s turn probability)</td><td>Custom engines: layered-voice, server-voice</td><td>You keep the commit, so you can dispatch from the live partial. See <Link href="/docs/voice#turn-detectors">Turn detectors</Link></td></tr>
+          <tr><td><code>turnMode: &quot;stt&quot;</code> + <code>commitStrategy: &quot;turn_prediction&quot;</code></td><td>Scribe v3 Live, judging the audio and the words; it commits at a turn probability of 0.9 or more</td><td><code>GloveVoice</code></td><td>The local VAD still gates audio and drives barge-in. GloveVoice commits itself if Scribe has not after <code>sttTurnTimeoutMs</code> (default 2500 ms)</td></tr>
+          <tr><td>Realtime / speech-to-speech</td><td>The provider: semantic or server VAD</td><td><code>glove-voice-s2s</code>, <code>glove-realtime</code></td><td>Tuned through provider settings only</td></tr>
+        </tbody>
+      </table>
+
+      <h3 id="endpointing-custom">Custom engines: keep the commit</h3>
+
+      <p>
+        layered-voice and server-voice commit utterances themselves. They
+        dispatch the front turn from the live partial the moment they commit
+        (the &ldquo;STT finalize ~0 ms&rdquo; leg in{" "}
+        <a href="#latency">Latency budgets</a>) and send a{" "}
+        <code>&lt;transcript-correction&gt;</code> if the final text differs.
+        Setting Scribe&apos;s <code>commitStrategy</code> to{" "}
+        <code>&quot;turn_prediction&quot;</code> would hand the commit to Scribe
+        and fight that engine. Keep <code>commitStrategy: &quot;manual&quot;</code>{" "}
+        and wrap your detector in <code>ProviderTurnDetector</code> instead.
+        Scribe v3 Live sends a turn probability on every partial under every
+        commit strategy, and <code>ProviderTurnDetector</code> folds it into
+        the inner detector&apos;s hold: at 0.9 or more the hold is at most
+        400 ms (a dictation hold is kept); below 0.2 it is at least 1500 ms;
+        otherwise the inner decision stands.
+      </p>
+
+      <CodeBlock filename="endpointing.ts" language="typescript" code={`import { ElevenLabsSTTAdapter, ProviderTurnDetector, RemoteTurnDetector } from "glove-voice";
+
+const stt = new ElevenLabsSTTAdapter({ getToken }); // commitStrategy stays "manual"
+const detector = new ProviderTurnDetector({
+  source: stt,                                         // reads stt.turnProbability
+  inner: new RemoteTurnDetector({ url: "/api/turn" }), // a route backed by LiveKitEouScorer
+});
+
+let partial = "";
+stt.on("partial", (text) => (partial = text));
+
+vad.on("speech_end", async () => {
+  const { holdMs, reason } = await detector.decide(partial, recentTurns);
+  // Arm a holdMs timer and cancel it if speech resumes. When it fires,
+  // call stt.flushUtterance() and dispatch the front turn.
+});`} />
+
+      <p>
+        layered-voice does this by default; set{" "}
+        <code>NEXT_PUBLIC_SCRIBE_TURN_SIGNAL=off</code> (server-voice:{" "}
+        <code>SCRIBE_TURN_SIGNAL=off</code>) to use the detector alone. On{" "}
+        <code>scribe_v2_realtime</code> there is no turn probability, and{" "}
+        <code>ProviderTurnDetector</code> passes the inner decision through.
+      </p>
+
+      <h3 id="endpointing-glovevoice">GloveVoice: use turnMode &quot;stt&quot;</h3>
+
+      <p>
+        <code>GloveVoice</code> does not consume a <code>TurnDetectorAdapter</code>.
+        To let the provider end turns, set{" "}
+        <code>commitStrategy: &quot;turn_prediction&quot;</code> on the adapter
+        and <code>turnMode: &quot;stt&quot;</code> on the pipeline; see{" "}
+        <Link href="/docs/voice#stt-turn-mode">STT mode</Link>. With{" "}
+        <code>turnMode: &quot;vad&quot;</code> the local VAD&apos;s silence window
+        overrides the provider. For push-to-talk, keep{" "}
+        <code>commitStrategy: &quot;manual&quot;</code>, or Scribe splits one
+        held button press into several turns.
+      </p>
+
+      {/* ------------------------------------------------------------------ */}
+      <h2 id="speakers">Who is speaking</h2>
+
+      <p>
+        Agents that sit in a room hear more than one person. How you tell them
+        apart depends on how the audio arrives:
+      </p>
+
+      <ul>
+        <li><strong>One mixed microphone</strong> (a front desk, a kiosk, a phone on speaker). All voices share one stream, and STT returns text without saying who spoke.</li>
+        <li><strong>One track per participant</strong> (LiveKit rooms). Each track already carries the participant&apos;s identity. You do not need diarization; you need to pass that identity on.</li>
+      </ul>
+
+      <h3 id="speaker-labels">Speaker labels in the text</h3>
+
+      <p>
+        glove-core&apos;s <code>Message.sender</code> is only{" "}
+        <code>&quot;user&quot;</code> or <code>&quot;agent&quot;</code>, so the
+        examples put the speaker into the message text, as glove-mesh does for
+        peers. In layered-voice and server-voice the operator picks who is
+        talking with a speaker chip in the UI; nothing detects it from the
+        audio. Each utterance then reaches the front as{" "}
+        <code>frameUtterance(role, text)</code>, for example{" "}
+        <code>[Sam (operator)] what&apos;s the warranty on that hull?</code>, and
+        the front decides whether the line was meant for it.
+      </p>
+
+      <h3 id="diarization">Live diarization (Scribe v3 Live)</h3>
+
+      <p>
+        For one mixed microphone, <code>ElevenLabsSTTAdapter</code> with{" "}
+        <code>diarize: true</code> labels speakers live (<code>speaker_0</code>,{" "}
+        <code>speaker_1</code>, &hellip;). Things to know:
+      </p>
+
+      <ul>
+        <li><strong>Labels arrive after each commit</strong>, on the <code>stt.scribe</code> <code>diarized</code> event. When Scribe decides two IDs are one person it emits <code>speakers_merged</code>; the IDs in <code>diarized</code> already follow merges, and <code>stt.resolveSpeaker(id)</code> resolves any ID you stored earlier.</li>
+        <li><strong>GloveVoice does not send them to the agent.</strong> It sends the model the commit&apos;s plain text. Use the <code>diarized</code> event yourself, for captions or to frame your own requests.</li>
+        <li><strong>Engines that dispatch from the partial</strong> (layered-voice, server-voice) would lose their latency win if they waited for labels, which is why they keep the speaker chip.</li>
+        <li><strong>Labels are anonymous.</strong> Mapping <code>speaker_0</code> to a name is up to your app.</li>
+        <li><strong>It cannot be combined with <code>filterBackgroundAudio</code>.</strong></li>
+      </ul>
+
+      <CodeBlock filename="captions.ts" language="typescript" code={`const stt = new ElevenLabsSTTAdapter({ getToken, diarize: true });
+
+stt.scribe.on("diarized", (segment) => {
+  for (const turn of segment.turns) {
+    captions.add(\`[\${turn.speakerId ?? "unknown"}] \${turn.text}\`);
+  }
+});`} />
+
+      <h3 id="speakers-rooms">Room examples today</h3>
+
+      <p>
+        In <code>s2s-rooms</code>, <code>avatar-rooms</code> and{" "}
+        <code>livekit-rooms</code>, spoken audio reaches the speech-to-speech
+        model unlabelled. The speaker chip only labels the transcript in the UI.
+        Only typed lines are framed, with{" "}
+        <code>rt.inject(frameUtterance(…), &#123; respond: true &#125;)</code>.{" "}
+        <code>attachRealtime</code> does not pass on the participant identity
+        that <code>LiveKitTransport</code> provides. The model hears different
+        voices but gets no names for them. If your agent must know who spoke,
+        add that yourself.
+      </p>
+
+      <h3 id="speakers-recordings">Recordings</h3>
+
+      <p>
+        For files and URLs, <code>transcribeWithElevenLabs</code> from{" "}
+        <code>glove-voice/server</code> runs batch Scribe v3 with{" "}
+        <code>diarize</code> and <code>numSpeakers</code>, and returns speaker
+        turns (<code>&#123; speakerId, text, start, end &#125;</code>) with the
+        text and words. It sends your API key, so call it from server code
+        only. See <Link href="/docs/voice#scribe-v3">Scribe v3</Link>.
+      </p>
 
       {/* ------------------------------------------------------------------ */}
       <h2 id="speech-tags">&lt;speech&gt; tags: speak only what should be heard</h2>
@@ -788,7 +945,7 @@ export function buildAgent(id: string, model: ModelAdapter, systemPrompt: string
           <tr><th>Shape</th><th>What happens</th><th>What the model learns</th></tr>
         </thead>
         <tbody>
-          <tr><td>Single-agent pipeline</td><td>In VAD mode, <code>GloveVoice</code> calls <code>interrupt()</code> while thinking or speaking: on <code>speech_real_start</code> with a confirming VAD (Silero), else on <code>speech_start</code>. It aborts the request, destroys TTS, stops playback and clears non-blocking display slots. Skipped while a <code>pushAndWait</code> resolver is pending. In manual mode, call <code>interrupt()</code> yourself</td><td>Nothing: <code>GloveVoice</code> does not record how much was heard</td></tr>
+          <tr><td>Single-agent pipeline</td><td>In VAD and STT turn modes, <code>GloveVoice</code> calls <code>interrupt()</code> while thinking or speaking: on <code>speech_real_start</code> with a confirming VAD (Silero), else on <code>speech_start</code>. It aborts the request, destroys TTS, stops playback and clears non-blocking display slots. Skipped while a <code>pushAndWait</code> resolver is pending. In manual mode, call <code>interrupt()</code> yourself</td><td>Nothing: <code>GloveVoice</code> does not record how much was heard</td></tr>
           <tr><td>Realtime, single or layered</td><td>Provider-native. Clear queued playback on the adapter&apos;s <code>interrupted</code> event. Gemini: <code>activityHandling: &quot;NO_INTERRUPTION&quot;</code> turns barge-in off. GPT-Live: manual <code>interrupt()</code> mutes output until <code>resumeOutput?.()</code>. A layered worker keeps running</td><td><code>OpenAIRealtimeSocketAdapter</code> sends <code>conversation.item.truncate</code> with <code>audio_end_ms</code> estimated from the playback clock (<code>truncateToHeard</code>)</td></tr>
           <tr><td>Layered, pipeline front</td><td>You build it. layered-voice cuts TTS on confirmed speech (250 ms sustained on the energy VAD, <code>speech_real_start</code> with Silero) and voids queued speech. server-voice decides on the server: pause on any speech-ish frame within 85–128 ms, cut when the transcript grows or the VAD confirms, resume mid-word if it was a cough</td><td>A <code>&lt;user-interruption&gt;</code> notice quoting the heard prefix, estimated from playback time</td></tr>
         </tbody>

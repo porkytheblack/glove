@@ -50,7 +50,9 @@ export default function VoiceHarnessPage() {
       <p>
         Pick the front first. A <strong>pipeline</strong> (<code>glove-voice</code>) runs VAD,
         speech-to-text, the Glove agent and text-to-speech, with barge-in and push-to-talk; any
-        chat model can be the agent. A <strong>realtime</strong> model (
+        chat model can be the agent. The local VAD ends turns, or the speech-to-text provider
+        does (<Link href="/docs/voice#stt-turn-mode"><code>turnMode: &quot;stt&quot;</code></Link>{" "}
+        with Scribe v3 Live&apos;s turn prediction). A <strong>realtime</strong> model (
         <code>glove-voice-s2s</code>: OpenAI Realtime, Gemini Live, GPT-Live) owns turn-taking
         itself, and <code>RealtimeAgent</code> hands it the same Glove tools. To keep the rest
         of the agent on the call (permission gates, the store, goals, camera or screen input),
@@ -86,7 +88,8 @@ export default function VoiceHarnessPage() {
         <a href="https://github.com/porkytheblack/glove/tree/main/examples/layered-voice">
           examples/layered-voice
         </a>
-        , which adds speaker labels, a <code>&lt;speech&gt;</code> tag protocol (only text inside
+        , which adds speaker labels (chosen in the UI with a speaker chip, not detected from the
+        audio), a <code>&lt;speech&gt;</code> tag protocol (only text inside
         the tags is spoken) and ElevenLabs streaming.
       </p>
       <CodeBlock
@@ -196,7 +199,10 @@ export default defineAgent({
         <li>
           <strong>Speech-to-text, agent and text-to-speech glue.</strong> The{" "}
           <Link href="/docs/voice">voice pipeline</Link> handles VAD, turn commits, barge-in and
-          push-to-talk, in the browser and on React Native.
+          push-to-talk, in the browser and on React Native. Scribe v3 Live adds provider turn
+          detection and live diarization, and{" "}
+          <Link href="/docs/voice#turn-detectors">turn detectors</Link> cover endpointing for
+          engines that commit turns themselves.
         </li>
         <li>
           <strong>A message bus between the voice agent and the worker.</strong>{" "}

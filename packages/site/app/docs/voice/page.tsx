@@ -434,6 +434,11 @@ function App() {
             "True when the provider ends turns and emits final without flushUtterance(). Required by turnMode \"stt\".",
           ],
           [
+            "turnProbability?",
+            "number | null",
+            "The provider's end-of-turn probability for the current partial, when it reports one (Scribe v3 Live). null when there is none. Read by ProviderTurnDetector.",
+          ],
+          [
             "disconnect()",
             "() => void",
             "Close the connection and release resources.",
@@ -595,6 +600,11 @@ function App() {
             "Who ends an utterance. manual (the default, unless vadSilenceThreshold > 0, which selects vad): GloveVoice's VAD or commitTurn(). vad: Scribe after vadSilenceThreshold seconds of silence. turn_prediction (v3 Live only): Scribe predicts the end of the turn and commits at turn_probability \u2265 0.9.",
           ],
           [
+            "vadSilenceThreshold",
+            "number",
+            "Seconds of silence (0.192\u20133.0) before Scribe commits. Default 0: GloveVoice's VAD handles silence. Above 0 it selects commitStrategy vad unless you set another strategy; with turn_prediction it tunes Scribe's VAD fallback.",
+          ],
+          [
             "diarize",
             "boolean",
             "Live speaker labels (v3 Live only). Each commit is followed by a diarized event with speaker turns. Cannot be combined with filterBackgroundAudio.",
@@ -639,7 +649,13 @@ function App() {
         <code>stt.scribe</code>: <code>diarized</code>,{" "}
         <code>speakers_merged</code>, <code>turn_probability</code>,{" "}
         <code>committed</code>, <code>session_started</code> and{" "}
-        <code>warning</code>.
+        <code>warning</code>. <code>stt.turnProbability</code> holds Scribe
+        v3 Live&apos;s end-of-turn probability for the current partial (null
+        before the first partial of an utterance, after a commit, and on v2).
+        Scribe sends it under every commit strategy, including manual, which
+        is what <a href="#turn-detectors"><code>ProviderTurnDetector</code></a>{" "}
+        reads. <code>stt.resolveSpeaker(id)</code> follows speaker merges for
+        an ID you stored earlier.
       </p>
 
       <CodeBlock
@@ -1205,6 +1221,181 @@ const voice = useGloveVoice({
 </button>`}
         language="tsx"
       />
+
+      {/* ------------------------------------------------------------------ */}
+      <h2 id="turn-detectors">Turn Detectors (Custom Engines)</h2>
+
+      <p>
+        A VAD knows when the audio stopped, not whether the speaker is done.
+        Turn detectors handle that second question for apps that run their own
+        commit engine: their own VAD, STT and commit logic, as the{" "}
+        <code>layered-voice</code> and <code>server-voice</code> examples do.
+        At each VAD end-of-speech boundary the engine asks the detector how
+        much longer to wait before it commits the utterance.
+      </p>
+
+      <div className="docs-note">
+        <span className="docs-note-icon">◆</span>
+        <p>
+          <code>GloveVoice</code> does not use turn detectors. To let the STT
+          provider end turns in <code>GloveVoice</code>, use{" "}
+          <a href="#stt-turn-mode"><code>turnMode: &quot;stt&quot;</code></a>.
+          For a comparison of all the ways to end a turn, see{" "}
+          <a href="/docs/voice-architectures#endpointing">Endpointing</a>.
+        </p>
+      </div>
+
+      <h3>TurnDetectorAdapter</h3>
+
+      <PropTable
+        headers={["Member", "Type", "Description"]}
+        rows={[
+          [
+            "decide(transcript, context?)",
+            "=> TurnDecision | Promise<TurnDecision>",
+            "Called at a VAD end-of-speech boundary with the live transcript and, optionally, recent turns ({ role: \"user\" | \"assistant\", content }[], oldest first). It sits on the voice hot path, so it should resolve in a few ms.",
+          ],
+          [
+            "TurnDecision.holdMs",
+            "number",
+            "How much longer to wait before committing. 0 means commit now. The caller arms a timer and cancels it if the speaker resumes.",
+          ],
+          [
+            "TurnDecision.reason",
+            "string",
+            "A short label for metrics and tuning, such as \"question\" or \"eou:0.83\".",
+          ],
+        ]}
+      />
+
+      <h3>HeuristicTurnDetector</h3>
+
+      <p>
+        Zero dependencies. It looks at how the transcript ends and picks a
+        hold from four tiers, checked in order. Each hold is an option.
+      </p>
+
+      <PropTable
+        headers={["Tier (option)", "Transcript ends with", "Default hold"]}
+        rows={[
+          [
+            "dictation (dictationHoldMs)",
+            "a 1–2 character token",
+            "2000 ms. The speaker is spelling something out (\"K\", \"0-0-7\"). Overrides punctuation.",
+          ],
+          ["question (questionHoldMs)", "? or !", "0 ms. A question is done when it is asked."],
+          [
+            "statement (statementHoldMs)",
+            ". or …",
+            "600 ms. Streaming STT punctuates partials, so a period is weak evidence.",
+          ],
+          ["unfinished (unfinishedHoldMs)", "anything else", "900 ms."],
+        ]}
+      />
+
+      <h3>RemoteTurnDetector + LiveKitEouScorer</h3>
+
+      <p>
+        A model-backed detector in two halves. <code>LiveKitEouScorer</code>{" "}
+        (from <code>glove-voice/server</code>) runs LiveKit&apos;s open-weights
+        end-of-utterance model (<code>livekit/turn-detector</code>) in Node
+        through <code>@huggingface/transformers</code>, an optional dependency
+        you install and pass in. It scores the words, normalized internally,
+        and returns the probability that the speaker is done.{" "}
+        <code>RemoteTurnDetector</code> runs in the browser: it POSTs{" "}
+        <code>&#123; transcript, context &#125;</code> to your route, expects{" "}
+        <code>&#123; probability &#125;</code>, and maps it to a hold between{" "}
+        <code>minHoldMs</code> (default 400) and <code>maxHoldMs</code>{" "}
+        (default 2800). A question with a probability of 0.2 or more gets the
+        shortest hold, dictation keeps its long hold, and if the route fails
+        or takes longer than <code>timeoutMs</code> (default 350) the{" "}
+        <code>fallback</code> detector (default{" "}
+        <code>HeuristicTurnDetector</code>) decides alone.
+      </p>
+
+      <CodeBlock
+        code={`// app/api/turn/route.ts (server)
+import * as transformers from "@huggingface/transformers";
+import { LiveKitEouScorer } from "glove-voice/server";
+
+const scorer = new LiveKitEouScorer({ transformers });
+
+export async function POST(req: Request) {
+  const { transcript, context = [] } = await req.json();
+  const probability = await scorer.probability([...context, { role: "user", content: transcript }]);
+  return Response.json({ probability });
+}
+
+// client
+import { RemoteTurnDetector } from "glove-voice";
+const detector = new RemoteTurnDetector({ url: "/api/turn" });`}
+        filename="turn detection"
+        language="typescript"
+      />
+
+      <h3>ProviderTurnDetector</h3>
+
+      <p>
+        Wraps another detector and adds the STT provider&apos;s own end-of-turn
+        probability. Its <code>source</code> is anything with a{" "}
+        <code>turnProbability</code>, such as an{" "}
+        <code>ElevenLabsSTTAdapter</code> on Scribe v3 Live, which judges the
+        audio as well as the words. Commits stay with your engine, so it works
+        with <code>commitStrategy: &quot;manual&quot;</code>.
+      </p>
+
+      <PropTable
+        headers={["Provider probability", "Default threshold", "Result"]}
+        rows={[
+          ["P ≥ doneAt", "0.9", "Hold at most doneHoldMs (400 ms). A dictation hold from the inner detector is kept."],
+          ["P < unfinishedBelow", "0.2", "Hold at least unfinishedHoldMs (1500 ms)."],
+          ["otherwise, or no probability", "—", "The inner detector's decision, unchanged."],
+        ]}
+      />
+
+      <CodeBlock
+        code={`import { ElevenLabsSTTAdapter, ProviderTurnDetector, RemoteTurnDetector } from "glove-voice";
+
+const stt = new ElevenLabsSTTAdapter({ getToken }); // commitStrategy stays "manual"
+const detector = new ProviderTurnDetector({
+  source: stt,
+  inner: new RemoteTurnDetector({ url: "/api/turn" }), // default: HeuristicTurnDetector
+});
+
+vad.on("speech_end", async () => {
+  const { holdMs } = await detector.decide(latestPartial, recentTurns);
+  // Arm a holdMs timer; cancel it if speech resumes; when it fires, commit.
+});`}
+        filename="lib/endpointing.ts"
+        language="typescript"
+      />
+
+      <h3>Which one to use</h3>
+
+      <ul>
+        <li>
+          <strong>You use <code>GloveVoice</code></strong> &mdash;{" "}
+          <code>turnMode: &quot;stt&quot;</code> with{" "}
+          <code>commitStrategy: &quot;turn_prediction&quot;</code>, or the
+          default <code>&quot;vad&quot;</code>. Not a turn detector.
+        </li>
+        <li>
+          <strong>Your own engine, no model server</strong> &mdash;{" "}
+          <code>HeuristicTurnDetector</code>.
+        </li>
+        <li>
+          <strong>Your own engine with a server</strong> &mdash;{" "}
+          <code>RemoteTurnDetector</code> backed by{" "}
+          <code>LiveKitEouScorer</code>.
+        </li>
+        <li>
+          <strong>Your own engine on Scribe v3 Live</strong> &mdash; wrap
+          either one in <code>ProviderTurnDetector</code> and keep{" "}
+          <code>commitStrategy: &quot;manual&quot;</code>. Switching to{" "}
+          <code>&quot;turn_prediction&quot;</code> would move the commit to
+          Scribe and take it away from your engine.
+        </li>
+      </ul>
 
       {/* ------------------------------------------------------------------ */}
       <h2 id="push-to-talk">Push-to-Talk (useGlovePTT)</h2>

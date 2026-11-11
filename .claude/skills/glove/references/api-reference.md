@@ -1071,7 +1071,7 @@ const voice = new GloveVoice(gloveRunnable, {
   sttTurnTimeoutMs?: number,          // "stt" mode: fallback commit after VAD speech end. Default: 2500
   vad?: VADAdapter,                   // Override default VAD ("vad" and "stt" modes)
   vadConfig?: VADConfig,              // Built-in VAD config (only used if no custom vad)
-  speechGating?: boolean,             // Default: true in "vad" mode — only stream confirmed speech to STT
+  speechGating?: boolean,             // Default: true in "vad" and "stt" modes — only stream confirmed speech to STT
   speechGatePrerollMs?: number,       // Default: 800 — pre-roll flushed when a speech segment opens
   micConstraints?: MediaTrackConstraints,  // Extra getUserMedia constraints (browser only)
   audio?: AudioIO,                    // Platform audio backends — pass createNativeAudioIO() on React Native
@@ -1109,7 +1109,7 @@ voice.isMuted;             // boolean
 
 ```typescript
 type VoiceMode = "idle" | "listening" | "thinking" | "speaking";
-type TurnMode = "vad" | "manual";
+type TurnMode = "vad" | "manual" | "stt";
 type TTSFactory = () => TTSAdapter;
 type GetTokenFn = () => Promise<string>;
 ```
@@ -1126,6 +1126,7 @@ interface STTAdapter extends EventEmitter<STTAdapterEvents> {
   readonly isConnected: boolean;
   readonly currentPartial: string;
   readonly detectsTurns?: boolean;   // provider commits on its own; required by turnMode "stt"
+  readonly turnProbability?: number | null; // provider end-of-turn probability (Scribe v3 Live); feed ProviderTurnDetector
 }
 // Events: partial(text), final(text), error(Error), close()
 
@@ -1194,8 +1195,12 @@ const { stt, createTTS } = createElevenLabsAdapters({
 Scribe-only events are on `adapter.scribe` (the adapter itself keeps the plain
 `STTAdapter` events): `diarized` (`{ segmentIndex, text, words, turns: [{ speakerId, text, start, end }] }`,
 speaker IDs already follow merges), `speakers_merged` (`{ from, to }`), `turn_probability`
-(number, with `commitStrategy: "turn_prediction"`), `committed` (`{ text, segmentIndex?, languageCode?, words? }`),
+(number, sent under every commit strategy on v3 Live), `committed` (`{ text, segmentIndex?, languageCode?, words? }`),
 `session_started` and `warning`. `adapter.resolveSpeaker(id)` follows merges for any ID.
+
+`adapter.turnProbability` (`number | null`) is the latest end-of-turn probability for the current
+partial: `null` before the first partial of an utterance, after a commit, and on `scribe_v2_realtime`.
+`adapter.detectsTurns` is true when `commitStrategy` is `"turn_prediction"` or `"vad"`.
 
 ### Batch transcription (Scribe v3)
 
@@ -1243,6 +1248,54 @@ const vad = new VAD({
   adaptive?: boolean,       // Default: true — raise threshold above the ambient noise floor
 });
 // Legacy chunk-count options silentFrames / speechFrames still honored (take precedence when set).
+```
+
+### Turn detectors (semantic endpointing)
+
+For engines that own the commit (layered-voice, server-voice). `GloveVoice` does not use them —
+with `GloveVoice`, use `turnMode: "stt"` to let the STT provider end turns.
+
+```typescript
+import {
+  HeuristicTurnDetector, RemoteTurnDetector, ProviderTurnDetector,
+  type TurnDetectorAdapter, type TurnDecision, type TurnProbabilitySource,
+} from "glove-voice";
+import { LiveKitEouScorer } from "glove-voice/server";
+
+interface TurnDetectorAdapter {
+  // Called at a VAD end-of-speech boundary. Hold holdMs more, cancel if the speaker resumes, then commit.
+  decide(transcript: string, context?: { role: "user" | "assistant"; content: string }[]):
+    TurnDecision | Promise<TurnDecision>;   // { holdMs, reason }
+}
+
+new HeuristicTurnDetector({
+  questionHoldMs?, statementHoldMs?, unfinishedHoldMs?, dictationHoldMs?,   // 0 / 600 / 900 / 2000
+});
+
+new RemoteTurnDetector({
+  url: string,            // POST { transcript, context } → { probability } (e.g. backed by LiveKitEouScorer)
+  minHoldMs?: number,     // Default: 400 — hold when P ≈ 1
+  maxHoldMs?: number,     // Default: 2800 — hold when P ≈ 0
+  curve?: number,         // Default: 1.5 — holdMs = min + (max-min)·(1-P)^curve
+  fallback?: TurnDetectorAdapter,  // Default: HeuristicTurnDetector (also floors dictation)
+  timeoutMs?: number,     // Default: 350
+});
+
+interface TurnProbabilitySource { readonly turnProbability?: number | null }  // ElevenLabsSTTAdapter implements it
+
+new ProviderTurnDetector({
+  source: TurnProbabilitySource,   // e.g. an ElevenLabsSTTAdapter on scribe_v3_live
+  inner?: TurnDetectorAdapter,     // Default: HeuristicTurnDetector
+  doneAt?: number,                 // Default: 0.9 — P ≥ doneAt → hold at most doneHoldMs (dictation kept)
+  doneHoldMs?: number,             // Default: 400
+  unfinishedBelow?: number,        // Default: 0.2 — P < this → hold at least unfinishedHoldMs
+  unfinishedHoldMs?: number,       // Default: 1500
+});
+// No probability (null / not v3 Live) → the inner decision unchanged. Commits stay with the caller,
+// so the STT adapter can stay on commitStrategy "manual".
+
+const scorer = new LiveKitEouScorer({ transformers });   // server only; @huggingface/transformers is optional
+const p = await scorer.probability([{ role: "user", content: partial }]);
 ```
 
 ### glove-voice-native (React Native / Expo)
@@ -1311,7 +1364,8 @@ import { useGlovePTT } from "glove-react/voice";
 
 const ptt = useGlovePTT({
   runnable: IGloveRunnable | null,    // From useGlove().runnable
-  voice: Omit<GloveVoiceConfig, "turnMode">,  // turnMode forced to "manual"
+  voice: Omit<GloveVoiceConfig, "turnMode">,  // turnMode forced to "manual"; keep the STT adapter
+                                      //   on commitStrategy "manual" (Scribe would split a hold)
   hotkey?: string | false,            // Default: "Space" — auto-guards INPUT/TEXTAREA/SELECT
   holdThreshold?: number,             // Default: 300ms — click-vs-hold discrimination
   minRecordingMs?: number,            // Default: 350ms — min audio before committing
@@ -1598,6 +1652,7 @@ transport.avatarWire(avatarIdentity);  // the datastream leg for an avatar adapt
 // Events: connected · disconnected · participant_connected(identity) · participant_disconnected(identity)
 //         audio(pcm, sampleRate, identity) · data(msg, identity) · error(err)
 // Avatar participants (attribute lk.publish_on_behalf) are EXCLUDED from audio events — the agent must not hear itself.
+// attachRealtime feeds every remote participant into one model input and drops `identity`: the model hears speakers unlabelled.
 ```
 
 ### LiveKit avatars

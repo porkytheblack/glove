@@ -71,8 +71,24 @@ export interface UseGloveVoiceReturn {
  * </button>
  * ```
  *
+ * @example STT mode (the provider ends the turn)
+ * ```tsx
+ * // Scribe v3 Live predicts the end of the turn. The VAD still gates audio
+ * // and handles barge-in; start() throws unless stt.detectsTurns is true.
+ * const { stt, createTTS } = createElevenLabsAdapters({
+ *   getSTTToken, getTTSToken, voiceId,
+ *   stt: { commitStrategy: "turn_prediction" },
+ * });
+ *
+ * const voice = useGloveVoice({
+ *   runnable,
+ *   voice: { stt, createTTS, vad, turnMode: "stt" },
+ * });
+ * ```
+ *
  * @example Manual mode (push-to-talk)
  * ```tsx
+ * // Keep the STT adapter on commitStrategy "manual" (the default).
  * const voice = useGloveVoice({
  *   runnable,
  *   voice: { stt, createTTS, turnMode: "manual" },
