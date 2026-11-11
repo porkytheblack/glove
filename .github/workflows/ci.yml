@@ -95,6 +95,7 @@ jobs:
           --filter glove-core
           --filter glove-foundry
           --filter glove-foundry-example
+          --filter glove-voice
           --filter glove-voice-s2s
           --filter glove-realtime
           --filter glove-voice-avatar
@@ -145,6 +146,7 @@ jobs:
           --filter glove-core
           --filter glove-foundry
           --filter glove-mcp
+          --filter glove-voice
           --filter glove-voice-s2s
           --filter glove-realtime
           --filter glove-voice-avatar
