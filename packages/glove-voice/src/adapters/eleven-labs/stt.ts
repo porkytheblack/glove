@@ -169,7 +169,7 @@ export type ElevenLabsSTTEvents = {
   diarized: [segment: ScribeDiarizedSegment];
   /** Scribe decided `from` and `to` are the same speaker. */
   speakers_merged: [merge: { from: string; to: string }];
-  /** End-of-turn probability from each partial (`commitStrategy: "turn_prediction"`). */
+  /** Scribe v3 Live's end-of-turn probability from each partial, under every commit strategy. */
   turn_probability: [probability: number];
   /** A non-fatal notice from Scribe. */
   warning: [message: string];
