@@ -205,3 +205,18 @@ test('turnMode "vad" still commits on the local VAD', async () => {
   assert.equal(stt.flushes, 1);
   await voice.stop();
 });
+
+test('turnMode "manual" warns when the adapter ends turns itself', async () => {
+  const warnings: string[] = [];
+  const realWarn = console.warn;
+  console.warn = (msg: string) => warnings.push(msg);
+  try {
+    const { voice } = setup("manual", new FakeSTT(true));
+    await voice.start();
+    assert.equal(warnings.length, 1);
+    assert.match(warnings[0], /push-to-talk/);
+    await voice.stop();
+  } finally {
+    console.warn = realWarn;
+  }
+});

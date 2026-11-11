@@ -426,7 +426,12 @@ function App() {
           [
             "flushUtterance()",
             "() => void",
-            "Signal end of utterance. Adapter should finalize the current transcript. Called by VAD on speech_end.",
+            "Signal end of utterance. Adapter should finalize the current transcript. Called on VAD speech_end in \"vad\" mode, by commitTurn(), and by the fallback timer in \"stt\" mode.",
+          ],
+          [
+            "detectsTurns?",
+            "boolean",
+            "True when the provider ends turns and emits final without flushUtterance(). Required by turnMode \"stt\".",
           ],
           [
             "disconnect()",
@@ -587,7 +592,7 @@ function App() {
           [
             "commitStrategy",
             '"manual" | "vad" | "turn_prediction"',
-            "Who ends an utterance. manual (default): GloveVoice's VAD or commitTurn(). vad: Scribe after vadSilenceThreshold seconds of silence. turn_prediction (v3 Live only): Scribe predicts the end of the turn and commits at turn_probability \u2265 0.9.",
+            "Who ends an utterance. manual (the default, unless vadSilenceThreshold > 0, which selects vad): GloveVoice's VAD or commitTurn(). vad: Scribe after vadSilenceThreshold seconds of silence. turn_prediction (v3 Live only): Scribe predicts the end of the turn and commits at turn_probability \u2265 0.9.",
           ],
           [
             "diarize",

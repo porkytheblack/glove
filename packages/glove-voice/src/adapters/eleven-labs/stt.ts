@@ -265,51 +265,49 @@ export class ElevenLabsSTTAdapter
     this.maxReconnects = cfg.maxReconnects ?? 3;
   }
 
-  /** The realtime WebSocket query for this configuration. Exposed for tests and debugging. */
-  buildParams(token: string): URLSearchParams {
+  /**
+   * The realtime WebSocket query string for this configuration. Exposed for
+   * tests and debugging. Built by hand rather than with `URLSearchParams`
+   * mutators, which older React Native polyfills do not implement.
+   */
+  buildQuery(token: string): string {
     const cfg = this.cfg;
-    const params = new URLSearchParams({
-      token,
-      model_id: this.model,
-      audio_format: "pcm_16000",
-    });
-    if (this.language) params.set("language_code", this.language);
+    const pairs: [string, string][] = [
+      ["token", token],
+      ["model_id", this.model],
+      ["audio_format", "pcm_16000"],
+    ];
+    const add = (key: string, value: string | number | boolean) => pairs.push([key, String(value)]);
 
-    if (this.commitStrategy !== "manual") {
-      params.set("commit_strategy", this.commitStrategy);
-    }
+    if (this.language) add("language_code", this.language);
+    if (this.commitStrategy !== "manual") add("commit_strategy", this.commitStrategy);
     if (this.vadThreshold > 0 && this.commitStrategy !== "manual") {
-      params.set("vad_silence_threshold_secs", String(this.vadThreshold));
+      add("vad_silence_threshold_secs", this.vadThreshold);
     }
+    if (cfg.diarize) add("diarize", true);
+    if (cfg.multilangMode) add("multilang_mode", true);
+    if (cfg.includeTimestamps) add("include_timestamps", true);
+    if (cfg.includeLanguageDetection) add("include_language_detection", true);
+    if (cfg.noVerbatim) add("no_verbatim", true);
+    if (cfg.filterBackgroundAudio) add("filter_background_audio", true);
+    if (cfg.keepaliveIntervalMs !== undefined) add("keepalive_interval_ms", cfg.keepaliveIntervalMs);
+    for (const lang of cfg.secondaryLanguages ?? []) add("secondary_languages", lang);
+    for (const term of cfg.keyterms ?? []) add("keyterms", term);
 
-    if (cfg.diarize) params.set("diarize", "true");
-    if (cfg.multilangMode) params.set("multilang_mode", "true");
-    if (cfg.includeTimestamps) params.set("include_timestamps", "true");
-    if (cfg.includeLanguageDetection) params.set("include_language_detection", "true");
-    if (cfg.noVerbatim) params.set("no_verbatim", "true");
-    if (cfg.filterBackgroundAudio) params.set("filter_background_audio", "true");
-    if (cfg.keepaliveIntervalMs !== undefined) {
-      params.set("keepalive_interval_ms", String(cfg.keepaliveIntervalMs));
-    }
-    for (const lang of cfg.secondaryLanguages ?? []) params.append("secondary_languages", lang);
-    for (const term of cfg.keyterms ?? []) params.append("keyterms", term);
-
+    // extraParams replace any parameter of the same name.
+    let out = pairs;
     for (const [key, value] of Object.entries(cfg.extraParams ?? {})) {
-      if (Array.isArray(value)) {
-        params.delete(key);
-        for (const v of value) params.append(key, v);
-      } else {
-        params.set(key, String(value));
-      }
+      out = out.filter(([k]) => k !== key);
+      for (const v of Array.isArray(value) ? value : [value]) out.push([key, String(v)]);
     }
-    return params;
+    return out.map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join("&");
   }
 
   async connect(): Promise<void> {
     const token = await this.cfg.getToken();
 
     return new Promise((resolve, reject) => {
-      const url = `wss://api.elevenlabs.io/v1/speech-to-text/realtime?${this.buildParams(token)}`;
+      const url = `wss://api.elevenlabs.io/v1/speech-to-text/realtime?${this.buildQuery(token)}`;
 
       this.sentFirstChunk = false;
       this.pendingAudio = false;
@@ -385,8 +383,9 @@ export class ElevenLabsSTTAdapter
         if (typeof data.turn_probability === "number") {
           this.scribe.emit("turn_probability", data.turn_probability);
         }
-        // Keepalive partials repeat the current text; only report changes.
-        if (text === this.partial) return;
+        // Repeated partials (Scribe re-sends the current text while audio
+        // flows, and as keepalives) are passed through unchanged: consumers
+        // use their arrival as a liveness signal.
         console.debug(`[ElevenLabsSTT] partial: "${text}"`);
         this.partial = text;
         this.emit("partial", text);

@@ -198,10 +198,13 @@ Includes click-vs-hold discrimination, pointer leave safety, and aria attributes
 |------|----------|---------|
 | `"vad"` (default) | Auto speech detection + barge-in | Hands-free, voice-first apps |
 | `"manual"` | Push-to-talk, explicit `commitTurn()` | Noisy environments, precise control |
+| `"stt"` | The STT provider ends turns; local VAD only gates audio + barge-in. Fallback commit `sttTurnTimeoutMs` (2500) after VAD speech end. `start()` throws unless `stt.detectsTurns` | Scribe v3 Live turn prediction: `ElevenLabsSTTAdapter({ commitStrategy: "turn_prediction" })` |
+
+With `"vad"` the local VAD commits after its silence window and overrides any provider turn detection. With `"manual"` (push-to-talk) keep the adapter on `commitStrategy: "manual"`, or Scribe will split a hold into several turns (GloveVoice warns).
 
 ### Noise Robustness (speech gating)
 
-In `"vad"` mode, mic audio is **speech-gated by default** (`speechGating: true`): audio is held in a rolling pre-roll buffer (`speechGatePrerollMs`, default 800ms) and only released to the STT provider once the VAD confirms a speech segment — background noise never reaches STT, so it can't be transcribed or hallucinated into words. With `SileroVADAdapter` (which declares `supportsRealStart: true`):
+In `"vad"` and `"stt"` modes, mic audio is **speech-gated by default** (`speechGating: true`): audio is held in a rolling pre-roll buffer (`speechGatePrerollMs`, default 800ms) and only released to the STT provider once the VAD confirms a speech segment — background noise never reaches STT, so it can't be transcribed or hallucinated into words. With `SileroVADAdapter` (which declares `supportsRealStart: true`):
 
 - The gate opens on `speech_real_start` (speech survived `minSpeechMs`, default 250ms) — short noise bursts are reported as `vad_misfire` and their audio is **discarded entirely**.
 - Barge-in also triggers on `speech_real_start`, so a door slam doesn't interrupt agent speech.

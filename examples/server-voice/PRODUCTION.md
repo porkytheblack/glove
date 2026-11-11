@@ -331,6 +331,7 @@ interface STTAdapter extends EventEmitter<STTAdapterEvents> {
   disconnect(): void;
   readonly isConnected: boolean;
   readonly currentPartial: string;    // the engine reads this directly
+  readonly detectsTurns?: boolean;    // provider commits on its own (unused here: this engine commits)
 }
 
 type STTAdapterEvents = {

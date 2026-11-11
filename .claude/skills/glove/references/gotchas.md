@@ -30,7 +30,7 @@
 22. **`isCompacting` for React UI feedback**: `GloveState.isCompacting` is `true` while compaction is in progress. Use it to show a loading indicator or disable input during compaction.
 23. **`<Render>` ships a default input**: If you have a custom input form, always pass `renderInput={() => null}` to suppress the built-in one — otherwise you get duplicate inputs.
 24. **Tools execute outside React**: Tool `do()` functions run outside the component tree. To access React context (e.g. `useWallet()`), use a mutable singleton ref synced from a React component (bridge pattern).
-25. **SileroVAD not needed for manual mode**: When using `turnMode: "manual"` (push-to-talk), skip the SileroVAD import and its WASM overhead. VAD is only needed for `turnMode: "vad"`.
+25. **SileroVAD not needed for manual mode**: When using `turnMode: "manual"` (push-to-talk), skip the SileroVAD import and its WASM overhead. VAD is only needed for `turnMode: "vad"` and `"stt"` (in `"stt"` it gates audio and drives barge-in; the provider ends turns).
 26. **System prompt: document tools explicitly**: Even though tools have descriptions and schemas, listing every tool with its parameters in the system prompt dramatically improves tool selection accuracy.
 27. **Inbox items need remote store wiring**: When using `createRemoteStore`, inbox falls back to in-memory if you don't provide `getInboxItems`/`addInboxItem`/`updateInboxItem`/`getResolvedInboxItems` actions. Items will vanish on reload.
 28. **Inbox resolved items are plain text messages**: Resolved inbox items are injected as user text messages, not tool results. This avoids Anthropic API validation errors from unmatched tool_use/tool_result pairs.

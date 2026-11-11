@@ -75,14 +75,14 @@ test("v3 Live options become query parameters", async () => {
     includeTimestamps: true,
     noVerbatim: true,
     keepaliveIntervalMs: 2000,
-    extraParams: { some_new_flag: true },
+    extraParams: { some_new_flag: true, keyterms: ["Override"] },
   });
   const q = new URL(ws.url).searchParams;
   assert.equal(q.get("language_code"), null);
   assert.equal(q.get("commit_strategy"), "turn_prediction");
   assert.equal(q.get("diarize"), "true");
   assert.equal(q.get("multilang_mode"), "true");
-  assert.deepEqual(q.getAll("keyterms"), ["Glove", "Foundry"]);
+  assert.deepEqual(q.getAll("keyterms"), ["Override"]); // extraParams replace same-named params
   assert.deepEqual(q.getAll("secondary_languages"), ["fr", "es"]);
   assert.equal(q.get("include_timestamps"), "true");
   assert.equal(q.get("no_verbatim"), "true");
@@ -116,7 +116,7 @@ test("partials, turn probability and commits", async () => {
   ws.receive({ message_type: "partial_transcript", text: "hello there", turn_probability: 0.95 });
   ws.receive({ message_type: "committed_transcript", text: "Hello there.", segment_index: 0 });
 
-  assert.deepEqual(partials, ["hello", "hello there"]);
+  assert.deepEqual(partials, ["hello", "hello", "hello there"]); // repeats pass through
   assert.deepEqual(probs, [0.2, 0.4, 0.95]);
   assert.deepEqual(finals, ["Hello there."]);
   assert.equal(stt.currentPartial, "");

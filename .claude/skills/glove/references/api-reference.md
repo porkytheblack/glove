@@ -1125,6 +1125,7 @@ interface STTAdapter extends EventEmitter<STTAdapterEvents> {
   disconnect(): void;
   readonly isConnected: boolean;
   readonly currentPartial: string;
+  readonly detectsTurns?: boolean;   // provider commits on its own; required by turnMode "stt"
 }
 // Events: partial(text), final(text), error(Error), close()
 

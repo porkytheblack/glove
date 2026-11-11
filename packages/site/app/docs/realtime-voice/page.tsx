@@ -14,8 +14,10 @@ export default function RealtimeVoicePage() {
       <p>
         The <a href="/docs/voice">cascade pipeline</a> — VAD → STT → LLM → TTS —
         bottoms out around <strong>1.3–1.6s</strong> voice-to-voice: every stage
-        adds serial latency, and end-of-turn has to be reconstructed from
-        transcripts with heuristics. A speech-to-speech model collapses the
+        adds serial latency, and end-of-turn comes from a VAD, transcript
+        heuristics or the STT provider&apos;s turn prediction{" "}
+        (<a href="/docs/voice#stt-turn-mode">Scribe v3 Live</a>) rather than
+        the model answering. A speech-to-speech model collapses the
         cascade — audio in, one model, audio out — with turn-taking decided by
         the model <em>listening</em>. Production S2S APIs run{" "}
         <strong>500–800ms</strong>.

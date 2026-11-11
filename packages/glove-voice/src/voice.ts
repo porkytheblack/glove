@@ -208,6 +208,14 @@ export class GloveVoice extends EventEmitter<GloveVoiceEvents> {
 
   async start(): Promise<void> {
     if (this.mode !== "idle") throw new Error("GloveVoice already started");
+    if (this.turnMode === "manual" && this.cfg.stt.detectsTurns) {
+      console.warn(
+        "[GloveVoice] turnMode \"manual\" with an STT adapter that ends turns on its own " +
+          "(detectsTurns: true). The provider will commit whenever the speaker pauses, so a " +
+          "push-to-talk hold can be split into several turns. Use commitStrategy: \"manual\" " +
+          "on the adapter for push-to-talk, or turnMode: \"stt\".",
+      );
+    }
     if (this.turnMode === "stt" && !this.cfg.stt.detectsTurns) {
       throw new Error(
         'GloveVoice turnMode "stt" needs an STT adapter that detects turns ' +

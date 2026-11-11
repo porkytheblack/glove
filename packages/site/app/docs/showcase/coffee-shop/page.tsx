@@ -988,11 +988,14 @@ export default function Chat({ sessionId }: { sessionId: string }) {
       </p>
 
       <p>
-        The hook also supports two turn modes:{" "}
+        The hook also supports three turn modes:{" "}
         <code>&quot;vad&quot;</code> (hands-free — the VAD detects when the
-        user stops talking and auto-commits the turn) and{" "}
+        user stops talking and auto-commits the turn),{" "}
         <code>&quot;manual&quot;</code> (push-to-talk — the user holds a
-        button or spacebar to record, and the turn commits on release).
+        button or spacebar to record, and the turn commits on release) and{" "}
+        <code>&quot;stt&quot;</code> (the STT provider decides when the user
+        is done; see <a href="/docs/voice#stt-turn-mode">STT Mode</a>). The
+        coffee shop uses the first two.
       </p>
 
       <h3>Step 4: The voice orb</h3>
