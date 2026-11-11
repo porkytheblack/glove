@@ -60,6 +60,53 @@ export interface VADAdapter extends EventEmitter<VADAdapterEvents> {
 
 // ─── STT ───────────────────────────────────────────────────────────────────
 
+/** A run of words by one speaker. */
+export interface SpeakerTurn {
+  /** The provider's speaker id ("speaker_0"), or null when it could not tell. */
+  speakerId: string | null;
+  text: string;
+  /** Seconds from the start of the session, when the provider sends word timings. */
+  start?: number;
+  end?: number;
+}
+
+/** What a `SpeakerSource` knows about one finalized utterance. */
+export interface PendingSpeakers {
+  /**
+   * Labels available right now, before the provider has settled them (for
+   * example from the live partial). Null when there are none.
+   */
+  draft: SpeakerTurn[] | null;
+  /**
+   * The provider's settled labels. Resolves null if the connection drops or
+   * the provider sends none. It has no timeout of its own; race it.
+   */
+  settled: Promise<SpeakerTurn[] | null>;
+}
+
+export interface SpeakerListener {
+  /** Settled labels for an utterance, in the order the utterances were finalized. */
+  segment?(turns: SpeakerTurn[]): void;
+  /** The provider decided two ids are the same person. */
+  merged?(from: string, to: string): void;
+}
+
+/**
+ * Speaker attribution (diarization) from an STT adapter: who said the words
+ * of each finalized utterance when several people share one microphone.
+ */
+export interface SpeakerSource {
+  /** True when the provider is labelling speakers in this session. */
+  readonly enabled: boolean;
+  /**
+   * Speaker labels for the utterance the adapter just finalized. Call it
+   * synchronously inside the `final` handler.
+   */
+  forFinal(): PendingSpeakers;
+  /** Listen for every settled utterance and for merges. Returns an unsubscribe function. */
+  subscribe(listener: SpeakerListener): () => void;
+}
+
 export type STTAdapterEvents = {
   /** Streaming partial — changes as more speech arrives */
   partial: [text: string];
@@ -111,6 +158,13 @@ export interface STTAdapter extends EventEmitter<STTAdapterEvents> {
    * reports one (e.g. Scribe v3 Live). Feed it to `ProviderTurnDetector`.
    */
   readonly turnProbability?: number | null;
+
+  /**
+   * Speaker attribution, when the provider can label speakers (e.g. Scribe v3
+   * Live with `diarize: true`). GloveVoice uses it to tell the agent who said
+   * what.
+   */
+  readonly speakers?: SpeakerSource;
 }
 
 // ─── TTS ───────────────────────────────────────────────────────────────────

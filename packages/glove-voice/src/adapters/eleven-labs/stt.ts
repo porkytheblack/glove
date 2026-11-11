@@ -1,5 +1,13 @@
 import EventEmitter from "eventemitter3";
-import type { STTAdapter, STTAdapterEvents, GetTokenFn } from "../types";
+import type {
+  STTAdapter,
+  STTAdapterEvents,
+  GetTokenFn,
+  PendingSpeakers,
+  SpeakerListener,
+  SpeakerSource,
+  SpeakerTurn,
+} from "../types";
 import { bytesToBase64 } from "../../base64";
 
 /**
@@ -148,13 +156,8 @@ export interface ScribeDiarizedSegment {
   turns: ScribeSpeakerTurn[];
 }
 
-export interface ScribeSpeakerTurn {
-  /** Null when Scribe could not tell who spoke. */
-  speakerId: string | null;
-  text: string;
-  start?: number;
-  end?: number;
-}
+/** A run of words by one speaker (the provider-neutral `SpeakerTurn`). */
+export type ScribeSpeakerTurn = SpeakerTurn;
 
 /**
  * Scribe-specific events, on `adapter.scribe`. They live on their own emitter
@@ -236,6 +239,21 @@ export class ElevenLabsSTTAdapter
   /** Scribe v3 Live events: diarization, turn prediction, timed commits, warnings. */
   readonly scribe = new EventEmitter<ElevenLabsSTTEvents>();
 
+  /**
+   * Who said each finalized utterance (`diarize: true`). GloveVoice reads
+   * this to label the agent's input once a second speaker is heard.
+   */
+  readonly speakers: SpeakerSource = {
+    enabled: false,
+    forFinal: () => this.lastPending,
+    subscribe: (listener) => {
+      this.speakerListeners.add(listener);
+      return () => {
+        this.speakerListeners.delete(listener);
+      };
+    },
+  };
+
   private ws: WebSocket | null = null;
   private partial = "";
   private reconnects = 0;
@@ -247,6 +265,16 @@ export class ElevenLabsSTTAdapter
   private pendingAudio = false;
   /** The kind of the last commit when its timed/plain twin may still follow. */
   private unpairedCommit: "plain" | "timed" | null = null;
+  /** Draft word labels from the latest partial (`diarize: true`). */
+  private partialWords: ScribeWord[] | null = null;
+  /** Commits whose settled speaker labels have not arrived yet, oldest first. */
+  private awaitingDiarized: {
+    segmentIndex?: number;
+    resolve: (turns: SpeakerTurn[] | null) => void;
+  }[] = [];
+  /** Speaker labels for the commit most recently emitted as `final`. */
+  private lastPending: PendingSpeakers = { draft: null, settled: Promise.resolve(null) };
+  private readonly speakerListeners = new Set<SpeakerListener>();
   /** Scribe's latest end-of-turn probability, for the current partial. */
   private latestTurnProbability: number | null = null;
   /** Speaker merges Scribe announced, from → to. */
@@ -265,6 +293,7 @@ export class ElevenLabsSTTAdapter
     this.vadThreshold = cfg.vadSilenceThreshold ?? 0;
     this.commitStrategy = cfg.commitStrategy ?? (this.vadThreshold > 0 ? "vad" : "manual");
     this.maxReconnects = cfg.maxReconnects ?? 3;
+    (this.speakers as { enabled: boolean }).enabled = cfg.diarize === true;
   }
 
   /**
@@ -315,6 +344,9 @@ export class ElevenLabsSTTAdapter
       this.pendingAudio = false;
       this.unpairedCommit = null;
       this.latestTurnProbability = null;
+      this.partialWords = null;
+      // Labels for commits on the old connection will never arrive.
+      for (const waiting of this.awaitingDiarized.splice(0)) waiting.resolve(null);
       this.ws = new WebSocket(url);
       this.ws.binaryType = "arraybuffer";
 
@@ -387,6 +419,8 @@ export class ElevenLabsSTTAdapter
           this.latestTurnProbability = data.turn_probability;
           this.scribe.emit("turn_probability", data.turn_probability);
         }
+        // When diarizing, partials carry draft words with speaker ids.
+        if (Array.isArray(data.words)) this.partialWords = data.words as ScribeWord[];
         // Repeated partials (Scribe re-sends the current text while audio
         // flows, and as keepalives) are passed through unchanged: consumers
         // use their arrival as a liveness signal.
@@ -423,6 +457,7 @@ export class ElevenLabsSTTAdapter
         this.partial = "";
         this.pendingAudio = false;
         this.latestTurnProbability = null;
+        this.trackCommitSpeakers(commit);
         this.scribe.emit("committed", { ...commit, text });
         this.emit("final", text);
         return;
@@ -436,6 +471,7 @@ export class ElevenLabsSTTAdapter
           words,
           turns: this.speakerTurns(words),
         };
+        this.settleCommitSpeakers(segment);
         this.scribe.emit("diarized", segment);
         return;
       }
@@ -445,6 +481,7 @@ export class ElevenLabsSTTAdapter
         const to = String(data.to_speaker_id ?? "");
         if (from && to) {
           this.merges.set(from, to);
+          for (const l of this.speakerListeners) l.merged?.(from, to);
           this.scribe.emit("speakers_merged", { from, to });
         }
         return;
@@ -487,6 +524,41 @@ export class ElevenLabsSTTAdapter
       current = this.merges.get(current)!;
     }
     return current;
+  }
+
+  /** A commit was just finalized: set up its speaker labels (draft now, settled later). */
+  private trackCommitSpeakers(commit: ScribeCommit): void {
+    if (!this.speakers.enabled) return;
+    const words = this.partialWords;
+    this.partialWords = null;
+    const draftTurns =
+      words && words.some((w) => w.speaker_id) ? this.speakerTurns(words) : [];
+    let resolve!: (turns: SpeakerTurn[] | null) => void;
+    const settled = new Promise<SpeakerTurn[] | null>((r) => {
+      resolve = r;
+    });
+    this.awaitingDiarized.push({
+      ...(commit.segmentIndex !== undefined ? { segmentIndex: commit.segmentIndex } : {}),
+      resolve,
+    });
+    // Labels that never come must not pile up.
+    while (this.awaitingDiarized.length > 32) this.awaitingDiarized.shift()!.resolve(null);
+    this.lastPending = { draft: draftTurns.length > 0 ? draftTurns : null, settled };
+  }
+
+  /** Scribe sent the settled labels for a commit. They arrive in commit order. */
+  private settleCommitSpeakers(segment: ScribeDiarizedSegment): void {
+    if (!this.speakers.enabled) return;
+    let at = this.awaitingDiarized.findIndex(
+      (w) => w.segmentIndex !== undefined && w.segmentIndex === segment.segmentIndex,
+    );
+    if (at === -1) at = this.awaitingDiarized.findIndex((w) => w.segmentIndex === undefined);
+    if (at !== -1) {
+      // Anything older was skipped by Scribe.
+      for (const skipped of this.awaitingDiarized.splice(0, at)) skipped.resolve(null);
+      this.awaitingDiarized.shift()!.resolve(segment.turns);
+    }
+    for (const l of this.speakerListeners) l.segment?.(segment.turns);
   }
 
   private speakerTurns(words: ScribeWord[]): ScribeSpeakerTurn[] {

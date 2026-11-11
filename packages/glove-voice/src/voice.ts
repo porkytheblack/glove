@@ -11,6 +11,8 @@ import { AudioCapture } from "./audio-capture";
 import { AudioPlayer } from "./audio-player";
 import { SentenceBuffer } from "./sentence-chunker";
 import { SpeechGate } from "./speech-gate";
+import { SpeakerTracker, type LabeledSpeakerTurn, type SpeakerInfo } from "./speakers";
+import type { PendingSpeakers, SpeakerSource, SpeakerTurn } from "./adapters/types";
 import { GloveVoiceError } from "./errors";
 import { IGloveRunnable, type SubscriberAdapter, type SubscriberEventDataMap } from "glove-core";
 import type { VADConfig } from "./vad";
@@ -54,6 +56,17 @@ export interface GloveVoiceConfig {
    * wait for the provider's commit before committing anyway (default: 2500).
    */
   sttTurnTimeoutMs?: number;
+
+  /**
+   * Speaker awareness, for several people on one microphone.
+   *
+   * On by default when the STT adapter labels speakers (`stt.speakers`, e.g.
+   * `ElevenLabsSTTAdapter({ diarize: true })`): the agent is told who said
+   * what once a second speaker is heard, and `voice.speakers` tracks who is
+   * talking and how much. Pass `false` to ignore the labels, or an object to
+   * tune it.
+   */
+  speakers?: boolean | VoiceSpeakersConfig;
 
   /** Override VAD — used when turnMode is "vad" (default) or "stt". */
   vad?: VADAdapter;
@@ -121,6 +134,29 @@ export interface GloveVoiceConfig {
   startMuted?: boolean;
 }
 
+export interface VoiceSpeakersConfig {
+  /**
+   * When the agent's input carries speaker labels (default: "auto").
+   *
+   * - "auto": plain text while only one speaker has been heard; from the
+   *   moment a second one appears, every line starts with who said it
+   *   (`[Speaker A] ...`) and stays that way.
+   * - "always": label from the first utterance.
+   * - "never": never label; speakers are still tracked for `voice.speakers`.
+   */
+  label?: "auto" | "always" | "never";
+  /**
+   * How long to wait for the provider's speaker labels after an utterance is
+   * finalized before using draft labels or plain text (default: 350ms). The
+   * wait is skipped while one known speaker is the only one talking.
+   */
+  waitMs?: number;
+  /** Names for provider speaker ids known ahead of time, e.g. `{ speaker_0: "Sarah" }`. */
+  names?: Record<string, string>;
+  /** Build the agent's text yourself from the labelled turns. */
+  format?: (turns: LabeledSpeakerTurn[], plainText: string) => string;
+}
+
 type GloveVoiceEvents = {
   mode: [mode: VoiceMode];
   /** partial=true while user is still speaking */
@@ -130,6 +166,10 @@ type GloveVoiceEvents = {
   error: [error: GloveVoiceError | Error];
   /** Raw mic PCM chunk — emitted even when muted, for visualization */
   audio_chunk: [pcm: Int16Array];
+  /** The speaker list changed: someone new, new stats, a merge or a name. */
+  speakers: [speakers: SpeakerInfo[]];
+  /** Who said the utterance that was just sent to the agent. `text` is the plain transcript. */
+  speaker_turns: [turns: LabeledSpeakerTurn[], text: string];
 };
 
 // ─── GloveVoice ────────────────────────────────────────────────────────────
@@ -185,6 +225,19 @@ export class GloveVoice extends EventEmitter<GloveVoiceEvents> {
   /** turnMode "stt": the provider committed since the speaker last started. */
   private providerCommitted = false;
 
+  // Speaker awareness (see `speakers` in the config)
+  private readonly speakerTracker = new SpeakerTracker();
+  private speakerSource: SpeakerSource | null = null;
+  private speakerCfg: VoiceSpeakersConfig = {};
+  private speakerCleanup: (() => void)[] = [];
+  private pendingNames = new Map<string, string>();
+  /** True once the agent's input is labelled; it then stays labelled. */
+  private labelling = false;
+  /** Keeps utterances in order while their speaker labels are awaited. */
+  private attribution: Promise<void> = Promise.resolve();
+  /** Bumped on stop(), so work queued for an old session is dropped. */
+  private session = 0;
+
   // Bound handlers for listener cleanup
   private sttHandlers: { partial: (t: string) => void; final: (t: string) => void; error: (e: Error) => void } | null = null;
   private vadHandlers: {
@@ -239,13 +292,33 @@ export class GloveVoice extends EventEmitter<GloveVoiceEvents> {
         if (this.turnMode === "stt") this.onProviderCommit();
         if (!text.trim()) return;
         this.emit("transcript", text, false);
-        void this.handleTurn(text);
+        const source = this.speakerSource;
+        if (!source) {
+          void this.handleTurn(text);
+          return;
+        }
+        // Ask now, while this is still the adapter's latest utterance.
+        const pending = source.forFinal();
+        const session = this.session;
+        const step = this.attribution.then(() => this.attribute(text, pending));
+        this.attribution = step.then(
+          () => undefined,
+          () => undefined,
+        );
+        void step
+          .catch(() => text)
+          .then((forAgent) => {
+            if (session !== this.session || this.mode === "idle") return;
+            void this.handleTurn(forAgent);
+          });
       },
       error: (err) => {
         console.debug(`[GloveVoice] STT error:`, err);
         this.emit("error", err);
       },
     };
+
+    this.setupSpeakers();
 
     this.cfg.stt.on("partial", this.sttHandlers.partial);
     this.cfg.stt.on("final", this.sttHandlers.final);
@@ -393,6 +466,9 @@ export class GloveVoice extends EventEmitter<GloveVoiceEvents> {
   async stop(): Promise<void> {
     this.interrupt();
     this.clearSttTurnTimer();
+    this.session += 1;
+    for (const cleanup of this.speakerCleanup.splice(0)) cleanup();
+    this.speakerSource = null;
 
     // Remove all listeners we registered
     if (this.sttHandlers) {
@@ -568,6 +644,132 @@ export class GloveVoice extends EventEmitter<GloveVoiceEvents> {
 
   get isActive(): boolean {
     return this.mode !== "idle";
+  }
+
+  // ─── Speakers ──────────────────────────────────────────────────────────────
+
+  /**
+   * Everyone heard on the microphone so far, with labels and how much each
+   * has talked. Empty unless the STT adapter labels speakers.
+   */
+  get speakers(): SpeakerInfo[] {
+    return this.speakerTracker.list();
+  }
+
+  /**
+   * Who has done most of the talking, overall or over the last `windowMs`.
+   * Talking most is not the same as talking to the agent: treat it as a hint.
+   */
+  dominantSpeaker(windowMs?: number): SpeakerInfo | null {
+    return this.speakerTracker.dominant(windowMs);
+  }
+
+  /**
+   * Give a speaker a name; their lines are labelled with it from then on.
+   * Accepts the provider id ("speaker_0"), the current label ("Speaker A")
+   * or an earlier name. Returns false if nobody matches.
+   */
+  nameSpeaker(idOrLabel: string, name: string): boolean {
+    const ok = this.speakerTracker.name(idOrLabel, name);
+    if (ok) this.emit("speakers", this.speakerTracker.list());
+    return ok;
+  }
+
+  private setupSpeakers(): void {
+    const option = this.cfg.speakers;
+    const source = this.cfg.stt.speakers;
+    if (option === false || !source?.enabled) return;
+
+    this.speakerCfg = typeof option === "object" ? option : {};
+    this.speakerSource = source;
+    // A new STT session starts its speaker ids over.
+    this.speakerTracker.reset();
+    this.labelling = this.speakerCfg.label === "always";
+    this.pendingNames = new Map(Object.entries(this.speakerCfg.names ?? {}));
+
+    this.speakerCleanup.push(
+      source.subscribe({
+        segment: (turns) => {
+          this.speakerTracker.record(turns);
+          this.speakersChanged();
+        },
+        merged: (from, to) => {
+          this.speakerTracker.merge(from, to);
+          this.speakersChanged();
+        },
+      }),
+    );
+
+    // Tell the agent how to read the labels, who is here and who talks most.
+    // Read once per request and never saved, so it is always current.
+    const unregister = this.glove.addContextProvider?.(
+      () =>
+        this.labelling
+          ? `<voice-speakers>\n${this.speakerTracker.describe()}\n</voice-speakers>`
+          : null,
+      { delivery: "request" },
+    );
+    if (unregister) this.speakerCleanup.push(unregister);
+  }
+
+  private speakersChanged(): void {
+    for (const [id, name] of this.pendingNames) {
+      if (this.speakerTracker.has(id) && this.speakerTracker.name(id, name)) {
+        this.pendingNames.delete(id);
+      }
+    }
+    if (this.speakerCfg.label !== "never" && this.speakerTracker.count >= 2) this.labelling = true;
+    this.emit("speakers", this.speakerTracker.list());
+  }
+
+  /** Work out who said `text` and return what the agent should read. */
+  private async attribute(text: string, pending: PendingSpeakers): Promise<string> {
+    const cfg = this.speakerCfg;
+    const tracker = this.speakerTracker;
+    const draft = pending.draft;
+
+    let turns: SpeakerTurn[] | null;
+    if (cfg.label === "never") {
+      turns = draft;
+    } else if (!this.labelling && this.isLoneKnownSpeaker(draft)) {
+      // One person, the same one as before: nothing to wait for.
+      turns = draft;
+    } else {
+      turns = (await this.settledWithin(pending, cfg.waitMs ?? 350)) ?? draft;
+    }
+    if (!turns || turns.length === 0) return text;
+
+    if (tracker.observe(turns)) this.speakersChanged();
+    const labeled = tracker.labelTurns(turns);
+    this.emit("speaker_turns", labeled, text);
+    if (!this.labelling || !labeled.some((t) => t.label)) return text;
+
+    const formatted = tracker.format(turns);
+    return cfg.format ? cfg.format(labeled, text) : formatted;
+  }
+
+  private isLoneKnownSpeaker(draft: SpeakerTurn[] | null): boolean {
+    if (!draft || draft.length === 0) return false;
+    const first = draft[0].speakerId;
+    if (!first || draft.some((t) => t.speakerId !== first)) return false;
+    const tracker = this.speakerTracker;
+    return tracker.count === 0 || (tracker.count === 1 && tracker.has(first));
+  }
+
+  private settledWithin(pending: PendingSpeakers, ms: number): Promise<SpeakerTurn[] | null> {
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => resolve(null), ms);
+      pending.settled.then(
+        (turns) => {
+          clearTimeout(timer);
+          resolve(turns);
+        },
+        () => {
+          clearTimeout(timer);
+          resolve(null);
+        },
+      );
+    });
   }
 
   // ─── Provider turn detection (turnMode "stt") ──────────────────────────────

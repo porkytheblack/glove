@@ -1,10 +1,21 @@
 // Core
-export { GloveVoice, type GloveVoiceConfig, type VoiceMode, type TurnMode, type TTSFactory } from "./voice";
+export {
+  GloveVoice,
+  type GloveVoiceConfig,
+  type VoiceSpeakersConfig,
+  type VoiceMode,
+  type TurnMode,
+  type TTSFactory,
+} from "./voice";
 
 // Adapters — contracts
 export type {
   STTAdapter,
   STTAdapterEvents,
+  SpeakerSource,
+  SpeakerListener,
+  SpeakerTurn,
+  PendingSpeakers,
   TTSAdapter,
   TTSAdapterEvents,
   VADAdapter,
@@ -52,6 +63,14 @@ export {
 } from "./turn-detector";
 // SileroVADAdapter is in "glove-voice/silero-vad" — separate entry to avoid
 // pulling onnxruntime-web (browser-only WASM) into the main barrel.
+
+// Speakers — labels, names and talk time for several people on one microphone
+export {
+  SpeakerTracker,
+  createNameSpeakerTool,
+  type SpeakerInfo,
+  type LabeledSpeakerTurn,
+} from "./speakers";
 
 // Errors
 export { GloveVoiceError, type GloveVoiceErrorCode } from "./errors";
