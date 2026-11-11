@@ -13,10 +13,9 @@
 //     wrapper — a Int16Array's bytes, straight down the socket.
 //   • TEXT frames are JSON control/telemetry messages, typed below.
 //
-// PCM at 16 kHz costs 32 KB/s per direction. That is more than Opus would, and
-// it is chosen on purpose: it needs no codec on either end, it is exactly the
-// format both ElevenLabs Scribe (in) and ElevenLabs TTS (out, pcm_16000) speak,
-// so the gateway never transcodes, and it keeps the client trivially portable.
+// (Carried over from s2s-rooms. In this example audio travels as LiveKit
+// WebRTC tracks, not as binary frames on this socket; the typed messages below
+// are what is still shared between the browser and the room.)
 // Swapping in Opus is a transport concern that changes neither end's logic.
 // ─────────────────────────────────────────────────────────────────────────────
 

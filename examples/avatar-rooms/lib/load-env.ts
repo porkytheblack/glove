@@ -2,7 +2,7 @@
 //
 // Import this FIRST, before anything that reads a key — station's CLI does not
 // load dotfiles on its own, so without this `station.config.ts` sees no
-// credentials and refuses to boot, and rooms see no ELEVENLABS_API_KEY.
+// credentials and refuses to boot, and rooms see no provider keys.
 //
 // It matters here more than in a typical app because of how the processes
 // nest: the signal runner spawns each room and each research job as a CHILD
