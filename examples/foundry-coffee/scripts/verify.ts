@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createFoundryClient } from "glove-foundry/client";
-import { visitKey, type Visit } from "../lib/bag.js";
+import { sameBag, totals, visitKey, type Bag, type Visit } from "../lib/bag.js";
 import { SHOP, type TurnPayload } from "../lib/shop.js";
 
 // One visit to the shop, end to end, over the same HTTP API the web app
@@ -154,6 +154,15 @@ async function spokenVisit(): Promise<void> {
 }
 
 try {
+  // What a checkout confirmation is compared on. Two different bags can have
+  // the same count and the same total, so only the lines will do.
+  const onCard: Bag = { lines: [{ productId: "colombian-huila", qty: 1 }, { productId: "kenyan-aa", qty: 1 }] };
+  const inStore: Bag = { lines: [{ productId: "guatemala-antigua", qty: 1 }, { productId: "rwanda-kivu", qty: 1 }] };
+  assert.deepEqual(totals(onCard), totals(inStore), "the two bags cost the same");
+  assert.equal(sameBag(onCard, inStore), false);
+  assert.equal(sameBag(onCard, { lines: [...onCard.lines].reverse() }), true, "order does not matter");
+  assert.equal(sameBag(onCard, { lines: [{ ...onCard.lines[0]!, for: "Maya" }, onCard.lines[1]!] }), false, "who it is for does");
+
   await until(async () => ((await foundry.health()).ok ? true : undefined), "Foundry to start");
 
   const barista = (await foundry.agentInstances("barista")).find((agent) => agent.id === SHOP.agentId);

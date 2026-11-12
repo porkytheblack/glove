@@ -65,6 +65,20 @@ export function removeLine(bag: Bag, productId: string, qty?: number, who?: stri
   return { lines };
 }
 
+/**
+ * The same coffees, in the same quantities, for the same people. Totals are
+ * not enough to tell bags apart: two different pairs of coffees can cost the
+ * same.
+ */
+export function sameBag(a: Bag, b: Bag): boolean {
+  const key = (bag: Bag) =>
+    bag.lines
+      .map((line) => JSON.stringify([line.productId, line.qty, line.for ?? ""]))
+      .sort()
+      .join("|");
+  return key(a) === key(b);
+}
+
 export function totals(bag: Bag): { count: number; subtotal: number; shipping: number; total: number } {
   let count = 0;
   let subtotal = 0;

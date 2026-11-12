@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { EMPTY_BAG, totals, type Bag, type Order } from "../../lib/bag";
+import { EMPTY_BAG, type Bag, type Order } from "../../lib/bag";
 import type { RunTurn } from "./foundry-runnable";
 import { streamTurn } from "./turn-stream";
 import type { TurnEvent } from "./turn-events";
@@ -237,13 +237,12 @@ export function useShop(): Shop {
   }, []);
 
   const decide = useCallback(async (approvalId: string, decision: "approve" | "deny") => {
-    // A confirmation says what the customer was shown; the server refuses it
-    // if the bag is no longer that.
-    const { count, total } = totals(bagRef.current);
+    // A confirmation carries the bag the customer was shown; the server
+    // refuses it unless the stored bag is exactly that.
     const response = await fetch(`/api/approvals/${encodeURIComponent(approvalId)}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ decision, seen: { count, total } }),
+      body: JSON.stringify({ decision, seen: bagRef.current }),
     }).catch(() => null);
     if (!response?.ok) {
       const failure = ((await response?.json().catch(() => ({}))) ?? {}) as { error?: string };
