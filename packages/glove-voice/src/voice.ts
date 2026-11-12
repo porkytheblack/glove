@@ -829,10 +829,14 @@ export class GloveVoice extends EventEmitter<GloveVoiceEvents> {
 
     if (tracker.observe(turns)) this.speakersChanged();
 
-    // The finalized transcript is what was said. Labels are only laid over it
-    // when they cover the same words; draft labels come from an earlier
-    // partial and can be missing its end.
-    if (!sameWords(turns.map((t) => t.text).join(" "), text)) {
+    // The finalized transcript is what was said, down to its punctuation.
+    // Labels only say where each speaker's part starts and ends: they are
+    // laid over the final text when they cover the same words. Draft labels
+    // come from an earlier partial and can be missing its end.
+    const aligned = alignToFinal(turns, text);
+    if (aligned) {
+      turns = aligned;
+    } else {
       const ids = new Set(turns.map((t) => t.speakerId));
       const only = ids.size === 1 ? turns[0].speakerId : null;
       if (!only) return text;
@@ -1075,8 +1079,38 @@ export class GloveVoice extends EventEmitter<GloveVoiceEvents> {
   }
 }
 
-/** True when two transcripts have the same words, ignoring case, punctuation and spacing. */
-function sameWords(a: string, b: string): boolean {
-  const norm = (t: string) => t.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
-  return norm(a) === norm(b);
+/** The words of a transcript, ignoring case, punctuation and spacing. */
+function wordsOf(text: string): string[] {
+  return text.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
+}
+
+/**
+ * Speaker turns with the wording of the finalized transcript: each turn keeps
+ * its speaker and takes its stretch of `text`, so the final's punctuation and
+ * casing survive. Null when the turns do not cover the same words as `text`,
+ * or a boundary falls inside one of its tokens.
+ */
+function alignToFinal(turns: SpeakerTurn[], text: string): SpeakerTurn[] | null {
+  const counts = turns.map((t) => wordsOf(t.text).length);
+  const spoken = turns.flatMap((t) => wordsOf(t.text));
+  const final = wordsOf(text);
+  if (spoken.length !== final.length || spoken.some((w, i) => w !== final[i])) return null;
+
+  const tokens = text.trim().split(/\s+/);
+  const out: SpeakerTurn[] = [];
+  let at = 0;
+  for (let i = 0; i < turns.length; i++) {
+    if (counts[i] === 0) continue; // a turn of sounds only; its tokens join a neighbour
+    const piece: string[] = [];
+    let have = 0;
+    while (at < tokens.length && have < counts[i]) {
+      have += wordsOf(tokens[at]).length;
+      piece.push(tokens[at++]);
+    }
+    if (have !== counts[i]) return null;
+    // Tokens without a word ("-", "...") stay with the turn they follow.
+    while (at < tokens.length && wordsOf(tokens[at]).length === 0) piece.push(tokens[at++]);
+    out.push({ ...turns[i], text: piece.join(" ") });
+  }
+  return out.length > 0 ? out : null;
 }

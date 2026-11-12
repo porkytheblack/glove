@@ -426,12 +426,27 @@ test("draft labels never replace the finalized text", async () => {
   await flush();
   assert.equal(requests[1], "Hi there. Hello, who is this?");
 
-  // Punctuation and case differences are not a mismatch.
+  // Punctuation and case differences are not a mismatch, and the agent
+  // reads the final's wording, split where the speakers change.
   stt.say("OK. Thanks!", [A("ok"), B("thanks")]);
   await flush();
   mock.timers.tick(200);
   await flush();
-  assert.equal(requests[2], "[Speaker A] ok\n[Speaker B] thanks");
+  assert.equal(requests[2], "[Speaker A] OK.\n[Speaker B] Thanks!");
+
+  // A draft that heard a statement must not turn the final's question into one.
+  stt.say("Are you ready? Yes, I am.", [A("Are you ready."), B("yes I am")]);
+  await flush();
+  mock.timers.tick(200);
+  await flush();
+  assert.equal(requests[3], "[Speaker A] Are you ready?\n[Speaker B] Yes, I am.");
+
+  // A speaker change inside one token of the final cannot be placed.
+  stt.say("Twenty-five.", [A("twenty"), B("five")]);
+  await flush();
+  mock.timers.tick(200);
+  await flush();
+  assert.equal(requests[4], "Twenty-five.");
   await voice.stop();
 });
 
