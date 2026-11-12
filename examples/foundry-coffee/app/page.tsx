@@ -143,8 +143,27 @@ export default function Home() {
   // A recording, transcribed with batch Scribe v3 and handed to the barista.
   // Not while the microphone is on: a spoken turn would start over the
   // recording's turn, and its reply would be dropped from the screen.
-  const voiceOn = useRef(false);
-  voiceOn.current = voice.isActive;
+  // "On" from the click that starts it: the hook reports voice as active
+  // only once the microphone and Scribe are connected.
+  const voiceActive = useRef(false);
+  voiceActive.current = voice.isActive;
+  const voiceStartingRef = useRef(false);
+  const [voiceStarting, setVoiceStarting] = useState(false);
+  const voiceOn = useMemo(() => ({ get current() { return voiceActive.current || voiceStartingRef.current; } }), []);
+  const startVoice = useCallback(async () => {
+    voiceStartingRef.current = true;
+    setVoiceStarting(true);
+    try {
+      await voice.start();
+    } finally {
+      setVoiceStarting(false);
+    }
+  }, [voice.start]);
+  useEffect(() => {
+    // Cleared after the render that shows the outcome, so there is no moment
+    // between "starting" and "active" when neither is set.
+    if (!voiceStarting) voiceStartingRef.current = false;
+  }, [voiceStarting]);
   const voicemail = useCallback(
     async (file: File) => {
       if (voiceOn.current) {
@@ -208,7 +227,7 @@ export default function Home() {
           : `This order came in as a recording: ${body}`,
       );
     },
-    [shop.now, shop.note, shop.send],
+    [shop.now, shop.note, shop.send, voiceOn],
   );
 
   const bag = useMemo(() => viewBag(shop.bag), [shop.bag]);
@@ -248,6 +267,8 @@ export default function Home() {
             onSubmit={handleSubmit}
             onStop={stop}
             voice={voice}
+            onStartVoice={() => void startVoice()}
+            voiceStarting={voiceStarting}
             voiceAvailable={shop.status?.elevenlabs ?? false}
             settings={settings}
             onSettings={setSettings}
@@ -266,7 +287,7 @@ export default function Home() {
           monitor={monitor}
           voiceOn={voice.isActive}
           voiceAvailable={shop.status?.elevenlabs ?? false}
-          busy={shop.busy || !ready || voice.isActive}
+          busy={shop.busy || !ready || voice.isActive || voiceStarting}
           onVoicemail={voicemail}
         />
       </div>

@@ -13,7 +13,7 @@ const HINTS: Record<TurnDetection, string> = {
   "local-vad": "Listening...",
 };
 
-export function ChatInput({ input, setInput, busy, ready, onSubmit, onStop, voice, voiceAvailable, settings, onSettings }: {
+export function ChatInput({ input, setInput, busy, ready, onSubmit, onStop, voice, onStartVoice, voiceStarting, voiceAvailable, settings, onSettings }: {
   input: string;
   setInput: (value: string) => void;
   busy: boolean;
@@ -21,6 +21,9 @@ export function ChatInput({ input, setInput, busy, ready, onSubmit, onStop, voic
   onSubmit: (e: { preventDefault: () => void }) => void;
   onStop: () => void;
   voice: UseGloveVoiceReturn;
+  onStartVoice: () => void;
+  /** The microphone and Scribe are being connected. */
+  voiceStarting: boolean;
   /** False when ELEVENLABS_API_KEY is not set. */
   voiceAvailable: boolean;
   settings: VoiceSettings;
@@ -51,8 +54,8 @@ export function ChatInput({ input, setInput, busy, ready, onSubmit, onStop, voic
                 <button
                   type="button"
                   className="mic-btn"
-                  onClick={() => void voice.start()}
-                  disabled={!ready || !voiceAvailable}
+                  onClick={onStartVoice}
+                  disabled={!ready || !voiceAvailable || voiceStarting}
                   title={voiceAvailable ? `Start voice (${TURN_LABELS[settings.turns]})` : "Set ELEVENLABS_API_KEY to use voice"}
                   aria-label="Start voice conversation"
                 >
