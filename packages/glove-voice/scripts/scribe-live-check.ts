@@ -45,8 +45,7 @@ async function loadClip(): Promise<Buffer> {
   const path = process.argv[2];
   if (path) {
     const file = readFileSync(path);
-    // Skip a canonical 44-byte WAV header.
-    return file.subarray(0, 4).toString() === "RIFF" ? file.subarray(44) : file;
+    return file.subarray(0, 4).toString() === "RIFF" ? wavData(file) : file;
   }
   console.log("Synthesizing a two-voice clip...");
   const a = "JBFqnCBsd6RMkjVDRZzb";
@@ -59,6 +58,18 @@ async function loadClip(): Promise<Buffer> {
     await speak(a, "Yes, the window would be great. My phone number is four one five, five five five, zero one two three."),
     silence(2500),
   ]);
+}
+
+/** The payload of a WAV file's `data` chunk. Headers vary, so walk the chunks. */
+function wavData(file: Buffer): Buffer {
+  let at = 12; // past "RIFF", size, "WAVE"
+  while (at + 8 <= file.length) {
+    const id = file.subarray(at, at + 4).toString();
+    const size = file.readUInt32LE(at + 4);
+    if (id === "data") return file.subarray(at + 8, Math.min(at + 8 + size, file.length));
+    at += 8 + size + (size % 2); // chunks are padded to an even length
+  }
+  throw new Error("No data chunk found in the WAV file.");
 }
 
 function toWav(pcm: Buffer): Buffer {
@@ -160,6 +171,7 @@ async function realtime(pcm: Buffer) {
     });
   });
   stt.on("error", (e) => found.errors.push(e.message));
+  stt.scribe.on("speakers_merged", ({ from, to }) => tracker.merge(from, to));
   stt.scribe.on("warning", (w) => console.log(at(), "warning:", w));
   let lastShown = -1;
   stt.scribe.on("turn_probability", (p) => {

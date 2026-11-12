@@ -166,6 +166,16 @@ export async function transcribeWithElevenLabs(
     else form.set(key, String(value));
   }
 
+  // With a webhook, ElevenLabs answers at once and delivers the transcript
+  // elsewhere. This helper returns the transcript, so it cannot serve that mode.
+  const webhook = form.get("webhook");
+  if (webhook === "true") {
+    throw new Error(
+      "transcribeWithElevenLabs returns the transcript itself; webhook delivery is not supported. " +
+        "Call the API directly for asynchronous transcription.",
+    );
+  }
+
   const base = (options.baseUrl ?? "https://api.elevenlabs.io").replace(/\/+$/, "");
   const query = options.disableLogging ? "?enable_logging=false" : "";
   const res = await fetch(`${base}/v1/speech-to-text${query}`, {

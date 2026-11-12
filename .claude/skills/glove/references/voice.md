@@ -251,7 +251,7 @@ Pick `turnMode: "stt"` when you use `GloveVoice`; pick `ProviderTurnDetector` wh
 
 ### Noise Robustness (speech gating)
 
-In `"vad"` and `"stt"` modes, mic audio is **speech-gated by default** (`speechGating: true`): audio is held in a rolling pre-roll buffer (`speechGatePrerollMs`, default 800ms) and only released to the STT provider once the VAD confirms a speech segment — background noise never reaches STT, so it can't be transcribed or hallucinated into words. With `SileroVADAdapter` (which declares `supportsRealStart: true`):
+In `"vad"` and `"stt"` modes, mic audio is **speech-gated by default** (`speechGating: true`): audio is held in a rolling pre-roll buffer (`speechGatePrerollMs`, default 800ms) and only released to the STT provider once the VAD confirms a speech segment — noise between utterances is not sent to STT, so it can't be transcribed or hallucinated into words (noise during speech, and in `"stt"` mode the pause after it, still is). With `SileroVADAdapter` (which declares `supportsRealStart: true`):
 
 - The gate opens on `speech_real_start` (speech survived `minSpeechMs`, default 250ms) — short noise bursts are reported as `vad_misfire` and their audio is **discarded entirely**.
 - Barge-in also triggers on `speech_real_start`, so a door slam doesn't interrupt agent speech.

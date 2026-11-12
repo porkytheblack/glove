@@ -148,6 +148,17 @@ test("settled labels match commits by segment index, and skipped ones resolve nu
   assert.deepEqual(await pendings[1].settled, [{ speakerId: "speaker_0", text: "Two." }]);
 });
 
+test("disconnect settles speaker labels that are still awaited", async () => {
+  const stt = new ElevenLabsSTTAdapter({ getToken: async () => "t", diarize: true });
+  let pending: PendingSpeakers | null = null;
+  stt.on("final", () => {
+    pending = stt.speakers.forFinal();
+  });
+  stt.handleMessage({ message_type: "committed_transcript", text: "Bye.", segment_index: 0 });
+  stt.disconnect();
+  assert.equal(await pending!.settled, null);
+});
+
 test("without diarize the adapter is not a speaker source", () => {
   const stt = new ElevenLabsSTTAdapter({ getToken: async () => "t" });
   assert.equal(stt.speakers.enabled, false);
@@ -456,5 +467,68 @@ test("a reconnect starts speaker labels over and tells the agent", async () => {
   stt.diarize([B("Back again.")]);
   await flush();
   assert.equal(requests[1], "[Speaker A] Back again.");
+  await voice.stop();
+});
+
+test("a failed start leaves no speaker subscription or context provider behind", async () => {
+  const { voice, stt, providers } = setup({ label: "always" });
+  let subscribed = 0;
+  const subscribe = stt.speakers.subscribe;
+  (stt.speakers as { subscribe: typeof subscribe }).subscribe = (l) => {
+    subscribed += 1;
+    const off = subscribe(l);
+    return () => {
+      subscribed -= 1;
+      off();
+    };
+  };
+  stt.connect = async () => {
+    throw new Error("token endpoint down");
+  };
+  await assert.rejects(voice.start(), /token endpoint down/);
+  assert.equal(providers.length, 0);
+  assert.equal(subscribed, 0);
+});
+
+test("the keepalive defaults on when the adapter labels speakers", async () => {
+  mock.timers.reset();
+  mock.timers.enable({ apis: ["setTimeout", "Date"] });
+  const stt = new FakeSTT();
+  let sent = 0;
+  stt.sendAudio = () => {
+    sent += 1;
+  };
+  const frames = new EventEmitter<{ chunk: [Int16Array]; error: [Error] }>();
+  const audio: AudioIO = {
+    createCapture: () =>
+      Object.assign(frames, { init: async () => {}, destroy: async () => {} }) as never,
+    createPlayer: () => ({
+      async init() {},
+      enqueue() {},
+      onDrained(cb: () => void) {
+        cb();
+      },
+      stop() {},
+      async destroy() {},
+    }),
+  };
+  const glove = {
+    displayManager: { resolverStore: new Map(), clearStack: async () => {} },
+    addSubscriber() {},
+    removeSubscriber() {},
+    addContextProvider: () => () => {},
+    async processRequest() {
+      return {};
+    },
+  };
+  // Default turn mode ("vad") with the built-in VAD, so the speech gate exists.
+  const voice = new GloveVoice(glove as never, { stt, createTTS: () => new FakeTTS(), audio });
+  await voice.start();
+  const quiet = new Int16Array(320);
+  frames.emit("chunk", quiet);
+  assert.equal(sent, 0);
+  mock.timers.tick(8000);
+  frames.emit("chunk", quiet);
+  assert.equal(sent, 1);
   await voice.stop();
 });

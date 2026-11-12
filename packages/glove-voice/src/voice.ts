@@ -58,6 +58,18 @@ export interface GloveVoiceConfig {
   sttTurnTimeoutMs?: number;
 
   /**
+   * While the speech gate is closed, send one captured mic frame to STT this
+   * often, so the provider does not close the session for being idle (Scribe
+   * does after 15s without audio). The frame is real room tone, never
+   * synthetic silence, which recognizers can turn into words.
+   *
+   * Default: 8000 when the STT adapter labels speakers, because a reconnect
+   * starts speaker ids over and the labels with them; otherwise 0 (off), and
+   * an idle session simply reconnects. Not sent while muted.
+   */
+  sttKeepAliveMs?: number;
+
+  /**
    * Speaker awareness, for several people on one microphone.
    *
    * On by default when the STT adapter labels speakers (`stt.speakers`, e.g.
@@ -239,6 +251,8 @@ export class GloveVoice extends EventEmitter<GloveVoiceEvents> {
   private attribution: Promise<void> = Promise.resolve();
   /** Bumped on stop(), so work queued for an old session is dropped. */
   private session = 0;
+  /** When audio last went to STT, for `sttKeepAliveMs`. */
+  private lastSttAudioAt = 0;
 
   // Bound handlers for listener cleanup
   private sttHandlers: { partial: (t: string) => void; final: (t: string) => void; error: (e: Error) => void } | null = null;
@@ -288,6 +302,20 @@ export class GloveVoice extends EventEmitter<GloveVoiceEvents> {
       partial: (text) => {
         console.debug(`[GloveVoice] STT partial: "${text}"`);
         if (this.mode === "listening") this.emit("transcript", text, true);
+        // turnMode "stt": words are arriving while nobody is speaking and no
+        // fallback is waiting. That is speech the provider has heard but not
+        // committed, for example an utterance whose fallback was cancelled by
+        // a late commit for the one before it. Make sure it gets committed.
+        if (
+          this.turnMode === "stt" &&
+          text.trim() &&
+          this.mode !== "idle" &&
+          !this.vad?.isSpeaking &&
+          !this.sttTurnTimer &&
+          !this.sttFallbackSuspended
+        ) {
+          this.armSttTurnTimer();
+        }
       },
       final: (text) => {
         console.debug(`[GloveVoice] STT final: "${text}"`);
@@ -455,6 +483,10 @@ export class GloveVoice extends EventEmitter<GloveVoiceEvents> {
       ? this.cfg.audio.createCapture(this.sampleRate, this.cfg.micConstraints)
       : new AudioCapture(this.sampleRate, this.cfg.micConstraints);
 
+    const keepAliveMs =
+      this.cfg.sttKeepAliveMs ?? (this.speakerSource ? 8000 : 0);
+    this.lastSttAudioAt = Date.now();
+
     this.captureHandlers = {
       chunk: (pcm) => {
         if (this.mode === "idle") return;
@@ -462,7 +494,21 @@ export class GloveVoice extends EventEmitter<GloveVoiceEvents> {
         if (this.muted) return;
         this.vad?.process(pcm);
         if (this.gate) {
-          for (const chunk of this.gate.feed(pcm)) this.cfg.stt.sendAudio(chunk);
+          const out = this.gate.feed(pcm);
+          const now = Date.now();
+          if (out.length > 0) {
+            for (const chunk of out) this.cfg.stt.sendAudio(chunk);
+            this.lastSttAudioAt = now;
+          } else if (
+            keepAliveMs > 0 &&
+            !this.gate.isPending &&
+            now - this.lastSttAudioAt >= keepAliveMs
+          ) {
+            // Gate closed and STT has heard nothing for a while: one frame of
+            // room tone keeps the session (and its speaker ids) alive.
+            this.cfg.stt.sendAudio(pcm);
+            this.lastSttAudioAt = now;
+          }
         } else {
           this.cfg.stt.sendAudio(pcm);
         }
@@ -474,8 +520,16 @@ export class GloveVoice extends EventEmitter<GloveVoiceEvents> {
     this.capture.on("error", this.captureHandlers.error);
 
     // Connect STT then start mic
-    await this.cfg.stt.connect();
-    await this.capture.init();
+    try {
+      await this.cfg.stt.connect();
+      await this.capture.init();
+    } catch (err) {
+      // A failed start must not leave the speaker subscription and the
+      // context provider behind: a retry would register them again.
+      for (const cleanup of this.speakerCleanup.splice(0)) cleanup();
+      this.speakerSource = null;
+      throw err;
+    }
 
     // In manual mode, start muted by default so the consumer controls
     // when audio flows (push-to-talk). Explicit startMuted overrides.

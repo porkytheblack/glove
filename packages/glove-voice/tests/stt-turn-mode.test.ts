@@ -1,7 +1,7 @@
 import { test, mock, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import EventEmitter from "eventemitter3";
-import { GloveVoice, type TurnMode } from "../src/voice";
+import { GloveVoice, type GloveVoiceConfig, type TurnMode } from "../src/voice";
 import type {
   AudioIO,
   STTAdapterEvents,
@@ -83,7 +83,12 @@ class FakeTTS extends EventEmitter<TTSAdapterEvents> {
   destroy() {}
 }
 
-function setup(turnMode: TurnMode, stt = new FakeSTT(), vad = new FakeVAD()) {
+function setup(
+  turnMode: TurnMode,
+  stt = new FakeSTT(),
+  vad = new FakeVAD(),
+  extra: Partial<GloveVoiceConfig> = {},
+) {
   const capture = new FakeCapture();
   const audio: AudioIO = {
     createCapture: () => capture,
@@ -113,6 +118,7 @@ function setup(turnMode: TurnMode, stt = new FakeSTT(), vad = new FakeVAD()) {
     turnMode,
     vad,
     audio,
+    ...extra,
   });
   return { voice, stt, vad, capture, requests };
 }
@@ -249,6 +255,44 @@ test("confirmed speech after a pause drops the fallback", async () => {
   await voice.stop();
 });
 
+test("a late commit for one utterance does not strand the next", async () => {
+  const { voice, stt, vad, capture, requests } = setup("stt");
+  await voice.start();
+  // A and B are said close together; the VAD hears the end of B.
+  vad.start();
+  capture.frame();
+  vad.end(); // fallback armed for what has been said so far
+
+  // A's commit lands late. It starts A's turn, cancels the fallback and
+  // closes the gate, but B is still uncommitted at the provider.
+  stt.commit("First thing.");
+  await new Promise((r) => setImmediate(r));
+  assert.deepEqual(requests, ["First thing."]);
+  mock.timers.tick(10_000);
+  assert.equal(stt.flushes, 0);
+
+  // The provider reports B's words while nobody is speaking: commit them.
+  stt.currentPartial = "and the second thing";
+  stt.emit("partial", "and the second thing");
+  mock.timers.tick(2499);
+  assert.equal(stt.flushes, 0);
+  mock.timers.tick(1);
+  assert.equal(stt.flushes, 1);
+  await voice.stop();
+});
+
+test("partials while the speaker is talking do not arm the fallback", async () => {
+  const { voice, stt, vad, capture } = setup("stt");
+  await voice.start();
+  vad.start();
+  capture.frame();
+  stt.currentPartial = "still talking";
+  stt.emit("partial", "still talking");
+  mock.timers.tick(10_000);
+  assert.equal(stt.flushes, 0);
+  await voice.stop();
+});
+
 // ─── turnMode "vad" is unchanged ──────────────────────────────────────────
 
 test('turnMode "vad" still commits on the local VAD', async () => {
@@ -274,4 +318,47 @@ test('turnMode "manual" warns when the adapter ends turns itself', async () => {
   } finally {
     console.warn = realWarn;
   }
+});
+
+// ─── Keeping an idle STT session open ──────────────────────────────────────
+
+test("sttKeepAliveMs sends one mic frame through a closed gate at each interval", async () => {
+  mock.timers.reset();
+  mock.timers.enable({ apis: ["setTimeout", "Date"] });
+  const { voice, stt, vad, capture } = setup("vad", new FakeSTT(false), new FakeVAD(), {
+    sttKeepAliveMs: 5000,
+  });
+  await voice.start();
+
+  capture.frame();
+  assert.equal(stt.sent, 0); // gated, and the interval has not passed
+  mock.timers.tick(5000);
+  capture.frame();
+  assert.equal(stt.sent, 1); // one frame of room tone
+  capture.frame();
+  assert.equal(stt.sent, 1); // not every frame
+  mock.timers.tick(5000);
+  capture.frame();
+  assert.equal(stt.sent, 2);
+
+  // Real speech resets the clock.
+  vad.start();
+  capture.frame();
+  vad.end();
+  const sent = stt.sent;
+  mock.timers.tick(4999);
+  capture.frame();
+  assert.equal(stt.sent, sent);
+  await voice.stop();
+});
+
+test("no keepalive frames by default without a speaker source", async () => {
+  mock.timers.reset();
+  mock.timers.enable({ apis: ["setTimeout", "Date"] });
+  const { voice, stt, capture } = setup("vad", new FakeSTT(false));
+  await voice.start();
+  mock.timers.tick(60_000);
+  capture.frame();
+  assert.equal(stt.sent, 0);
+  await voice.stop();
 });

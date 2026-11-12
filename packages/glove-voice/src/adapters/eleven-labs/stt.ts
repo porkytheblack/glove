@@ -111,8 +111,14 @@ export interface ElevenLabsSTTConfig {
   previousText?: string;
 
   /**
-   * Interval (500–10000 ms) at which Scribe sends keepalive partials. Scribe
-   * closes a session after 15s with no client messages.
+   * Interval (500–10000 ms) at which Scribe sends keepalive partials while
+   * audio is streaming.
+   *
+   * This does not keep a silent session open: Scribe closes a session after
+   * 15s with no client messages, and only audio chunks count. The adapter
+   * then reconnects, which starts a new session (and new speaker ids when
+   * diarizing). GloveVoice's `sttKeepAliveMs` sends an occasional mic frame
+   * through a closed speech gate to prevent that.
    */
   keepaliveIntervalMs?: number;
 
@@ -360,7 +366,7 @@ export class ElevenLabsSTTAdapter
       if (this.hasConnected) for (const l of this.speakerListeners) l.reset?.();
       this.partialWords = null;
       // Labels for commits on the old connection will never arrive.
-      for (const waiting of this.awaitingDiarized.splice(0)) waiting.resolve(null);
+      this.dropAwaitingSpeakers();
       this.ws = new WebSocket(url);
       this.ws.binaryType = "arraybuffer";
 
@@ -409,8 +415,10 @@ export class ElevenLabsSTTAdapter
               }
             });
           }, 500 * this.reconnects);
-        } else if (!this.destroyed) {
-          this.emit("close");
+        } else {
+          // Nothing more will arrive on this connection.
+          this.dropAwaitingSpeakers();
+          if (!this.destroyed) this.emit("close");
         }
       };
     });
@@ -552,6 +560,11 @@ export class ElevenLabsSTTAdapter
     return current;
   }
 
+  /** Settle every commit still waiting for speaker labels with "none". */
+  private dropAwaitingSpeakers(): void {
+    for (const waiting of this.awaitingDiarized.splice(0)) waiting.resolve(null);
+  }
+
   /** A commit was just finalized: set up its speaker labels (draft now, settled later). */
   private trackCommitSpeakers(commit: ScribeCommit): void {
     if (!this.speakers.enabled) return;
@@ -633,7 +646,8 @@ export class ElevenLabsSTTAdapter
     // When Scribe commits on its own (vad, turn_prediction) it may already
     // have closed this utterance. Committing again would only send silence
     // and get an empty transcript back.
-    if (this.commitStrategy !== "manual" && !this.pendingAudio) return;
+    // An uncommitted partial is uncommitted speech, whatever the flag says.
+    if (this.commitStrategy !== "manual" && !this.pendingAudio && !this.partial.trim()) return;
     // Scribe rejects a commit with less than 0.3s of uncommitted audio
     // ("commit_throttled"), and a rejected commit is invisible: the caller
     // believes the buffer was cleared while Scribe keeps accumulating, so the
@@ -657,6 +671,7 @@ export class ElevenLabsSTTAdapter
 
   disconnect(): void {
     this.destroyed = true;
+    this.dropAwaitingSpeakers();
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;

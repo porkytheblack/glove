@@ -441,7 +441,7 @@ const voice = useGloveVoice({ runnable, voice: { stt, createTTS } });
 
 Three turn modes: **VAD** (hands-free with barge-in), **Manual** (push-to-talk) and **STT** (the speech-to-text provider decides when the speaker is done, e.g. ElevenLabs Scribe v3 Live turn prediction). Token-based auth keeps API keys server-side.
 
-**Noise robustness** — in VAD and STT modes, mic audio is speech-gated: it only reaches the STT provider once the VAD confirms speech (with a pre-roll buffer), so background noise is never transcribed. With Silero, short noise bursts are discarded and barge-in only fires on confirmed speech. On by default.
+**Noise robustness** — in VAD and STT modes, mic audio is speech-gated: it only reaches the STT provider once the VAD confirms speech (with a pre-roll buffer), so noise between utterances is not sent for transcription. With Silero, short noise bursts are discarded and barge-in only fires on confirmed speech. On by default.
 
 **React Native / Expo** — the pipeline is platform-neutral; only mic capture and playback are platform edges. `glove-voice-native` supplies them for iOS/Android (backed by `react-native-audio-api` and `onnxruntime-react-native`):
 

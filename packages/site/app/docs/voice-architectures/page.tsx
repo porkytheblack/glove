@@ -406,10 +406,22 @@ const detector = new ProviderTurnDetector({
 let partial = "";
 stt.on("partial", (text) => (partial = text));
 
+let decision = 0; // bumped whenever speech starts or ends
+let hold: ReturnType<typeof setTimeout> | null = null;
+
+vad.on("speech_start", () => {
+  decision += 1; // invalidates a decide() still in flight
+  if (hold) clearTimeout(hold);
+});
+
 vad.on("speech_end", async () => {
+  const mine = ++decision;
   const { holdMs, reason } = await detector.decide(partial, recentTurns);
-  // Arm a holdMs timer and cancel it if speech resumes. When it fires,
-  // call stt.flushUtterance() and dispatch the front turn.
+  if (mine !== decision) return; // the speaker resumed while we were deciding
+  hold = setTimeout(() => {
+    if (mine !== decision) return;
+    stt.flushUtterance(); // and dispatch the front turn
+  }, holdMs);
 });`} />
 
       <p>

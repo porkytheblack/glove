@@ -1644,9 +1644,9 @@ function App() {
 
   const voice = useGloveVoice({
     runnable,
-    // speechGating defaults to true in vad and stt modes — background noise never
-    // reaches STT; with Silero, noise bursts shorter than minSpeechMs are discarded
-    // and barge-in only fires on CONFIRMED speech.
+    // speechGating defaults to true in vad and stt modes — noise between utterances
+    // is not sent to STT; with Silero, noise bursts shorter than minSpeechMs are
+    // discarded and barge-in only fires on CONFIRMED speech.
     voice: { stt, createTTS, vad: vadReady ? vadRef.current : undefined },
   });
 

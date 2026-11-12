@@ -1069,6 +1069,9 @@ const voice = new GloveVoice(gloveRunnable, {
                                       //   (Scribe v3 Live commitStrategy "turn_prediction");
                                       //   VAD only gates audio + barge-in. Needs stt.detectsTurns.
   sttTurnTimeoutMs?: number,          // "stt" mode: fallback commit after VAD speech end. Default: 2500
+  sttKeepAliveMs?: number,            // One mic frame to STT this often while the gate is closed, so the provider's
+                                      //   idle timeout (Scribe: 15s) doesn't close the session. Default: 8000 when the
+                                      //   adapter labels speakers (a reconnect restarts speaker ids), else 0
   speakers?: boolean | {              // Speaker awareness; on by default when stt.speakers.enabled (diarize: true)
     label?: "auto" | "always" | "never", // "auto": label the agent's lines once a 2nd speaker is heard
     waitMs?: number,                  // Wait for settled labels after a final. Default: 350

@@ -1006,7 +1006,8 @@ Three turn modes: VAD (hands-free with barge-in), Manual (push-to-talk) and STT
 (the STT provider ends turns, e.g. Scribe v3 Live with commitStrategy
 "turn_prediction"; the VAD only gates audio and handles barge-in). In VAD and STT
 modes mic audio is speech-gated — it only reaches the STT provider once the VAD
-confirms speech, so background noise is never transcribed. Tokens are minted
+confirms speech, so noise between utterances is not sent for transcription.
+Tokens are minted
 server-side; API keys never reach the browser.
 
 \`ElevenLabsSTTAdapter\` defaults to Scribe v3 Live (\`scribe_v3_live\`): options

@@ -806,7 +806,9 @@ glove.fold(createNameSpeakerTool((speaker, name) => voice.nameSpeaker(speaker, n
         <li>
           Speaker ids are anonymous and start over when the STT session
           reconnects; the speaker list is then cleared and the agent is told
-          that labels may now mean different people. <code>diarize</code>{" "}
+          that labels may now mean different people. To avoid idle reconnects,
+          GloveVoice sends one mic frame every 8s through a closed speech gate
+          while the adapter labels speakers (<code>sttKeepAliveMs</code>). <code>diarize</code>{" "}
           cannot be combined with <code>filterBackgroundAudio</code>.
         </li>
         <li>
@@ -1281,10 +1283,14 @@ const voice = useGloveVoice({
       </p>
 
       <p>
-        <code>start()</code> throws if the adapter can&apos;t detect turns. An
-        adapter declares it with <code>detectsTurns: true</code>; the ElevenLabs
-        adapter does when <code>commitStrategy</code> is{" "}
-        <code>&quot;turn_prediction&quot;</code> or <code>&quot;vad&quot;</code>.
+        <code>GloveVoice.start()</code> throws if the adapter can&apos;t detect
+        turns. The <code>useGloveVoice</code> hook catches that: its{" "}
+        <code>start()</code> resolves and the failure is in{" "}
+        <code>voice.error</code>, so check that and not a{" "}
+        <code>try/catch</code>. An adapter declares the ability with{" "}
+        <code>detectsTurns: true</code>; the ElevenLabs adapter does when{" "}
+        <code>commitStrategy</code> is <code>&quot;turn_prediction&quot;</code>{" "}
+        or <code>&quot;vad&quot;</code>.
       </p>
 
       <h3>Manual Mode (Push-to-Talk)</h3>
@@ -1477,9 +1483,21 @@ const detector = new ProviderTurnDetector({
   inner: new RemoteTurnDetector({ url: "/api/turn" }), // default: HeuristicTurnDetector
 });
 
+let decision = 0; // bumped whenever speech starts or ends
+let hold: ReturnType<typeof setTimeout> | null = null;
+
+vad.on("speech_start", () => {
+  decision += 1; // invalidates a decide() still in flight
+  if (hold) clearTimeout(hold);
+});
+
 vad.on("speech_end", async () => {
+  const mine = ++decision;
   const { holdMs } = await detector.decide(latestPartial, recentTurns);
-  // Arm a holdMs timer; cancel it if speech resumes; when it fires, commit.
+  if (mine !== decision) return; // the speaker resumed while we were deciding
+  hold = setTimeout(() => {
+    if (mine === decision) commit(); // stt.flushUtterance() and dispatch the turn
+  }, holdMs);
 });`}
         filename="lib/endpointing.ts"
         language="typescript"
@@ -1796,6 +1814,11 @@ function ChatPanel() {
             "speakers?",
             "boolean | VoiceSpeakersConfig",
             "Speaker awareness when the STT adapter labels speakers. On by default with diarize: true: the agent is told who said what once a second speaker is heard. false ignores the labels. See Speakers.",
+          ],
+          [
+            "sttKeepAliveMs?",
+            "number",
+            "While the speech gate is closed, send one captured mic frame to STT this often, so the provider's idle timeout (Scribe: 15s without audio) does not close the session. Default: 8000 when the adapter labels speakers, because a reconnect starts speaker ids over; otherwise 0 (off).",
           ],
           [
             "vad?",

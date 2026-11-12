@@ -160,6 +160,23 @@ test("audio sent just before a commit arrives still counts as pending", async ()
   }
 });
 
+test("an uncommitted partial allows a flush even when no audio is counted as pending", async () => {
+  const { stt, ws } = await open({ commitStrategy: "turn_prediction" });
+  mock.timers.enable({ apis: ["Date"] });
+  try {
+    stt.sendAudio(new Int16Array(1600));
+    mock.timers.tick(1000);
+    ws.receive({ message_type: "committed_transcript", text: "A." });
+    // Scribe is still working through audio it already has.
+    ws.receive({ message_type: "partial_transcript", text: "and B" });
+    stt.flushUtterance();
+    assert.equal(ws.sent.filter((m) => m.commit === true).length, 1);
+  } finally {
+    mock.timers.reset();
+    stt.disconnect();
+  }
+});
+
 test("a rejected commit can be retried without new audio", async () => {
   const { stt, ws } = await open({ commitStrategy: "vad", vadSilenceThreshold: 0.5 });
   const commits = () => ws.sent.filter((m) => m.commit === true).length;
@@ -381,6 +398,17 @@ test("batch transcription rejects ambiguous sources and reports API errors", asy
   } finally {
     globalThis.fetch = realFetch;
   }
+});
+
+test("batch transcription refuses webhook delivery", async () => {
+  await assert.rejects(
+    transcribeWithElevenLabs({
+      apiKey: "k",
+      sourceUrl: "https://example.com/a.mp3",
+      extra: { webhook: true },
+    }),
+    /webhook delivery is not supported/,
+  );
 });
 
 test("multichannel responses are merged in the order things were said", () => {

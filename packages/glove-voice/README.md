@@ -143,6 +143,7 @@ import { VoicePTTButton } from "glove-react/voice";
 | `startMuted` | `boolean` | Start the pipeline with mic muted (useful for manual mode) |
 | `turnMode` | `"vad" \| "manual" \| "stt"` | VAD for hands-free, manual for push-to-talk, stt to let the STT provider detect turns |
 | `sttTurnTimeoutMs` | `number` | `"stt"` mode: commit anyway if the provider hasn't this long after the VAD hears speech end (default: 2500) |
+| `sttKeepAliveMs` | `number` | While the speech gate is closed, send one mic frame to STT this often so the provider's idle timeout (Scribe: 15s) does not close the session. Default 8000 when the adapter labels speakers, else 0 |
 | `speakers` | `boolean \| VoiceSpeakersConfig` | Speaker awareness when the STT adapter labels speakers (on by default with `diarize: true`). See "Several speakers on one microphone" |
 | `speechGating` | `boolean` | Only forward mic audio to STT during speech segments (default: `true` in vad and stt modes). Background noise never reaches the STT provider. |
 | `speechGatePrerollMs` | `number` | Pre-roll flushed to STT when a speech segment opens, so the first syllable isn't clipped (default: 800) |
@@ -184,7 +185,7 @@ glove.fold(createNameSpeakerTool((speaker, name) => voice.nameSpeaker(speaker, n
 
 `speakers` in the config tunes it: `false` ignores the labels, or pass `{ label: "auto" | "always" | "never", waitMs, names: { speaker_0: "Sarah" }, format }`. `"never"` tracks speakers without changing what the agent reads.
 
-Talking the most is not the same as talking to the agent, so treat `dominantSpeaker()` as a hint. With several people in the room the agent hears every line, including people talking to each other; say in your system prompt when it should stay quiet. `diarize` cannot be combined with `filterBackgroundAudio`. Speaker ids start over when the STT session reconnects: the speaker list is cleared and the agent is told that labels may now mean different people. `SpeakerTracker` is exported for use on its own, for example over the `turns` from `transcribeWithElevenLabs`.
+Talking the most is not the same as talking to the agent, so treat `dominantSpeaker()` as a hint. With several people in the room the agent hears every line, including people talking to each other; say in your system prompt when it should stay quiet. `diarize` cannot be combined with `filterBackgroundAudio`. Speaker ids start over when the STT session reconnects: the speaker list is cleared and the agent is told that labels may now mean different people. To avoid idle reconnects, GloveVoice sends one mic frame every 8s through a closed speech gate when the adapter labels speakers (`sttKeepAliveMs`). `SpeakerTracker` is exported for use on its own, for example over the `turns` from `transcribeWithElevenLabs`.
 
 ## Turn Modes
 
@@ -220,8 +221,9 @@ ambient noise. Three layers work together:
 3. **Speech gating** (`SpeechGate`, on by default in vad mode) — mic audio is
    held in a rolling pre-roll buffer and only released to the STT provider
    once the VAD confirms a speech segment. Keyboard clatter, traffic, and
-   music never reach STT, so they can't be transcribed, hallucinated into
-   words, or billed. With Silero, tentative speech shorter than `minSpeechMs`
+   music between utterances are not sent to STT, so they can't be
+   transcribed, hallucinated into words, or billed. Noise during speech still
+   reaches STT, as does the pause after it in `"stt"` mode. With Silero, tentative speech shorter than `minSpeechMs`
    is a *misfire* and its audio is discarded entirely; barge-in also waits for
    confirmed speech, so a door slam doesn't cut the agent off.
 
