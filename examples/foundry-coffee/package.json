@@ -1,0 +1,37 @@
+{
+  "name": "glove-foundry-coffee",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "dev:foundry": "glove foundry dev",
+    "dev:web": "next dev -p 3010",
+    "build": "next build",
+    "start": "next start -p 3010",
+    "typecheck": "tsc --noEmit",
+    "verify": "node --env-file-if-exists=.env --import tsx scripts/verify.ts"
+  },
+  "dependencies": {
+    "@ricky0123/vad-web": "^0.0.30",
+    "effect": "^3.22.1",
+    "glove-core": "workspace:*",
+    "glove-foundry": "workspace:*",
+    "glove-next": "workspace:*",
+    "glove-react": "workspace:*",
+    "glove-voice": "workspace:*",
+    "next": "^15.3.3",
+    "onnxruntime-web": "^1.22.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^25.2.3",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "eventemitter3": "^5.0.4",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  }
+}

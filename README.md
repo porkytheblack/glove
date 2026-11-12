@@ -637,6 +637,15 @@ An e-commerce coffee ordering experience with product catalog, cart, checkout, a
 cd examples/coffee && pnpm dev
 ```
 
+### Coffee Shop on Foundry
+
+The same shop as a Glove Foundry app: the barista is a Foundry agent, each customer a conversation, the bag lives in the shop's workspace and checkout is an approval. The browser runs `GloveVoice` with ElevenLabs Scribe v3 Live and drives the Foundry agent with it: Scribe ends the turns (`turnMode: "stt"`), tells the people at the counter apart, and transcribes recorded orders. A panel shows what Scribe sends as it sends it.
+
+```bash
+pnpm --filter glove-foundry-coffee verify   # a typed and a spoken visit, offline
+cd examples/foundry-coffee && pnpm dev      # shop on :3010, Foundry inspector on :4310
+```
+
 ### Lola
 
 A voice-first movie companion with TMDB-powered tools, SileroVAD, and a cinematic amber/charcoal UI.
