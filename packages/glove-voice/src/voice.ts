@@ -11,6 +11,8 @@ import { AudioCapture } from "./audio-capture";
 import { AudioPlayer } from "./audio-player";
 import { SentenceBuffer } from "./sentence-chunker";
 import { SpeechGate } from "./speech-gate";
+import { SpeakerTracker, type LabeledSpeakerTurn, type SpeakerInfo } from "./speakers";
+import type { PendingSpeakers, SpeakerSource, SpeakerTurn } from "./adapters/types";
 import { GloveVoiceError } from "./errors";
 import { IGloveRunnable, type SubscriberAdapter, type SubscriberEventDataMap } from "glove-core";
 import type { VADConfig } from "./vad";
@@ -19,7 +21,7 @@ import type { VADConfig } from "./vad";
 
 export type VoiceMode = "idle" | "listening" | "thinking" | "speaking";
 
-export type TurnMode = "vad" | "manual";
+export type TurnMode = "vad" | "manual" | "stt";
 
 export type TTSFactory = () => TTSAdapter;
 
@@ -38,14 +40,51 @@ export interface GloveVoiceConfig {
    * - "manual": Push-to-talk. Call `commitTurn()` to end the user's turn.
    *             No VAD is used — the consumer controls turn boundaries.
    *             Call `interrupt()` explicitly for barge-in behavior.
+   * - "stt": The STT provider decides where the turn ends, e.g. ElevenLabs
+   *          Scribe v3 Live with `commitStrategy: "turn_prediction"`. The
+   *          local VAD still drives barge-in and speech gating, but it never
+   *          commits: audio keeps flowing to STT after the speaker pauses so
+   *          the provider can judge whether they are done. If the provider
+   *          has not committed `sttTurnTimeoutMs` after the VAD heard speech
+   *          end, GloveVoice commits as a fallback. Needs an adapter with
+   *          `detectsTurns: true`.
    */
   turnMode?: TurnMode;
 
-  /** Override VAD — only used when turnMode is "vad" (default). */
+  /**
+   * `turnMode: "stt"` only. How long after the local VAD hears speech end to
+   * wait for the provider's commit before committing anyway (default: 2500).
+   */
+  sttTurnTimeoutMs?: number;
+
+  /**
+   * While the speech gate is closed, send one captured mic frame to STT this
+   * often, so the provider does not close the session for being idle (Scribe
+   * does after 15s without audio). The frame is real room tone, never
+   * synthetic silence, which recognizers can turn into words.
+   *
+   * Default: 8000 when the STT adapter labels speakers, because a reconnect
+   * starts speaker ids over and the labels with them; otherwise 0 (off), and
+   * an idle session simply reconnects. Not sent while muted.
+   */
+  sttKeepAliveMs?: number;
+
+  /**
+   * Speaker awareness, for several people on one microphone.
+   *
+   * On by default when the STT adapter labels speakers (`stt.speakers`, e.g.
+   * `ElevenLabsSTTAdapter({ diarize: true })`): the agent is told who said
+   * what once a second speaker is heard, and `voice.speakers` tracks who is
+   * talking and how much. Pass `false` to ignore the labels, or an object to
+   * tune it.
+   */
+  speakers?: boolean | VoiceSpeakersConfig;
+
+  /** Override VAD — used when turnMode is "vad" (default) or "stt". */
   vad?: VADAdapter;
 
   /**
-   * VAD configuration — only used when turnMode is "vad" and no custom vad is provided.
+   * VAD configuration — used when turnMode is "vad" or "stt" and no custom vad is provided.
    * Increase silentFrames for longer pauses before ending speech (default: 40 frames ~= 1600ms).
    */
   vadConfig?: VADConfig;
@@ -107,6 +146,29 @@ export interface GloveVoiceConfig {
   startMuted?: boolean;
 }
 
+export interface VoiceSpeakersConfig {
+  /**
+   * When the agent's input carries speaker labels (default: "auto").
+   *
+   * - "auto": plain text while only one speaker has been heard; from the
+   *   moment a second one appears, every line starts with who said it
+   *   (`[Speaker A] ...`) and stays that way.
+   * - "always": label from the first utterance.
+   * - "never": never label; speakers are still tracked for `voice.speakers`.
+   */
+  label?: "auto" | "always" | "never";
+  /**
+   * How long to wait for the provider's speaker labels after an utterance is
+   * finalized before using draft labels or plain text (default: 350ms). The
+   * wait is skipped while one known speaker is the only one talking.
+   */
+  waitMs?: number;
+  /** Names for provider speaker ids known ahead of time, e.g. `{ speaker_0: "Sarah" }`. */
+  names?: Record<string, string>;
+  /** Build the agent's text yourself from the labelled turns. */
+  format?: (turns: LabeledSpeakerTurn[], plainText: string) => string;
+}
+
 type GloveVoiceEvents = {
   mode: [mode: VoiceMode];
   /** partial=true while user is still speaking */
@@ -116,6 +178,10 @@ type GloveVoiceEvents = {
   error: [error: GloveVoiceError | Error];
   /** Raw mic PCM chunk — emitted even when muted, for visualization */
   audio_chunk: [pcm: Int16Array];
+  /** The speaker list changed: someone new, new stats, a merge or a name. */
+  speakers: [speakers: SpeakerInfo[]];
+  /** Who said the utterance that was just sent to the agent. `text` is the plain transcript. */
+  speaker_turns: [turns: LabeledSpeakerTurn[], text: string];
 };
 
 // ─── GloveVoice ────────────────────────────────────────────────────────────
@@ -135,6 +201,13 @@ type GloveVoiceEvents = {
  * });
  * voice.on("mode", mode => updateUI(mode));
  * await voice.start();
+ *
+ * @example Provider turn detection — Scribe v3 Live decides when you're done
+ * const voice = new GloveVoice(glove, {
+ *   stt: new ElevenLabsSTTAdapter({ getToken: ..., commitStrategy: "turn_prediction" }),
+ *   createTTS: () => new ElevenLabsTTSAdapter({ getToken: ..., voiceId: "..." }),
+ *   turnMode: "stt",
+ * });
  *
  * @example Manual mode — push-to-talk
  * const voice = new GloveVoice(glove, {
@@ -159,6 +232,29 @@ export class GloveVoice extends EventEmitter<GloveVoiceEvents> {
   private muted = false;
   private narrateAbort: (() => void) | null = null;
   private gate: SpeechGate | null = null;
+  /** turnMode "stt": fallback commit if the provider never ends the turn. */
+  private sttTurnTimer: ReturnType<typeof setTimeout> | null = null;
+  /** turnMode "stt": the provider committed since the speaker last started. */
+  private providerCommitted = false;
+  /** turnMode "stt": a tentative speech start paused the fallback; a misfire restores it. */
+  private sttFallbackSuspended = false;
+
+  // Speaker awareness (see `speakers` in the config)
+  private readonly speakerTracker = new SpeakerTracker();
+  private speakerSource: SpeakerSource | null = null;
+  private speakerCfg: VoiceSpeakersConfig = {};
+  private speakerCleanup: (() => void)[] = [];
+  private pendingNames = new Map<string, string>();
+  /** True once the agent's input is labelled; it then stays labelled. */
+  private labelling = false;
+  /** Keeps utterances in order while their speaker labels are awaited. */
+  private attribution: Promise<void> = Promise.resolve();
+  /** Bumped on stop(), so work queued for an old session is dropped. */
+  private session = 0;
+  /** Bumped when the STT session reconnects and speaker ids start over. */
+  private speakerEpoch = 0;
+  /** When audio last went to STT, for `sttKeepAliveMs`. */
+  private lastSttAudioAt = 0;
 
   // Bound handlers for listener cleanup
   private sttHandlers: { partial: (t: string) => void; final: (t: string) => void; error: (e: Error) => void } | null = null;
@@ -183,6 +279,20 @@ export class GloveVoice extends EventEmitter<GloveVoiceEvents> {
 
   async start(): Promise<void> {
     if (this.mode !== "idle") throw new Error("GloveVoice already started");
+    if (this.turnMode === "manual" && this.cfg.stt.detectsTurns) {
+      console.warn(
+        "[GloveVoice] turnMode \"manual\" with an STT adapter that ends turns on its own " +
+          "(detectsTurns: true). The provider will commit whenever the speaker pauses, so a " +
+          "push-to-talk hold can be split into several turns. Use commitStrategy: \"manual\" " +
+          "on the adapter for push-to-talk, or turnMode: \"stt\".",
+      );
+    }
+    if (this.turnMode === "stt" && !this.cfg.stt.detectsTurns) {
+      throw new Error(
+        'GloveVoice turnMode "stt" needs an STT adapter that detects turns ' +
+          '(detectsTurns: true), e.g. ElevenLabsSTTAdapter with commitStrategy: "turn_prediction".',
+      );
+    }
 
     this.player = this.cfg.audio
       ? this.cfg.audio.createPlayer(this.sampleRate)
@@ -194,12 +304,46 @@ export class GloveVoice extends EventEmitter<GloveVoiceEvents> {
       partial: (text) => {
         console.debug(`[GloveVoice] STT partial: "${text}"`);
         if (this.mode === "listening") this.emit("transcript", text, true);
+        // turnMode "stt": words are arriving while nobody is speaking and no
+        // fallback is waiting. That is speech the provider has heard but not
+        // committed, for example an utterance whose fallback was cancelled by
+        // a late commit for the one before it. Make sure it gets committed.
+        if (
+          this.turnMode === "stt" &&
+          text.trim() &&
+          this.mode !== "idle" &&
+          !this.vad?.isSpeaking &&
+          !this.sttTurnTimer &&
+          !this.sttFallbackSuspended
+        ) {
+          this.armSttTurnTimer();
+        }
       },
       final: (text) => {
         console.debug(`[GloveVoice] STT final: "${text}"`);
+        if (this.turnMode === "stt") this.onProviderCommit(text.trim().length > 0);
         if (!text.trim()) return;
         this.emit("transcript", text, false);
-        void this.handleTurn(text);
+        const source = this.speakerSource;
+        if (!source) {
+          void this.handleTurn(text);
+          return;
+        }
+        // Ask now, while this is still the adapter's latest utterance.
+        const pending = source.forFinal();
+        const session = this.session;
+        const epoch = this.speakerEpoch;
+        const step = this.attribution.then(() => this.attribute(text, pending, session, epoch));
+        this.attribution = step.then(
+          () => undefined,
+          () => undefined,
+        );
+        void step
+          .catch(() => text)
+          .then((forAgent) => {
+            if (session !== this.session || this.mode === "idle") return;
+            void this.handleTurn(forAgent);
+          });
       },
       error: (err) => {
         console.debug(`[GloveVoice] STT error:`, err);
@@ -207,12 +351,16 @@ export class GloveVoice extends EventEmitter<GloveVoiceEvents> {
       },
     };
 
+    this.setupSpeakers();
+
     this.cfg.stt.on("partial", this.sttHandlers.partial);
     this.cfg.stt.on("final", this.sttHandlers.final);
     this.cfg.stt.on("error", this.sttHandlers.error);
 
-    // VAD mode: auto-detect speech boundaries + barge-in
-    if (this.turnMode === "vad") {
+    // VAD mode: auto-detect speech boundaries + barge-in.
+    // STT mode: the same VAD gates audio and drives barge-in; the provider commits.
+    if (this.turnMode === "vad" || this.turnMode === "stt") {
+      const providerTurns = this.turnMode === "stt";
       if (this.cfg.vad) {
         this.vad = this.cfg.vad;
       } else {
@@ -253,6 +401,20 @@ export class GloveVoice extends EventEmitter<GloveVoiceEvents> {
 
       this.vadHandlers = {
         speech_start: () => {
+          if (providerTurns) {
+            if (confirms) {
+              // Tentative: this may be a noise burst. Pause the fallback and
+              // let speech_real_start drop it or vad_misfire restore it.
+              if (this.sttTurnTimer) {
+                this.clearSttTurnTimer();
+                this.sttFallbackSuspended = true;
+              }
+            } else {
+              // The speaker resumed: the provider is still judging this turn.
+              this.clearSttTurnTimer();
+              this.providerCommitted = false;
+            }
+          }
           if (this.gate) {
             // Tentative-capable VADs hold audio until confirmation;
             // others open the gate immediately.
@@ -262,6 +424,20 @@ export class GloveVoice extends EventEmitter<GloveVoiceEvents> {
           if (!confirms) bargeIn();
         },
         speech_end: () => {
+          if (providerTurns) {
+            if (this.gate && !this.gate.isOpen) return;
+            // The provider already ended this turn and has heard nothing
+            // since: the segment is done.
+            if (this.providerCommitted && !this.cfg.stt.currentPartial.trim()) {
+              this.gate?.close();
+              return;
+            }
+            // Keep streaming: the provider needs the pause to decide the
+            // turn is over. The gate closes when it commits, or the fallback
+            // commits for it.
+            this.armSttTurnTimer();
+            return;
+          }
           // Only finalize when STT actually received this segment.
           if (!this.gate || this.gate.isOpen) this.cfg.stt.flushUtterance();
           this.gate?.close();
@@ -270,18 +446,30 @@ export class GloveVoice extends EventEmitter<GloveVoiceEvents> {
 
       if (confirms) {
         this.vadHandlers.speech_real_start = () => {
+          if (providerTurns) {
+            // Confirmed: the speaker resumed and the provider is still judging.
+            this.sttFallbackSuspended = false;
+            this.clearSttTurnTimer();
+            this.providerCommitted = false;
+          }
           // Open the gate BEFORE barge-in: interrupt() resets the VAD, and
           // the buffered pre-roll + confirmed speech must reach STT first.
           if (this.gate) flushToSTT(this.gate.open());
           bargeIn();
         };
         this.vadHandlers.vad_misfire = () => {
+          if (providerTurns && this.sttFallbackSuspended) {
+            // It was noise. The utterance before it still needs its fallback.
+            this.sttFallbackSuspended = false;
+            this.armSttTurnTimer();
+          }
           if (this.gate) {
             // STT never saw the audio — drop it silently.
             this.gate.cancel();
-          } else {
+          } else if (!providerTurns) {
             // Ungated: STT has the audio; keep the old behavior of
             // finalizing so short utterances still get transcribed.
+            // (In "stt" mode the provider decides.)
             this.cfg.stt.flushUtterance();
           }
         };
@@ -298,6 +486,10 @@ export class GloveVoice extends EventEmitter<GloveVoiceEvents> {
       ? this.cfg.audio.createCapture(this.sampleRate, this.cfg.micConstraints)
       : new AudioCapture(this.sampleRate, this.cfg.micConstraints);
 
+    const keepAliveMs =
+      this.cfg.sttKeepAliveMs ?? (this.speakerSource ? 8000 : 0);
+    this.lastSttAudioAt = Date.now();
+
     this.captureHandlers = {
       chunk: (pcm) => {
         if (this.mode === "idle") return;
@@ -305,7 +497,21 @@ export class GloveVoice extends EventEmitter<GloveVoiceEvents> {
         if (this.muted) return;
         this.vad?.process(pcm);
         if (this.gate) {
-          for (const chunk of this.gate.feed(pcm)) this.cfg.stt.sendAudio(chunk);
+          const out = this.gate.feed(pcm);
+          const now = Date.now();
+          if (out.length > 0) {
+            for (const chunk of out) this.cfg.stt.sendAudio(chunk);
+            this.lastSttAudioAt = now;
+          } else if (
+            keepAliveMs > 0 &&
+            !this.gate.isPending &&
+            now - this.lastSttAudioAt >= keepAliveMs
+          ) {
+            // Gate closed and STT has heard nothing for a while: one frame of
+            // room tone keeps the session (and its speaker ids) alive.
+            this.cfg.stt.sendAudio(pcm);
+            this.lastSttAudioAt = now;
+          }
         } else {
           this.cfg.stt.sendAudio(pcm);
         }
@@ -317,8 +523,17 @@ export class GloveVoice extends EventEmitter<GloveVoiceEvents> {
     this.capture.on("error", this.captureHandlers.error);
 
     // Connect STT then start mic
-    await this.cfg.stt.connect();
-    await this.capture.init();
+    try {
+      await this.cfg.stt.connect();
+      await this.capture.init();
+    } catch (err) {
+      // A failed start must leave nothing behind: not the STT and VAD
+      // listeners, the player, the speaker subscription or the context
+      // provider. A retry registers them again, and listeners left on a
+      // shared STT adapter would hand every utterance to the agent twice.
+      await this.stop().catch(() => undefined);
+      throw err;
+    }
 
     // In manual mode, start muted by default so the consumer controls
     // when audio flows (push-to-talk). Explicit startMuted overrides.
@@ -330,6 +545,11 @@ export class GloveVoice extends EventEmitter<GloveVoiceEvents> {
 
   async stop(): Promise<void> {
     this.interrupt();
+    this.clearSttTurnTimer();
+    this.session += 1;
+    this.sttFallbackSuspended = false;
+    for (const cleanup of this.speakerCleanup.splice(0)) cleanup();
+    this.speakerSource = null;
 
     // Remove all listeners we registered
     if (this.sttHandlers) {
@@ -507,6 +727,198 @@ export class GloveVoice extends EventEmitter<GloveVoiceEvents> {
     return this.mode !== "idle";
   }
 
+  // ─── Speakers ──────────────────────────────────────────────────────────────
+
+  /**
+   * Everyone heard on the microphone so far, with labels and how much each
+   * has talked. Empty unless the STT adapter labels speakers.
+   */
+  get speakers(): SpeakerInfo[] {
+    return this.speakerTracker.list();
+  }
+
+  /**
+   * Who has done most of the talking, overall or over the last `windowMs`.
+   * Talking most is not the same as talking to the agent: treat it as a hint.
+   */
+  dominantSpeaker(windowMs?: number): SpeakerInfo | null {
+    return this.speakerTracker.dominant(windowMs);
+  }
+
+  /**
+   * Give a speaker a name; their lines are labelled with it from then on.
+   * Accepts the provider id ("speaker_0"), the current label ("Speaker A")
+   * or an earlier name. Returns false if nobody matches.
+   */
+  nameSpeaker(idOrLabel: string, name: string): boolean {
+    const ok = this.speakerTracker.name(idOrLabel, name);
+    if (ok) this.emit("speakers", this.speakerTracker.list());
+    return ok;
+  }
+
+  private setupSpeakers(): void {
+    const option = this.cfg.speakers;
+    const source = this.cfg.stt.speakers;
+    if (option === false || !source?.enabled) return;
+
+    this.speakerCfg = typeof option === "object" ? option : {};
+    this.speakerSource = source;
+    // A new STT session starts its speaker ids over.
+    this.speakerTracker.reset();
+    this.labelling = this.speakerCfg.label === "always";
+    this.pendingNames = new Map(Object.entries(this.speakerCfg.names ?? {}));
+
+    this.speakerCleanup.push(
+      source.subscribe({
+        segment: (turns) => {
+          this.speakerTracker.record(turns);
+          this.speakersChanged();
+        },
+        merged: (from, to) => {
+          this.speakerTracker.merge(from, to);
+          this.speakersChanged();
+        },
+        reset: () => {
+          this.speakerEpoch += 1;
+          // The STT session reconnected and numbers its speakers afresh, so
+          // earlier ids, names and stats no longer apply to them.
+          this.speakerTracker.restart();
+          this.pendingNames.clear();
+          this.emit("speakers", this.speakerTracker.list());
+        },
+      }),
+    );
+
+    // Tell the agent how to read the labels, who is here and who talks most.
+    // Read once per request and never saved, so it is always current.
+    const unregister = this.glove.addContextProvider?.(
+      () =>
+        this.labelling
+          ? `<voice-speakers>\n${this.speakerTracker.describe()}\n</voice-speakers>`
+          : null,
+      { delivery: "request" },
+    );
+    if (unregister) this.speakerCleanup.push(unregister);
+  }
+
+  private speakersChanged(): void {
+    for (const [id, name] of this.pendingNames) {
+      if (this.speakerTracker.has(id) && this.speakerTracker.name(id, name)) {
+        this.pendingNames.delete(id);
+      }
+    }
+    if (this.speakerCfg.label !== "never" && this.speakerTracker.count >= 2) this.labelling = true;
+    this.emit("speakers", this.speakerTracker.list());
+  }
+
+  /** Work out who said `text` and return what the agent should read. */
+  private async attribute(text: string, pending: PendingSpeakers, session: number, epoch: number): Promise<string> {
+    // A stop() since this utterance was queued: leave the tracker alone, it
+    // may already belong to a new session. The same goes for an STT reconnect,
+    // after which these speaker ids may mean other people.
+    const stale = () => session !== this.session || epoch !== this.speakerEpoch;
+    if (stale()) return text;
+    const cfg = this.speakerCfg;
+    const tracker = this.speakerTracker;
+    const draft = pending.draft;
+
+    let turns: SpeakerTurn[] | null;
+    if (cfg.label === "never") {
+      turns = draft;
+    } else if (!this.labelling && this.isLoneKnownSpeaker(draft)) {
+      // One person, the same one as before: nothing to wait for.
+      turns = draft;
+    } else {
+      turns = (await this.settledWithin(pending, cfg.waitMs ?? 350)) ?? draft;
+      if (stale()) return text;
+    }
+    if (!turns || turns.length === 0) return text;
+
+    if (tracker.observe(turns)) this.speakersChanged();
+
+    // The finalized transcript is what was said, down to its punctuation.
+    // Labels only say where each speaker's part starts and ends: they are
+    // laid over the final text when they cover the same words. Draft labels
+    // come from an earlier partial and can be missing its end.
+    const aligned = alignToFinal(turns, text);
+    if (aligned) {
+      turns = aligned;
+    } else {
+      const ids = new Set(turns.map((t) => t.speakerId));
+      const only = ids.size === 1 ? turns[0].speakerId : null;
+      if (!only) return text;
+      turns = [{ speakerId: only, text }];
+    }
+
+    const labeled = tracker.labelTurns(turns);
+    this.emit("speaker_turns", labeled, text);
+    if (!this.labelling || !labeled.some((t) => t.label)) return text;
+
+    const formatted = tracker.format(turns);
+    return cfg.format ? cfg.format(labeled, text) : formatted;
+  }
+
+  private isLoneKnownSpeaker(draft: SpeakerTurn[] | null): boolean {
+    if (!draft || draft.length === 0) return false;
+    const first = draft[0].speakerId;
+    if (!first || draft.some((t) => t.speakerId !== first)) return false;
+    const tracker = this.speakerTracker;
+    return tracker.count === 0 || (tracker.count === 1 && tracker.has(first));
+  }
+
+  private settledWithin(pending: PendingSpeakers, ms: number): Promise<SpeakerTurn[] | null> {
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => resolve(null), ms);
+      pending.settled.then(
+        (turns) => {
+          clearTimeout(timer);
+          resolve(turns);
+        },
+        () => {
+          clearTimeout(timer);
+          resolve(null);
+        },
+      );
+    });
+  }
+
+  // ─── Provider turn detection (turnMode "stt") ──────────────────────────────
+
+  /**
+   * The provider ended the turn: stop the fallback and close the gate.
+   *
+   * When a turn follows, the gate closes even if the VAD still hears speech.
+   * handleTurn() interrupts, which resets the VAD without a speech_end, so
+   * nothing later would close it and silence would keep streaming to STT. If
+   * the speaker carries on, the VAD starts a new segment and the gate's
+   * pre-roll covers the gap.
+   */
+  private onProviderCommit(turnFollows: boolean): void {
+    this.clearSttTurnTimer();
+    this.sttFallbackSuspended = false;
+    this.providerCommitted = true;
+    if (this.gate?.isOpen && (turnFollows || !this.vad?.isSpeaking)) this.gate.close();
+  }
+
+  private armSttTurnTimer(): void {
+    this.clearSttTurnTimer();
+    const ms = this.cfg.sttTurnTimeoutMs ?? 2500;
+    this.sttTurnTimer = setTimeout(() => {
+      this.sttTurnTimer = null;
+      if (this.mode === "idle") return;
+      console.debug(`[GloveVoice] provider did not commit within ${ms}ms — committing`);
+      this.cfg.stt.flushUtterance();
+      this.gate?.close();
+    }, ms);
+  }
+
+  private clearSttTurnTimer(): void {
+    if (this.sttTurnTimer) {
+      clearTimeout(this.sttTurnTimer);
+      this.sttTurnTimer = null;
+    }
+  }
+
   // ─── Core pipeline ────────────────────────────────────────────────────────
 
   private async handleTurn(transcript: string): Promise<void> {
@@ -672,4 +1084,40 @@ export class GloveVoice extends EventEmitter<GloveVoiceEvents> {
     this.mode = mode;
     this.emit("mode", mode);
   }
+}
+
+/** The words of a transcript, ignoring case, punctuation and spacing. */
+function wordsOf(text: string): string[] {
+  return text.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
+}
+
+/**
+ * Speaker turns with the wording of the finalized transcript: each turn keeps
+ * its speaker and takes its stretch of `text`, so the final's punctuation and
+ * casing survive. Null when the turns do not cover the same words as `text`,
+ * or a boundary falls inside one of its tokens.
+ */
+function alignToFinal(turns: SpeakerTurn[], text: string): SpeakerTurn[] | null {
+  const counts = turns.map((t) => wordsOf(t.text).length);
+  const spoken = turns.flatMap((t) => wordsOf(t.text));
+  const final = wordsOf(text);
+  if (spoken.length !== final.length || spoken.some((w, i) => w !== final[i])) return null;
+
+  const tokens = text.trim().split(/\s+/);
+  const out: SpeakerTurn[] = [];
+  let at = 0;
+  for (let i = 0; i < turns.length; i++) {
+    if (counts[i] === 0) continue; // a turn of sounds only; its tokens join a neighbour
+    const piece: string[] = [];
+    let have = 0;
+    while (at < tokens.length && have < counts[i]) {
+      have += wordsOf(tokens[at]).length;
+      piece.push(tokens[at++]);
+    }
+    if (have !== counts[i]) return null;
+    // Tokens without a word ("-", "...") stay with the turn they follow.
+    while (at < tokens.length && wordsOf(tokens[at]).length === 0) piece.push(tokens[at++]);
+    out.push({ ...turns[i], text: piece.join(" ") });
+  }
+  return out.length > 0 ? out : null;
 }

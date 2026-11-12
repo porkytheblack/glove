@@ -7,9 +7,11 @@
 //
 // The framework's own pattern (see glove-mesh, which folds peer identity into
 // inbox text like `Message from "Voice Front" (front)`) is to encode the
-// speaker identity INTO the message text. Every utterance Nova hears is
+// speaker identity INTO the message text. Every TYPED line Nova receives is
 // prefixed with a speaker label; SHE decides whether the line was addressed to
-// her, and signals speech via <speech> tags (see front-agent.ts).
+// her. Spoken audio goes to the speech-to-speech model as-is, unlabelled: the
+// speaker chip only labels the UI transcript (see the README, "Who is
+// speaking").
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { Speaker, SpeakerRole } from "./protocol";
@@ -53,8 +55,8 @@ export function speakerLabel(role: SpeakerRole): string {
 }
 
 /**
- * Frame one transcribed utterance for the front agent. Every line in the room
- * reaches Nova with its speaker label; whether it was aimed at her is HER call.
+ * Frame one typed line for the front agent with its speaker label; whether it
+ * was aimed at her is HER call. (Spoken audio is not framed — see above.)
  */
 export function frameUtterance(role: SpeakerRole, text: string): string {
   return `[${speakerLabel(role)}] ${text}`;

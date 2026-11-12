@@ -1,0 +1,8 @@
+node_modules
+.next
+.env
+.env.*
+!.env.example
+.data
+.foundry/manifest.json
+tsconfig.tsbuildinfo

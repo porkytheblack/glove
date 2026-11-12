@@ -1644,9 +1644,9 @@ function App() {
 
   const voice = useGloveVoice({
     runnable,
-    // speechGating defaults to true in vad mode — background noise never reaches
-    // STT; with Silero, noise bursts shorter than minSpeechMs are discarded and
-    // barge-in only fires on CONFIRMED speech.
+    // speechGating defaults to true in vad and stt modes — noise between utterances
+    // is not sent to STT; with Silero, noise bursts shorter than minSpeechMs are
+    // discarded and barge-in only fires on CONFIRMED speech.
     voice: { stt, createTTS, vad: vadReady ? vadRef.current : undefined },
   });
 
@@ -1654,6 +1654,24 @@ function App() {
   // voice.start(), voice.stop(), voice.interrupt(), voice.commitTurn()
 }
 ```
+
+**Variant: let Scribe v3 Live end the turn.** Create the adapters with `stt: { commitStrategy: "turn_prediction" }` and pass `turnMode: "stt"`. The VAD still gates audio and drives barge-in; GloveVoice commits itself only if Scribe hasn't within `sttTurnTimeoutMs` (default 2500) of VAD speech end.
+
+```tsx
+export const { stt, createTTS } = createElevenLabsAdapters({
+  getSTTToken: () => fetchToken("/api/voice/stt-token"),
+  getTTSToken: () => fetchToken("/api/voice/tts-token"),
+  voiceId: "JBFqnCBsd6RMkjVDRZzb",
+  stt: { commitStrategy: "turn_prediction" },
+});
+
+const voice = useGloveVoice({
+  runnable,
+  voice: { stt, createTTS, vad: vadReady ? vadRef.current : undefined, turnMode: "stt" },
+});
+```
+
+`commitStrategy` is fixed per adapter, so if the app also offers push-to-talk, give that mode its own adapter on the default `commitStrategy: "manual"`.
 
 ### 4. Same pipeline on React Native / Expo (glove-voice-native)
 

@@ -1,7 +1,12 @@
 "use client";
 
 import { useState, useCallback, useRef, useEffect } from "react";
-import { GloveVoice, type GloveVoiceConfig, type VoiceMode } from "glove-voice";
+import {
+  GloveVoice,
+  type GloveVoiceConfig,
+  type SpeakerInfo,
+  type VoiceMode,
+} from "glove-voice";
 import type { IGloveRunnable } from "glove-core/glove";
 
 // ─── Config & return types ───────────────────────────────────────────────────
@@ -46,6 +51,20 @@ export interface UseGloveVoiceReturn {
   unmute: () => void;
   /** Speak text through TTS without involving the model. Resolves when done. */
   narrate: (text: string) => Promise<void>;
+  /**
+   * Everyone heard on the microphone, with labels and how much each has
+   * talked. Empty unless the STT adapter labels speakers (e.g.
+   * `ElevenLabsSTTAdapter({ diarize: true })`).
+   */
+  speakers: SpeakerInfo[];
+  /** Who has done most of the talking, overall or over the last `windowMs`. */
+  dominantSpeaker: (windowMs?: number) => SpeakerInfo | null;
+  /**
+   * Give a speaker a name; their lines are labelled with it from then on.
+   * Accepts the label ("Speaker A") or the provider id. Returns false if
+   * nobody matches or voice is not running.
+   */
+  nameSpeaker: (idOrLabel: string, name: string) => boolean;
 }
 
 // ─── Hook ────────────────────────────────────────────────────────────────────
@@ -71,8 +90,24 @@ export interface UseGloveVoiceReturn {
  * </button>
  * ```
  *
+ * @example STT mode (the provider ends the turn)
+ * ```tsx
+ * // Scribe v3 Live predicts the end of the turn. The VAD still gates audio
+ * // and handles barge-in; start() throws unless stt.detectsTurns is true.
+ * const { stt, createTTS } = createElevenLabsAdapters({
+ *   getSTTToken, getTTSToken, voiceId,
+ *   stt: { commitStrategy: "turn_prediction" },
+ * });
+ *
+ * const voice = useGloveVoice({
+ *   runnable,
+ *   voice: { stt, createTTS, vad, turnMode: "stt" },
+ * });
+ * ```
+ *
  * @example Manual mode (push-to-talk)
  * ```tsx
+ * // Keep the STT adapter on commitStrategy "manual" (the default).
  * const voice = useGloveVoice({
  *   runnable,
  *   voice: { stt, createTTS, turnMode: "manual" },
@@ -92,6 +127,7 @@ export function useGloveVoice(config: UseGloveVoiceConfig): UseGloveVoiceReturn 
   const [error, setError] = useState<Error | null>(null);
   const [isMuted, setIsMuted] = useState(false);
   const [enabled, setEnabled] = useState(false);
+  const [speakers, setSpeakers] = useState<SpeakerInfo[]>([]);
 
   const voiceRef = useRef<GloveVoice | null>(null);
   const startingRef = useRef(false);
@@ -123,6 +159,7 @@ export function useGloveVoice(config: UseGloveVoiceConfig): UseGloveVoiceReturn 
 
     setError(null);
     setTranscript("");
+    setSpeakers([]);
     startingRef.current = true;
 
     const voice = new GloveVoice(runnable, voiceConfig);
@@ -133,6 +170,7 @@ export function useGloveVoice(config: UseGloveVoiceConfig): UseGloveVoiceReturn 
       if (partial) setTranscript(text);
     });
     voice.on("error", (err: Error) => setError(err));
+    voice.on("speakers", (list: SpeakerInfo[]) => setSpeakers(list));
 
     try {
       await voice.start();
@@ -184,6 +222,16 @@ export function useGloveVoice(config: UseGloveVoiceConfig): UseGloveVoiceReturn 
     return voiceRef.current.narrate(text);
   }, []);
 
+  const dominantSpeaker = useCallback(
+    (windowMs?: number) => voiceRef.current?.dominantSpeaker(windowMs) ?? null,
+    [],
+  );
+
+  const nameSpeaker = useCallback(
+    (idOrLabel: string, name: string) => voiceRef.current?.nameSpeaker(idOrLabel, name) ?? false,
+    [],
+  );
+
   return {
     mode,
     transcript,
@@ -198,5 +246,8 @@ export function useGloveVoice(config: UseGloveVoiceConfig): UseGloveVoiceReturn 
     mute,
     unmute,
     narrate,
+    speakers,
+    dominantSpeaker,
+    nameSpeaker,
   };
 }

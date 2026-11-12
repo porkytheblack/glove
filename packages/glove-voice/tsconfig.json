@@ -3,5 +3,5 @@
   "compilerOptions": {
     "noEmit": true
   },
-  "include": ["src", "src/adapters/types.ts"]
+  "include": ["src", "tests", "scripts"]
 }

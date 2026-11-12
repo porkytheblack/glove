@@ -174,7 +174,7 @@ export default function VoicePage() {
       <h3>Turn Modes</h3>
 
       <p>
-        GloveVoice supports two turn detection modes that control how the
+        GloveVoice supports three turn detection modes that control how the
         pipeline decides when the user has finished speaking:
       </p>
 
@@ -192,6 +192,12 @@ export default function VoicePage() {
           automatic barge-in &mdash; call <code>interrupt()</code> explicitly
           when needed. Ideal for noisy environments or when precise control is
           required.
+        </li>
+        <li>
+          <strong>STT mode</strong> &mdash; The speech-to-text provider decides
+          when the turn is over, e.g. ElevenLabs Scribe v3 Live&apos;s turn
+          prediction. The local VAD still handles barge-in and speech gating.
+          See <a href="#stt-turn-mode">STT Mode</a>.
         </li>
       </ul>
 
@@ -420,7 +426,17 @@ function App() {
           [
             "flushUtterance()",
             "() => void",
-            "Signal end of utterance. Adapter should finalize the current transcript. Called by VAD on speech_end.",
+            "Signal end of utterance. Adapter should finalize the current transcript. Called on VAD speech_end in \"vad\" mode, by commitTurn(), and by the fallback timer in \"stt\" mode.",
+          ],
+          [
+            "detectsTurns?",
+            "boolean",
+            "True when the provider ends turns and emits final without flushUtterance(). Required by turnMode \"stt\".",
+          ],
+          [
+            "turnProbability?",
+            "number | null",
+            "The provider's end-of-turn probability for the current partial, when it reports one (Scribe v3 Live). null when there is none. Read by ProviderTurnDetector.",
           ],
           [
             "disconnect()",
@@ -544,8 +560,8 @@ function App() {
         rows={[
           [
             "ElevenLabsSTTAdapter",
-            "ElevenLabs Scribe Realtime",
-            "WebSocket-based streaming STT using ElevenLabs Scribe v2. Supports partial and committed transcripts with auto-reconnect.",
+            "ElevenLabs Scribe v3 Live",
+            "WebSocket-based streaming STT using ElevenLabs Scribe v3 Live by default. Partial and committed transcripts, auto-reconnect, and Scribe v3 Live's live diarization, turn prediction and multilingual mode (see below).",
           ],
           [
             "ElevenLabsTTSAdapter",
@@ -564,6 +580,245 @@ function App() {
           ],
         ]}
       />
+
+
+      <h3 id="scribe-v3">ElevenLabs Scribe v3 Live &amp; Scribe v3</h3>
+
+      <p>
+        <code>ElevenLabsSTTAdapter</code> uses <code>scribe_v3_live</code> by
+        default. Set <code>model: &quot;scribe_v2_realtime&quot;</code> to stay on
+        the previous model. Scribe v3 Live adds options that are all off unless
+        you set them:
+      </p>
+
+      <PropTable
+        headers={["Option", "Type", "Description"]}
+        rows={[
+          [
+            "commitStrategy",
+            '"manual" | "vad" | "turn_prediction"',
+            "Who ends an utterance. manual (the default, unless vadSilenceThreshold > 0, which selects vad): GloveVoice's VAD or commitTurn(). vad: Scribe after vadSilenceThreshold seconds of silence. turn_prediction (v3 Live only): Scribe predicts the end of the turn and commits at turn_probability \u2265 0.9.",
+          ],
+          [
+            "vadSilenceThreshold",
+            "number",
+            "Seconds of silence (0.192\u20133.0) before Scribe commits. Default 0: GloveVoice's VAD handles silence. Above 0 it selects commitStrategy vad unless you set another strategy; with turn_prediction it tunes Scribe's VAD fallback.",
+          ],
+          [
+            "diarize",
+            "boolean",
+            "Live speaker labels (v3 Live only). GloveVoice then tells the agent who said what (see Speakers); each commit is also followed by a diarized event with speaker turns. Cannot be combined with filterBackgroundAudio.",
+          ],
+          [
+            "multilangMode",
+            "boolean",
+            "Follow speakers who switch language mid-sentence, writing each language in its own script.",
+          ],
+          [
+            "language",
+            "string | null",
+            'Default "en". null lets Scribe detect the language. secondaryLanguages limits detection to a set of codes.',
+          ],
+          ["keyterms", "string[]", "Names and jargon Scribe should favor."],
+          [
+            "includeTimestamps",
+            "boolean",
+            "Word timings on committed events. includeLanguageDetection adds the detected language.",
+          ],
+          [
+            "previousText",
+            "string",
+            "Context sent with the first audio chunk, such as the agent's last line. Best under 50 characters.",
+          ],
+          [
+            "noVerbatim / filterBackgroundAudio / keepaliveIntervalMs",
+            "boolean / boolean / number",
+            "Drop filler words; suppress background speech; how often Scribe sends keepalive partials.",
+          ],
+          [
+            "extraParams",
+            "Record<string, ...>",
+            "Any other realtime query parameter, passed through as is.",
+          ],
+        ]}
+      />
+
+      <p>
+        The adapter keeps the plain <code>STTAdapter</code> events, so it drops
+        into <code>GloveVoice</code> unchanged. The Scribe-only events are on{" "}
+        <code>stt.scribe</code>: <code>diarized</code>,{" "}
+        <code>speakers_merged</code>, <code>turn_probability</code>,{" "}
+        <code>committed</code>, <code>session_started</code> and{" "}
+        <code>warning</code>. <code>stt.turnProbability</code> holds Scribe
+        v3 Live&apos;s end-of-turn probability for the current partial (null
+        before the first partial of an utterance, after a commit, and on v2).
+        Scribe sends it under every commit strategy, including manual, which
+        is what <a href="#turn-detectors"><code>ProviderTurnDetector</code></a>{" "}
+        reads. <code>stt.resolveSpeaker(id)</code> follows speaker merges for
+        an ID you stored earlier.
+      </p>
+
+      <CodeBlock
+        code={`import { ElevenLabsSTTAdapter } from "glove-voice";
+
+const stt = new ElevenLabsSTTAdapter({
+  getToken: () => fetchToken("/api/voice/stt-token"),
+  diarize: true,
+  commitStrategy: "turn_prediction",
+  keyterms: ["Glove", "Kuiper"],
+});
+
+// Who said what. Speaker IDs already follow any merges Scribe announced.
+stt.scribe.on("diarized", (segment) => {
+  for (const turn of segment.turns) console.log(\`\${turn.speakerId}: \${turn.text}\`);
+});
+
+// Scribe's end-of-turn confidence on every partial.
+stt.scribe.on("turn_probability", (p) => meter.set(p));`}
+        filename="lib/voice.ts"
+        language="typescript"
+      />
+
+      <p>
+        For recordings, <code>transcribeWithElevenLabs</code> from{" "}
+        <code>glove-voice/server</code> calls batch Scribe v3 (
+        <code>scribe_v3</code>) and returns the text, the words and speaker
+        turns. It sends your API key, so call it from server code only.
+      </p>
+
+      <CodeBlock
+        code={`import { transcribeWithElevenLabs } from "glove-voice/server";
+
+const transcript = await transcribeWithElevenLabs({
+  apiKey: process.env.ELEVENLABS_API_KEY!,
+  audio: await file.arrayBuffer(), // or sourceUrl / cloudStorageUrl
+  filename: file.name,
+  diarize: true,
+  keyterms: ["Glove"],
+});
+
+transcript.text;   // full transcript
+transcript.turns;  // [{ speakerId: "speaker_0", text, start, end }, ...]`}
+        filename="app/api/transcribe/route.ts"
+        language="typescript"
+      />
+
+      <h3 id="speakers">Speakers: Several People on One Microphone</h3>
+
+      <p>
+        With <code>diarize: true</code>, Scribe v3 Live labels who is speaking
+        and <code>GloveVoice</code> passes that on to the agent. There is
+        nothing else to configure.
+      </p>
+
+      <CodeBlock
+        code={`const { stt, createTTS } = createElevenLabsAdapters({
+  getSTTToken, getTTSToken, voiceId,
+  stt: { diarize: true },
+});
+
+const voice = useGloveVoice({ runnable, voice: { stt, createTTS } });`}
+        language="typescript"
+      />
+
+      <ul>
+        <li>
+          <strong>One speaker:</strong> the agent gets plain text, as before.
+        </li>
+        <li>
+          <strong>From the moment a second speaker is heard,</strong> each line
+          the agent reads starts with who said it, and stays that way:
+          <CodeBlock
+            code={`[Speaker A] Can you book a table for seven?
+[Speaker B] Make it seven thirty.`}
+            language="text"
+          />
+          The agent also gets a short note with every turn (never saved to
+          history) that says how to read the labels, who is in the room, each
+          speaker&apos;s share of the talking, and any labels that turned out
+          to be the same person.
+        </li>
+        <li>
+          <strong>Captions stay clean.</strong> The <code>transcript</code>{" "}
+          event carries plain text; <code>speaker_turns</code> carries the
+          labelled turns for the same utterance.
+        </li>
+        <li>
+          <strong>Latency.</strong> Scribe sends settled labels just after each
+          commit. GloveVoice waits up to <code>waitMs</code> (350ms) for them,
+          then uses the draft labels from the live partial, then plain text.
+          While one known speaker is the only one talking, it does not wait.
+        </li>
+      </ul>
+
+      <CodeBlock
+        code={`voice.speakers;                          // [{ id, label, name?, talkMs, words, turns, share, lastSpokeAt }]
+voice.dominantSpeaker();                 // most of the talking overall
+voice.dominantSpeaker(60_000);           // ...over the last minute
+voice.nameSpeaker("Speaker A", "Sarah"); // their lines become "[Sarah] ..."
+
+// Let the agent record names when people introduce themselves:
+glove.fold(createNameSpeakerTool((speaker, name) => voice.nameSpeaker(speaker, name)));`}
+        language="typescript"
+      />
+
+      <PropTable
+        headers={["speakers option", "Type", "Description"]}
+        rows={[
+          [
+            "label",
+            '"auto" | "always" | "never"',
+            'When the agent\'s lines carry labels. "auto" (default): from the second speaker on. "always": from the first utterance. "never": track speakers without changing what the agent reads.',
+          ],
+          [
+            "waitMs",
+            "number",
+            "How long to wait for settled labels after an utterance is finalized. Default: 350.",
+          ],
+          [
+            "names",
+            "Record<string, string>",
+            'Names for provider speaker ids known ahead of time, e.g. { speaker_0: "Sarah" }.',
+          ],
+          [
+            "format",
+            "(turns, plainText) => string",
+            "Build the agent's text yourself from the labelled turns.",
+          ],
+        ]}
+      />
+
+      <p>
+        Pass <code>speakers: false</code> to ignore the labels entirely. A few
+        things to keep in mind:
+      </p>
+
+      <ul>
+        <li>
+          Talking the most is not the same as talking to the agent. Treat{" "}
+          <code>dominantSpeaker()</code> as a hint.
+        </li>
+        <li>
+          With several people in the room the agent hears every line,
+          including people talking to each other. Say in your system prompt
+          when it should stay quiet.
+        </li>
+        <li>
+          Speaker ids are anonymous and start over when the STT session
+          reconnects; the speaker list is then cleared and the agent is told
+          that labels may now mean different people. To avoid idle reconnects,
+          GloveVoice sends one mic frame every 8s through a closed speech gate
+          while the adapter labels speakers (<code>sttKeepAliveMs</code>). <code>diarize</code>{" "}
+          cannot be combined with <code>filterBackgroundAudio</code>.
+        </li>
+        <li>
+          Any STT adapter can take part by exposing a{" "}
+          <code>speakers</code> source (<code>SpeakerSource</code>).{" "}
+          <code>SpeakerTracker</code> is exported for use on its own, for
+          example over the <code>turns</code> that{" "}
+          <code>transcribeWithElevenLabs</code> returns.
+        </li>
+      </ul>
 
       {/* ------------------------------------------------------------------ */}
       <h2 id="security">Security: Token-based Auth</h2>
@@ -993,6 +1248,51 @@ const voice = useGloveVoice({
         language="typescript"
       />
 
+      <h3 id="stt-turn-mode">STT Mode (Provider Turn Detection)</h3>
+
+      <p>
+        A VAD only knows that the audio went quiet. Scribe v3 Live&apos;s turn
+        prediction listens to <em>what</em> was said and how, so it can tell a
+        thinking pause (&ldquo;I&apos;d like to book&hellip; um&hellip;&rdquo;)
+        from a finished request. Set{" "}
+        <code>commitStrategy: &quot;turn_prediction&quot;</code> on the adapter
+        and <code>turnMode: &quot;stt&quot;</code> on the pipeline:
+      </p>
+
+      <CodeBlock
+        code={`const { stt, createTTS } = createElevenLabsAdapters({
+  getSTTToken, getTTSToken, voiceId,
+  stt: { commitStrategy: "turn_prediction" },
+});
+
+const voice = useGloveVoice({
+  runnable,
+  voice: { stt, createTTS, turnMode: "stt" },
+});`}
+        language="typescript"
+      />
+
+      <p>
+        In this mode the local VAD never commits. When it hears speech end,
+        audio keeps flowing to Scribe so it can judge the pause, and the speech
+        gate closes once Scribe commits. Barge-in works as in VAD mode. If
+        Scribe has not committed <code>sttTurnTimeoutMs</code> (default 2500)
+        after the VAD heard speech end, GloveVoice commits anyway. With{" "}
+        <code>turnMode: &quot;vad&quot;</code> the local VAD still commits after
+        its silence window, which overrides the provider&apos;s turn detection.
+      </p>
+
+      <p>
+        <code>GloveVoice.start()</code> throws if the adapter can&apos;t detect
+        turns. The <code>useGloveVoice</code> hook catches that: its{" "}
+        <code>start()</code> resolves and the failure is in{" "}
+        <code>voice.error</code>, so check that and not a{" "}
+        <code>try/catch</code>. An adapter declares the ability with{" "}
+        <code>detectsTurns: true</code>; the ElevenLabs adapter does when{" "}
+        <code>commitStrategy</code> is <code>&quot;turn_prediction&quot;</code>{" "}
+        or <code>&quot;vad&quot;</code>.
+      </p>
+
       <h3>Manual Mode (Push-to-Talk)</h3>
 
       <p>
@@ -1042,6 +1342,198 @@ const voice = useGloveVoice({
 </button>`}
         language="tsx"
       />
+
+      {/* ------------------------------------------------------------------ */}
+      <h2 id="turn-detectors">Turn Detectors (Custom Engines)</h2>
+
+      <p>
+        A VAD knows when the audio stopped, not whether the speaker is done.
+        Turn detectors handle that second question for apps that run their own
+        commit engine: their own VAD, STT and commit logic, as the{" "}
+        <code>layered-voice</code> and <code>server-voice</code> examples do.
+        At each VAD end-of-speech boundary the engine asks the detector how
+        much longer to wait before it commits the utterance.
+      </p>
+
+      <div className="docs-note">
+        <span className="docs-note-icon">◆</span>
+        <p>
+          <code>GloveVoice</code> does not use turn detectors. To let the STT
+          provider end turns in <code>GloveVoice</code>, use{" "}
+          <a href="#stt-turn-mode"><code>turnMode: &quot;stt&quot;</code></a>.
+          For a comparison of all the ways to end a turn, see{" "}
+          <a href="/docs/voice-architectures#endpointing">Endpointing</a>.
+        </p>
+      </div>
+
+      <h3>TurnDetectorAdapter</h3>
+
+      <PropTable
+        headers={["Member", "Type", "Description"]}
+        rows={[
+          [
+            "decide(transcript, context?)",
+            "=> TurnDecision | Promise<TurnDecision>",
+            "Called at a VAD end-of-speech boundary with the live transcript and, optionally, recent turns ({ role: \"user\" | \"assistant\", content }[], oldest first). It sits on the voice hot path, so it should resolve in a few ms.",
+          ],
+          [
+            "TurnDecision.holdMs",
+            "number",
+            "How much longer to wait before committing. 0 means commit now. The caller arms a timer and cancels it if the speaker resumes.",
+          ],
+          [
+            "TurnDecision.reason",
+            "string",
+            "A short label for metrics and tuning, such as \"question\" or \"eou:0.83\".",
+          ],
+        ]}
+      />
+
+      <h3>HeuristicTurnDetector</h3>
+
+      <p>
+        Zero dependencies. It looks at how the transcript ends and picks a
+        hold from four tiers, checked in order. Each hold is an option.
+      </p>
+
+      <PropTable
+        headers={["Tier (option)", "Transcript ends with", "Default hold"]}
+        rows={[
+          [
+            "dictation (dictationHoldMs)",
+            "a 1–2 character token",
+            "2000 ms. The speaker is spelling something out (\"K\", \"0-0-7\"). Overrides punctuation.",
+          ],
+          ["question (questionHoldMs)", "? or !", "0 ms. A question is done when it is asked."],
+          [
+            "statement (statementHoldMs)",
+            ". or …",
+            "600 ms. Streaming STT punctuates partials, so a period is weak evidence.",
+          ],
+          ["unfinished (unfinishedHoldMs)", "anything else", "900 ms."],
+        ]}
+      />
+
+      <h3>RemoteTurnDetector + LiveKitEouScorer</h3>
+
+      <p>
+        A model-backed detector in two halves. <code>LiveKitEouScorer</code>{" "}
+        (from <code>glove-voice/server</code>) runs LiveKit&apos;s open-weights
+        end-of-utterance model (<code>livekit/turn-detector</code>) in Node
+        through <code>@huggingface/transformers</code>, an optional dependency
+        you install and pass in. It scores the words, normalized internally,
+        and returns the probability that the speaker is done.{" "}
+        <code>RemoteTurnDetector</code> runs in the browser: it POSTs{" "}
+        <code>&#123; transcript, context &#125;</code> to your route, expects{" "}
+        <code>&#123; probability &#125;</code>, and maps it to a hold between{" "}
+        <code>minHoldMs</code> (default 400) and <code>maxHoldMs</code>{" "}
+        (default 2800). A question with a probability of 0.2 or more gets the
+        shortest hold, dictation keeps its long hold, and if the route fails
+        or takes longer than <code>timeoutMs</code> (default 350) the{" "}
+        <code>fallback</code> detector (default{" "}
+        <code>HeuristicTurnDetector</code>) decides alone.
+      </p>
+
+      <CodeBlock
+        code={`// app/api/turn/route.ts (server)
+import * as transformers from "@huggingface/transformers";
+import { LiveKitEouScorer } from "glove-voice/server";
+
+const scorer = new LiveKitEouScorer({ transformers });
+
+export async function POST(req: Request) {
+  const { transcript, context = [] } = await req.json();
+  const probability = await scorer.probability([...context, { role: "user", content: transcript }]);
+  return Response.json({ probability });
+}
+
+// client
+import { RemoteTurnDetector } from "glove-voice";
+const detector = new RemoteTurnDetector({ url: "/api/turn" });`}
+        filename="turn detection"
+        language="typescript"
+      />
+
+      <h3>ProviderTurnDetector</h3>
+
+      <p>
+        Wraps another detector and adds the STT provider&apos;s own end-of-turn
+        probability. Its <code>source</code> is anything with a{" "}
+        <code>turnProbability</code>, such as an{" "}
+        <code>ElevenLabsSTTAdapter</code> on Scribe v3 Live, which judges the
+        audio as well as the words. Commits stay with your engine, so it works
+        with <code>commitStrategy: &quot;manual&quot;</code>.
+      </p>
+
+      <PropTable
+        headers={["Provider probability", "Default threshold", "Result"]}
+        rows={[
+          ["P ≥ doneAt", "0.9", "Hold at most doneHoldMs (400 ms). A dictation hold from the inner detector is kept."],
+          ["P < unfinishedBelow", "0.2", "Hold at least unfinishedHoldMs (1500 ms)."],
+          ["otherwise, or no probability", "—", "The inner detector's decision, unchanged."],
+        ]}
+      />
+
+      <CodeBlock
+        code={`import { ElevenLabsSTTAdapter, ProviderTurnDetector, RemoteTurnDetector } from "glove-voice";
+
+const stt = new ElevenLabsSTTAdapter({ getToken }); // commitStrategy stays "manual"
+const detector = new ProviderTurnDetector({
+  source: stt,
+  inner: new RemoteTurnDetector({ url: "/api/turn" }), // default: HeuristicTurnDetector
+});
+
+let decision = 0; // bumped whenever speech starts or ends
+let hold: ReturnType<typeof setTimeout> | null = null;
+
+vad.on("speech_start", () => {
+  decision += 1; // invalidates a decide() still in flight
+  if (hold) clearTimeout(hold);
+});
+
+async function endOfSpeech() {
+  const mine = ++decision;
+  const { holdMs } = await detector.decide(latestPartial, recentTurns);
+  if (mine !== decision) return; // the speaker resumed while we were deciding
+  hold = setTimeout(() => {
+    if (mine === decision) commit(); // stt.flushUtterance() and dispatch the turn
+  }, holdMs);
+}
+
+vad.on("speech_end", endOfSpeech);
+// Silero takes back a speech_start that turned out to be noise, and sends no
+// speech_end for it. The utterance before it still has to be committed.
+vad.on("vad_misfire", endOfSpeech);`}
+        filename="lib/endpointing.ts"
+        language="typescript"
+      />
+
+      <h3>Which one to use</h3>
+
+      <ul>
+        <li>
+          <strong>You use <code>GloveVoice</code></strong> &mdash;{" "}
+          <code>turnMode: &quot;stt&quot;</code> with{" "}
+          <code>commitStrategy: &quot;turn_prediction&quot;</code>, or the
+          default <code>&quot;vad&quot;</code>. Not a turn detector.
+        </li>
+        <li>
+          <strong>Your own engine, no model server</strong> &mdash;{" "}
+          <code>HeuristicTurnDetector</code>.
+        </li>
+        <li>
+          <strong>Your own engine with a server</strong> &mdash;{" "}
+          <code>RemoteTurnDetector</code> backed by{" "}
+          <code>LiveKitEouScorer</code>.
+        </li>
+        <li>
+          <strong>Your own engine on Scribe v3 Live</strong> &mdash; wrap
+          either one in <code>ProviderTurnDetector</code> and keep{" "}
+          <code>commitStrategy: &quot;manual&quot;</code>. Switching to{" "}
+          <code>&quot;turn_prediction&quot;</code> would move the commit to
+          Scribe and take it away from your engine.
+        </li>
+      </ul>
 
       {/* ------------------------------------------------------------------ */}
       <h2 id="push-to-talk">Push-to-Talk (useGlovePTT)</h2>
@@ -1315,18 +1807,33 @@ function ChatPanel() {
           ],
           [
             "turnMode?",
-            '"vad" | "manual"',
-            'Turn detection mode. Default: "vad". In "manual" mode, no VAD is used and the consumer calls commitTurn().',
+            '"vad" | "manual" | "stt"',
+            'Turn detection mode. Default: "vad". In "manual" mode, no VAD is used and the consumer calls commitTurn(). In "stt" mode the STT provider decides when the turn ends (e.g. Scribe v3 Live turn prediction); the VAD only gates audio and handles barge-in.',
+          ],
+          [
+            "sttTurnTimeoutMs?",
+            "number",
+            'turnMode "stt" only. How long after the VAD hears speech end to wait for the provider to commit before GloveVoice commits itself. Default: 2500.',
+          ],
+          [
+            "speakers?",
+            "boolean | VoiceSpeakersConfig",
+            "Speaker awareness when the STT adapter labels speakers. On by default with diarize: true: the agent is told who said what once a second speaker is heard. false ignores the labels. See Speakers.",
+          ],
+          [
+            "sttKeepAliveMs?",
+            "number",
+            "While the speech gate is closed, send one captured mic frame to STT this often, so the provider's idle timeout (Scribe: 15s without audio) does not close the session. Default: 8000 when the adapter labels speakers, because a reconnect starts speaker ids over; otherwise 0 (off).",
           ],
           [
             "vad?",
             "VADAdapter",
-            'Override the VAD implementation. Only used when turnMode is "vad". Pass a SileroVADAdapter for ML-based detection.',
+            'Override the VAD implementation. Used when turnMode is "vad" or "stt". Pass a SileroVADAdapter for ML-based detection.',
           ],
           [
             "vadConfig?",
             "VADConfig",
-            'Configuration for the built-in energy-based VAD. Only used when turnMode is "vad" and no custom vad is provided. Default silenceMs: 1600.',
+            'Configuration for the built-in energy-based VAD. Used when turnMode is "vad" or "stt" and no custom vad is provided. Default silenceMs: 1600.',
           ],
           [
             "speechGating?",
@@ -1430,6 +1937,21 @@ function ChatPanel() {
             "narrate(text)",
             "(text: string) => Promise<void>",
             "Speak arbitrary text through TTS without involving the model. Auto-mutes mic during playback. Resolves when all audio finishes playing. Safe to call from pushAndWait tool handlers.",
+          ],
+          [
+            "speakers",
+            "SpeakerInfo[]",
+            "Everyone heard on the microphone, with label, optional name and share of the talking. Empty unless the STT adapter labels speakers (diarize: true).",
+          ],
+          [
+            "dominantSpeaker(windowMs?)",
+            "(windowMs?: number) => SpeakerInfo | null",
+            "Who has done most of the talking, overall or over the last windowMs.",
+          ],
+          [
+            "nameSpeaker(idOrLabel, name)",
+            "(idOrLabel: string, name: string) => boolean",
+            'Give a speaker a name; their lines are labelled with it from then on. Accepts the label ("Speaker A") or the provider id.',
           ],
         ]}
       />

@@ -37,6 +37,17 @@ Guide: https://glove.dterminal.net/docs/voice-architectures. Four shapes:
 
 For a pipeline front, the recommended pattern is `<speech>` tags: prompt the front agent that only text inside `<speech>…</speech>` is heard, parse its stream yourself, and send only in-tag text to TTS, so audio starts on the first spoken token and notes stay silent. This is an application pattern, not a `glove-voice` option (it depends on prompting the agent): `GloveVoice` has no pre-TTS filter, so feed TTS from a subscriber. Reference parser: `examples/layered-voice/app/lib/server/speech-parser.ts`. Choose a front model for time to first spoken token and instruction following, not capability; routing alone moved one model from 979 ms to 160 ms TTFT.
 
+**Endpointing (who ends the user's turn)** for pipeline fronts:
+
+| Approach | Who ends the turn | Use with |
+|---|---|---|
+| `turnMode: "vad"` (default) | local VAD after a fixed silence window | `GloveVoice`; simplest |
+| `turnMode: "stt"` + `commitStrategy: "turn_prediction"` | Scribe v3 Live (audio + text), commits at P ≥ 0.9; fallback commit after `sttTurnTimeoutMs` | `GloveVoice` |
+| Turn detector at each VAD boundary (heuristic, LiveKit EOU text model, or provider probability) | your own commit engine | layered-voice, server-voice (see "Turn detectors" below) |
+| Provider semantic / server VAD | the realtime model | `glove-voice-s2s`, `glove-realtime` |
+
+**Speaker identity**: with one mixed microphone, Scribe v3 Live `diarize: true` labels speakers, and `GloveVoice` tells the agent who said what. One speaker → plain text. From the second speaker on, each line the agent reads starts with `[Speaker A]` (or a name set with `voice.nameSpeaker`), plus a per-turn context note with who is here and their share of the talking. `voice.speakers`, `voice.dominantSpeaker(windowMs?)`, the `speakers` / `speaker_turns` events and `useGloveVoice().speakers` expose it; the `transcript` event stays plain. It waits up to 350ms for settled labels (`speakers: { waitMs }`), then falls back to draft labels and plain text. `speakers: false` turns it off; `{ label: "always" | "never" }` changes when lines are labelled. `createNameSpeakerTool` lets the agent record names. Custom engines that dispatch from the partial (layered-voice, server-voice) keep a UI speaker chip instead. In rooms, use per-participant identity (LiveKit tracks) instead of diarization.
+
 ### Quick Start (Next.js + ElevenLabs)
 
 **Step 1: Token routes** — server-side handlers that exchange your API key for short-lived tokens
@@ -198,10 +209,49 @@ Includes click-vs-hold discrimination, pointer leave safety, and aria attributes
 |------|----------|---------|
 | `"vad"` (default) | Auto speech detection + barge-in | Hands-free, voice-first apps |
 | `"manual"` | Push-to-talk, explicit `commitTurn()` | Noisy environments, precise control |
+| `"stt"` | The STT provider ends turns; local VAD only gates audio + barge-in. Fallback commit `sttTurnTimeoutMs` (2500) after VAD speech end. `start()` throws unless `stt.detectsTurns` | Scribe v3 Live turn prediction: `ElevenLabsSTTAdapter({ commitStrategy: "turn_prediction" })` |
+
+With `"vad"` the local VAD commits after its silence window and overrides any provider turn detection. With `"manual"` (push-to-talk) keep the adapter on `commitStrategy: "manual"`, or Scribe will split a hold into several turns (GloveVoice warns).
+
+```tsx
+// Hands-free, Scribe v3 Live ends the turn
+const { stt, createTTS } = createElevenLabsAdapters({
+  getSTTToken, getTTSToken, voiceId,
+  stt: { commitStrategy: "turn_prediction" },   // stt.detectsTurns === true
+});
+const voice = useGloveVoice({ runnable, voice: { stt, createTTS, vad, turnMode: "stt" } });
+```
+
+In `"stt"` mode audio keeps flowing after VAD speech end so the provider can judge the pause; the speech gate closes when the provider commits.
+
+### Scribe v3 Live (ElevenLabs STT)
+
+`ElevenLabsSTTAdapter` (and `createElevenLabsAdapters`) default to `model: "scribe_v3_live"`; `"scribe_v2_realtime"` still works (no `diarize`, no `turn_prediction`). The token type is the same (`createVoiceTokenHandler({ provider: "elevenlabs", type: "stt" })`). Full option list in [api-reference.md](api-reference.md#elevenlabs-adapters).
+
+- `commitStrategy`: `"manual"` (default; you call `flushUtterance()` / GloveVoice commits) | `"vad"` (chosen automatically when `vadSilenceThreshold > 0`) | `"turn_prediction"`. `stt.detectsTurns` is true for `"vad"` and `"turn_prediction"`.
+- `diarize`, `multilangMode` + `secondaryLanguages`, `keyterms`, `language: null` (auto-detect; default `"en"`), `includeTimestamps`, `includeLanguageDetection`, `noVerbatim`, `filterBackgroundAudio` (not with `diarize`), `previousText` (< 50 chars), `keepaliveIntervalMs`, `extraParams`.
+- Scribe-only events are on `stt.scribe` (the adapter keeps the plain `STTAdapter` events): `diarized` (`{ segmentIndex, text, words, turns: [{ speakerId, text, start, end }] }`, IDs already follow merges), `speakers_merged`, `turn_probability`, `committed`, `session_started`, `warning` (`commit_throttled`, `insufficient_audio_activity`). Other Scribe errors emit `error`. `stt.resolveSpeaker(id)` follows merges.
+- `stt.turnProbability`: end-of-turn probability for the current partial; `null` before the first partial of an utterance, after a commit, and on v2. Scribe sends it under every commit strategy, including `"manual"`, so `ProviderTurnDetector` can use it while you keep commits.
+- Batch (recordings): `transcribeWithElevenLabs` from `glove-voice/server` (server only, sends the API key) runs `scribe_v3` and returns `{ text, languageCode, languageProbability, words, turns, transcriptionId, raw }`; supports `diarize`, `numSpeakers`, `keyterms`, `tagAudioEvents`, `timestampsGranularity`, `sourceUrl` / `cloudStorageUrl`, `extra`.
+
+### Turn detectors (semantic endpointing for your own commit engine)
+
+`GloveVoice` does not use these. They are for engines that own the commit (layered-voice, server-voice): at each VAD end-of-speech boundary call `decide(transcript, context?) → { holdMs, reason }`, wait `holdMs` more, cancel if the speaker resumes, then commit.
+
+- `HeuristicTurnDetector` (zero deps): dictation 2000 ms, question 0, statement 600, unfinished 900.
+- `RemoteTurnDetector({ url })`: POSTs `{ transcript, context }` to an endpoint that returns `{ probability }` — back it with `LiveKitEouScorer` (`glove-voice/server`, LiveKit's open-weights end-of-utterance model via `@huggingface/transformers`). Maps P to a hold between `minHoldMs` 400 and `maxHoldMs` 2800; heuristic fallback on error or after `timeoutMs` 350.
+- `ProviderTurnDetector({ source, inner? })`: adjusts an inner detector (default heuristic) with the STT provider's own probability (`source` is anything with `turnProbability`, e.g. `ElevenLabsSTTAdapter`). P ≥ 0.9 → hold at most 400 ms (a dictation hold is kept); P < 0.2 → hold at least 1500 ms; otherwise the inner decision. Commits stay with you, so it works with `commitStrategy: "manual"`.
+
+```ts
+const stt = new ElevenLabsSTTAdapter({ getToken });   // commitStrategy "manual"
+const detector = new ProviderTurnDetector({ source: stt, inner: new RemoteTurnDetector({ url: "/api/turn" }) });
+```
+
+Pick `turnMode: "stt"` when you use `GloveVoice`; pick `ProviderTurnDetector` when you run your own commit engine.
 
 ### Noise Robustness (speech gating)
 
-In `"vad"` mode, mic audio is **speech-gated by default** (`speechGating: true`): audio is held in a rolling pre-roll buffer (`speechGatePrerollMs`, default 800ms) and only released to the STT provider once the VAD confirms a speech segment — background noise never reaches STT, so it can't be transcribed or hallucinated into words. With `SileroVADAdapter` (which declares `supportsRealStart: true`):
+In `"vad"` and `"stt"` modes, mic audio is **speech-gated by default** (`speechGating: true`): audio is held in a rolling pre-roll buffer (`speechGatePrerollMs`, default 800ms) and only released to the STT provider once the VAD confirms a speech segment — noise between utterances is not sent to STT, so it can't be transcribed or hallucinated into words (noise during speech, and in `"stt"` mode the pause after it, still is). With `SileroVADAdapter` (which declares `supportsRealStart: true`):
 
 - The gate opens on `speech_real_start` (speech survived `minSpeechMs`, default 250ms) — short noise bursts are reported as `vad_misfire` and their audio is **discarded entirely**.
 - Barge-in also triggers on `speech_real_start`, so a door slam doesn't interrupt agent speech.
@@ -290,6 +340,8 @@ The proven layering (examples/s2s-rooms onward): the S2S model is a THIN front a
 **Avatars** are a rendering layer over that stack — PCM in, a talking face on a WebRTC surface. `AvatarAdapter` implementations: `TavusEchoAdapter` (Tavus echo PAL + Daily room; `sendInteraction` courier required — Tavus interactions are Daily-data-channel-only), `AnamPassthroughAdapter` (Anam passthrough persona; browser SDK owns the audio input so a `sendCommand` courier is required; Anam's plan cap force-ends sessions every few minutes below Growth tier — hosts renew with `disconnect()`+`connect()` and re-attach the client). One call wires it: `const detach = await attachAvatar(rt, avatar)` (audio → sendAudio, speech-stop → endUtterance, interrupted → interrupt).
 
 **LiveKit** (`glove-voice-livekit`) replaces the hand-rolled audio duct with WebRTC both ways: `LiveKitTransport` + `attachRealtime(rt, transport)` for the voice leg (browser shrinks to `Room.connect` + `setMicrophoneEnabled`; barge-in is server-side `clear()`), and `TavusLiveKitAvatar`/`AnamLiveKitAvatar` for faces — the provider's worker joins YOUR room as a participant (mint its token with `mintAvatarToken`, identity `TAVUS_AVATAR_IDENTITY`/`ANAM_AVATAR_IDENTITY`, `onBehalfOf` the agent) and is fed over the `lk.audio_stream` byte stream; with an avatar attached set `publishAgentAudio: false` (the worker publishes the voice on the agent's behalf — don't double it).
+
+**Several people in one room**: `transport.on("audio", (pcm, rate, identity))` reports who is speaking, but `attachRealtime` feeds every remote participant's audio into the one model input and drops the identity, so the model hears speakers unlabelled. The room examples label only the UI transcript, and only typed lines reach the model framed with the speaker. To give the agent per-speaker labels, use the participant identity per track (for example a cascade with one STT per participant), not Scribe diarization, which is for one mixed microphone.
 
 ### GPT-Live (`glove-voice-s2s` >=0.4.0)
 

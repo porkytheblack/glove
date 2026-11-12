@@ -14,8 +14,9 @@ adapters from the two packages are not interchangeable.
 
 `glove-voice`'s cascade (VAD → STT → LLM → TTS) bottoms out around
 **1.3–1.6s** voice-to-voice: every stage adds serial latency, and
-end-of-turn must be reconstructed from transcripts with heuristics or an
-EOU model. A speech-to-speech model collapses the cascade — audio in, one
+end-of-turn comes from a VAD, transcript heuristics, an EOU model or the
+STT provider's turn prediction (Scribe v3 Live with `turnMode: "stt"`),
+never from the model that answers. A speech-to-speech model collapses the cascade — audio in, one
 model, audio out — with turn-taking decided by the model *listening*.
 Production S2S APIs run **500–800ms** voice-to-voice.
 

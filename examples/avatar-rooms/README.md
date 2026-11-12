@@ -65,6 +65,22 @@ Ask for a price and watch the delegation run in the station dashboard
 Ports are shifted so this runs side by side with the whole series: station
 :4420, rooms :4701+, web :3002.
 
+## Who is speaking
+
+The speaker chip (Rae, Jules, Kit) labels only the UI transcript. Spoken
+audio reaches the speech-to-speech model unlabelled, so Nova cannot tell from
+the audio who said what. Only typed lines are framed with the speaker
+(`frameUtterance` in `lib/speakers.ts`) before they are injected.
+
+To give the model real speaker labels, use per-participant identity: one
+track per person, as in [`livekit-rooms`](../livekit-rooms) where every
+participant publishes their own mic, and label each track's speech, for
+example with a cascade pipeline that runs one STT per participant.
+Speaker diarization (ElevenLabs Scribe v3 Live `diarize`) solves a different
+problem: one mixed microphone in a cascade pipeline (STT → LLM → TTS), as in
+[`layered-voice`](../layered-voice) or [`server-voice`](../server-voice). It
+does not apply to a speech-to-speech model, and Scribe is not used here.
+
 ## Debugging the realtime provider
 
 If a call connects but the agent never answers, probe the provider directly —

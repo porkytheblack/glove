@@ -157,6 +157,13 @@ agent off — the energy path has to guess with a 250ms timer instead.
 says the sound stopped; the EOU model says whether you were finished. Its
 probability shapes the hold between `TURN_MIN_HOLD_MS` and `TURN_MAX_HOLD_MS`.
 
+**Scribe v3 Live** (the default STT model, `SCRIBE_MODEL`) adds a third
+opinion. It sends an end-of-turn probability with every partial, judged from the
+audio as well as the words, even though the engine keeps committing itself.
+`ProviderTurnDetector` folds it into the EOU decision: P ≥ 0.9 caps the hold at
+400ms, P < 0.2 raises it to at least 1500ms, anything in between leaves the EOU
+hold alone. `SCRIBE_TURN_SIGNAL=off` turns it off.
+
 If Silero fails to load the room says so in its logs and falls back to the
 energy VAD — worse, but serving.
 
@@ -293,7 +300,11 @@ and nothing else.
   buffer when told. The next turn tells the model exactly how much of the cut
   line the room actually heard.
 - **Switch speaker** in the dropdown and talk *about* Nova rather than to her.
-  She hears every line and decides for herself whether she was addressed.
+  She hears every line and decides for herself whether she was addressed. The
+  dropdown is a manual label for one shared mic. Scribe v3 Live can label
+  speakers itself (`diarize: true`), but the labels arrive after Scribe commits,
+  and this engine dispatches from the live partial before that, so the room
+  keeps the dropdown.
 - **Reload the page mid-conversation.** The room is the process, not the
   socket: you reattach to the same conversation with its history intact.
 - **Watch the pool.** Connect from several tabs; each triggers its own room run

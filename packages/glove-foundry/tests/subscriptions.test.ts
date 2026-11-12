@@ -151,6 +151,71 @@ test("an inbound playbook lazily provisions one or many subscribed agents", asyn
     assert.ok(otherThread.every((run) => byId.get(run.agentId!)?.provisioningKey?.includes("thread-2")),
       "thread-1's agents are not woken by thread-2's event");
 
+    // An agent created on its own with the same playbook is not one of the
+    // subscription's instances, so it still answers for itself.
+    const standing = await runtime.createAgent(definition.id, {
+      id: "standing-triage",
+      workspaceId: "workspace-1",
+      installations: [install(support)],
+      playbooks: [playbook],
+    });
+    const withStanding = await runtime.dispatchInbound({
+      routeId: route.id,
+      eventId: "event-3",
+      threadKey: "thread-3",
+      raw: { type: "ticket.created", text: "A third ticket" },
+    });
+    assert.equal(withStanding.length, 3);
+    assert.equal(withStanding.filter((run) => run.agentId === standing.id).length, 1);
+    const afterThird = new Map((await runtime.listAgentInstances()).map((agent) => [agent.id, agent]));
+    assert.ok(
+      withStanding
+        .filter((run) => run.agentId !== standing.id)
+        .every((run) => afterThird.get(run.agentId!)?.provisioningKey?.includes("thread-3")),
+      "earlier threads' agents are still not woken",
+    );
+
+    // A playbook an operator puts on an instance that some subscription
+    // provisioned is the operator's, not that subscription's, even when
+    // another subscription uses the same playbook elsewhere.
+    const escalateComposed = composePlaybook({
+      name: "escalate",
+      transmission,
+      match: { event: ticketCreated, routes: [route] },
+      directives: [{ action: triage, instruction: "Escalate the support request." }],
+      applications: [support],
+    });
+    const escalate = materializeComposedPlaybook(escalateComposed, "escalate", composedPlaybookRevision(escalateComposed));
+    const escalations = definePlaybookSubscription({
+      id: "escalations",
+      workspaceId: "workspace-1",
+      playbook: escalate,
+      targets: [{
+        agent: definition,
+        provisioning: { mode: "existing", agentIds: [standing.id] },
+        installations: [install(support)],
+      }],
+    });
+    await runtime.putPlaybookSubscription(escalations);
+    const threadOneLead = [...afterThird.values()].find(
+      (agent) => agent.provisioningKey?.includes("thread-1") && agent.context.role === "lead",
+    )!;
+    await runtime.setAgentPlaybooks(threadOneLead.id, [...threadOneLead.playbooks, escalate]);
+    const withOperatorPlaybook = await runtime.dispatchInbound({
+      routeId: route.id,
+      eventId: "event-4",
+      threadKey: "thread-3",
+      raw: { type: "ticket.created", text: "A follow-up on the third ticket" },
+    });
+    // thread-3's two agents (the first subscription), the standing agent (its
+    // own playbook and the second subscription), and thread-1's lead for the
+    // playbook the operator gave it.
+    assert.equal(withOperatorPlaybook.length, 4);
+    assert.equal(withOperatorPlaybook.filter((run) => run.agentId === threadOneLead.id).length, 1);
+    await runtime.deletePlaybookSubscription(escalations.id);
+    await runtime.setAgentPlaybooks(threadOneLead.id, threadOneLead.playbooks);
+    await runtime.setAgentPlaybooks(standing.id, [playbook]);
+
     await runtime.deletePlaybookSubscription(subscription.id);
     const firstPrincipalRuns = await runtime.dispatchInbound({
       routeId: route.id,
@@ -168,8 +233,9 @@ test("an inbound playbook lazily provisions one or many subscribed agents", asyn
       conversationScope: "agent",
       raw: { type: "ticket.created", text: "Continue from another channel." },
     });
-    // Deleted, the subscription no longer routes; its playbook stays on the instances it made.
-    assert.equal(firstPrincipalRuns.length, 4);
+    // Deleted, the subscription no longer routes; its playbook stays on the six
+    // instances it made, which now answer for themselves like the standing one.
+    assert.equal(firstPrincipalRuns.length, 7);
     assert.deepEqual(
       firstPrincipalRuns.map((run) => run.conversationId).sort(),
       secondPrincipalRuns.map((run) => run.conversationId).sort(),

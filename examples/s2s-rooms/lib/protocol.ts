@@ -14,9 +14,9 @@
 //   • TEXT frames are JSON control/telemetry messages, typed below.
 //
 // PCM at 16 kHz costs 32 KB/s per direction. That is more than Opus would, and
-// it is chosen on purpose: it needs no codec on either end, it is exactly the
-// format both ElevenLabs Scribe (in) and ElevenLabs TTS (out, pcm_16000) speak,
-// so the gateway never transcodes, and it keeps the client trivially portable.
+// it is chosen on purpose: it needs no codec on either end, the room only has
+// to resample it to and from the realtime model's own rate (no transcoding),
+// and it keeps the client trivially portable.
 // Swapping in Opus is a transport concern that changes neither end's logic.
 // ─────────────────────────────────────────────────────────────────────────────
 

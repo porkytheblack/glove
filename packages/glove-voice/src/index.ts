@@ -1,10 +1,21 @@
 // Core
-export { GloveVoice, type GloveVoiceConfig, type VoiceMode, type TurnMode, type TTSFactory } from "./voice";
+export {
+  GloveVoice,
+  type GloveVoiceConfig,
+  type VoiceSpeakersConfig,
+  type VoiceMode,
+  type TurnMode,
+  type TTSFactory,
+} from "./voice";
 
 // Adapters — contracts
 export type {
   STTAdapter,
   STTAdapterEvents,
+  SpeakerSource,
+  SpeakerListener,
+  SpeakerTurn,
+  PendingSpeakers,
   TTSAdapter,
   TTSAdapterEvents,
   VADAdapter,
@@ -22,6 +33,13 @@ export {
   type ElevenLabsAdaptersConfig,
   ElevenLabsSTTAdapter,
   type ElevenLabsSTTConfig,
+  type ElevenLabsSTTEvents,
+  type ElevenLabsRealtimeModel,
+  type ElevenLabsCommitStrategy,
+  type ScribeWord,
+  type ScribeCommit,
+  type ScribeDiarizedSegment,
+  type ScribeSpeakerTurn,
   ElevenLabsTTSAdapter,
   type ElevenLabsTTSConfig,
 } from "./adapters/eleven-labs";
@@ -34,6 +52,9 @@ export { SpeechGate, type SpeechGateOptions } from "./speech-gate";
 export {
   HeuristicTurnDetector,
   RemoteTurnDetector,
+  ProviderTurnDetector,
+  type ProviderTurnDetectorConfig,
+  type TurnProbabilitySource,
   type HeuristicTurnDetectorConfig,
   type RemoteTurnDetectorConfig,
   type TurnContextMessage,
@@ -42,6 +63,14 @@ export {
 } from "./turn-detector";
 // SileroVADAdapter is in "glove-voice/silero-vad" — separate entry to avoid
 // pulling onnxruntime-web (browser-only WASM) into the main barrel.
+
+// Speakers — labels, names and talk time for several people on one microphone
+export {
+  SpeakerTracker,
+  createNameSpeakerTool,
+  type SpeakerInfo,
+  type LabeledSpeakerTurn,
+} from "./speakers";
 
 // Errors
 export { GloveVoiceError, type GloveVoiceErrorCode } from "./errors";

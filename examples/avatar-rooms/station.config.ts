@@ -52,9 +52,10 @@ export default defineConfig({
   // a queue nobody else can see.
   adapter: new SqliteAdapter({ dbPath }),
 
-  // Lets ELEVENLABS_API_KEY / OPENROUTER_API_KEY be managed from the dashboard
-  // and injected into every room and research run, instead of only through the
-  // shell that launched station.
+  // Lets the provider keys (OPENAI_API_KEY / GEMINI_API_KEY,
+  // OPENROUTER_API_KEY, ...) be managed from the dashboard and injected into
+  // every room and research run, instead of only through the shell that
+  // launched station.
   envStorage: new EnvSqliteAdapter({ dbPath }),
 
   runner: {

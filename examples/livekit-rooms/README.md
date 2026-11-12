@@ -82,6 +82,23 @@ and the page shows the video next to the transcript. Barge-in chains all the
 way through: provider VAD → S2S `interrupted` → transport flush + avatar
 `lk.clear_buffer` RPC.
 
+## Who is speaking
+
+The speaker chip (Rae, Jules, Kit) labels only the UI transcript. Spoken
+audio reaches the speech-to-speech model unlabelled: `LiveKitTransport` knows
+each participant's identity (`transport.on("audio", (pcm, rate, identity))`),
+but `attachRealtime` feeds every remote participant into the one model input
+without it. Only typed lines are framed with the speaker (`frameUtterance` in
+`lib/speakers.ts`) before they are injected.
+
+LiveKit's per-participant tracks are the way to label speakers: build on the
+identity per track, for example a cascade pipeline that runs one STT per
+participant and frames each transcript with that participant's name.
+Speaker diarization (ElevenLabs Scribe v3 Live `diarize`) solves a different
+problem: one mixed microphone in a cascade pipeline (STT → LLM → TTS), as in
+[`layered-voice`](../layered-voice) or [`server-voice`](../server-voice). It
+does not apply to a speech-to-speech model, and Scribe is not used here.
+
 ## Status
 
 [#72](https://github.com/porkytheblack/glove/issues/72): milestone 1 (voice

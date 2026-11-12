@@ -331,6 +331,7 @@ interface STTAdapter extends EventEmitter<STTAdapterEvents> {
   disconnect(): void;
   readonly isConnected: boolean;
   readonly currentPartial: string;    // the engine reads this directly
+  readonly detectsTurns?: boolean;    // provider commits on its own (unused here: this engine commits)
 }
 
 type STTAdapterEvents = {
@@ -490,6 +491,7 @@ only safe window for synthetic frames is when **no caller is attached**.
 | VAD | is there a voice in this 32 ms frame | is it *my caller's* voice |
 | Recognizer | what words are in this audio | whether anyone meant to say them |
 | EOU | does this text sound finished | whether more is coming |
+| Scribe v3 Live turn probability | does this sound finished, from the audio and the words | whether *this* engine has dispatched yet (it never commits here; `ProviderTurnDetector` only adjusts the EOU hold) |
 
 Each is wrong in its own conditions. Design against **one silently overruling a
 better-informed one** — which is exactly what happened when an acoustic
@@ -560,7 +562,7 @@ Symptom → cause → guard. All observed live; all pinned by a regression check
 | Room goes deaf mid-call, never recovers, caller must hang up | Recurrent VAD state went bad; the gap-based reset can't fire because full duplex means audio never stops arriving | Watchdog: new words + no acoustic evidence for 10 s ⇒ reset the model (`commit-latency-check`) |
 | Utterances nobody spoke | Synthetic silence keepalive fed to the recognizer | §12.2 |
 | Two utterances glued together across callers | The recognizer's partial buffer is session-scoped, not connection-scoped, and survives detach | Commit the stale buffer on detach, mark it already-dispatched |
-| Next table's conversation transcribed as the caller | No model in the stack answers "is this my caller" | Loudness relative to the caller's own learned level (`far-field-check`) |
+| Next table's conversation transcribed as the caller | No model in the stack answers "is this my caller" | Loudness relative to the caller's own learned level (`far-field-check`). Scribe v3 Live's `filterBackgroundAudio` (suppress background speech) or `diarize` (label speakers) are further options; neither is on here, and the two can't be combined |
 
 ### Barge-in
 
@@ -576,7 +578,7 @@ Symptom → cause → guard. All observed live; all pinned by a regression check
 | --- | --- | --- |
 | Host process dies on a transient vendor 5xx | Auto-reconnect called an async function with no `.catch()`; unhandled rejection | Catch at every reconnect site; add a supervised revive loop |
 | Stack overflow tearing down a speech socket | `destroy()` fires the socket's `error` event **synchronously**, whose handler tears down again | Clear references *before* destroying |
-| Recognizer silently keeps buffering after an explicit commit | Vendor throttles commits under ~0.3 s of uncommitted audio; the rejection is invisible | Pad the flush past the vendor's floor |
+| Recognizer silently keeps buffering after an explicit commit | Vendor throttles commits under ~0.3 s of uncommitted audio; the rejection used to be invisible (the adapter now reports it as a `stt.scribe` `warning`) | Pad the flush past the vendor's floor |
 
 ### The agent
 

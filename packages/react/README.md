@@ -159,6 +159,34 @@ Voice hooks and components are exported from `glove-react/voice`:
 
 Requires `glove-voice` as a peer dependency.
 
+`useGloveVoice` accepts any `GloveVoiceConfig`, including the turn mode:
+
+```tsx
+import { createElevenLabsAdapters } from "glove-voice";
+import { useGloveVoice } from "glove-react/voice";
+
+// Hands-free; ElevenLabs Scribe v3 Live decides when the user's turn is over.
+const { stt, createTTS } = createElevenLabsAdapters({
+  getSTTToken, getTTSToken, voiceId,
+  stt: { commitStrategy: "turn_prediction" },
+});
+
+const voice = useGloveVoice({
+  runnable,
+  voice: { stt, createTTS, vad, turnMode: "stt" },   // "vad" (default) | "manual" | "stt"
+});
+```
+
+With `turnMode: "stt"` the VAD still gates audio and handles barge-in, and `start()` throws unless the adapter ends turns itself (`stt.detectsTurns`). For `useGlovePTT` (push-to-talk), keep the adapter on the default `commitStrategy: "manual"`.
+
+With `stt: { diarize: true }`, the agent is told who said what once a second speaker is heard, and the hook returns the people in the room:
+
+```tsx
+voice.speakers;                          // [{ label, name?, share, talkMs, ... }]
+voice.dominantSpeaker(60_000);           // most of the talking in the last minute
+voice.nameSpeaker("Speaker A", "Sarah"); // their lines become "[Sarah] ..."
+```
+
 ### Async session ID
 
 When your session ID comes from a backend (auth tokens, server-assigned IDs, etc.), use `getSessionId` instead of a static `sessionId`:

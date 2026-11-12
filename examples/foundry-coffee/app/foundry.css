@@ -1,0 +1,255 @@
+/* Additions to the coffee example's stylesheet (globals.css) for this app. */
+
+/* ─── Top bar ───────────────────────────────────────────────────────────── */
+
+.top-bar-status { gap: 8px; justify-content: flex-start; overflow: hidden; }
+.top-bar-actions { gap: 4px; }
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  font-family: 'DM Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--cream-100);
+  border: 1px solid var(--sage-700);
+  white-space: nowrap;
+}
+.status-dot { width: 6px; height: 6px; border-radius: 50%; background: #4ade80; }
+.status-pill--off { color: var(--sage-300); }
+.status-pill--off .status-dot { background: #d9a441; }
+
+.top-bar-link {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 12px;
+  color: var(--cream-100);
+  background: transparent;
+  border: none;
+  padding: 6px 10px;
+  cursor: pointer;
+  text-decoration: none;
+}
+.top-bar-link:hover { background: var(--sage-800); }
+
+/* ─── Messages ──────────────────────────────────────────────────────────── */
+
+.chat-messages-inner { padding-bottom: 24px; }
+.agent-text { white-space: pre-wrap; }
+
+.spoken-tag {
+  display: block;
+  font-family: 'DM Mono', monospace;
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  opacity: 0.6;
+  margin-bottom: 2px;
+}
+.speaker-line { display: block; }
+.speaker-line + .speaker-line { margin-top: 4px; }
+.speaker-chip {
+  display: inline-block;
+  font-family: 'DM Mono', monospace;
+  font-size: 10px;
+  padding: 1px 6px;
+  margin-right: 6px;
+  background: rgba(255, 255, 255, 0.16);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+}
+
+.timeline-note {
+  margin: 6px 0 10px 38px;
+  font-family: 'DM Mono', monospace;
+  font-size: 11px;
+  color: var(--sage-500);
+}
+
+.problem-bar {
+  margin: 0 24px 8px;
+  padding: 8px 12px;
+  font-size: 12px;
+  color: #7f1d1d;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+}
+
+/* ─── Cards ─────────────────────────────────────────────────────────────── */
+
+.card-block { margin: 4px 0 12px 38px; }
+.card-note { font-size: 13px; font-style: italic; color: var(--sage-500); margin-bottom: 8px; }
+
+.product-row { display: flex; gap: 12px; overflow-x: auto; padding-bottom: 8px; scrollbar-width: none; }
+
+.product-card {
+  flex: 0 0 auto;
+  width: 220px;
+  background: var(--cream-50);
+  border: 1px solid var(--sage-100);
+  transition: border-color 0.25s ease, transform 0.25s ease;
+}
+.product-card:hover { border-color: var(--sage-300); transform: translateY(-2px); }
+
+.product-card-top {
+  height: 80px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  padding: 0 16px 10px;
+  font-family: 'DM Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.roast-light { background: linear-gradient(135deg, var(--sage-200), var(--sage-400)); color: var(--sage-800); }
+.roast-medium { background: linear-gradient(135deg, var(--sage-500), var(--sage-700)); color: var(--cream-100); }
+.roast-dark { background: linear-gradient(135deg, var(--sage-800), var(--sage-950)); color: var(--cream-100); }
+.product-card-soldout { background: rgba(0, 0, 0, 0.35); color: var(--cream-50); padding: 2px 6px; }
+
+.product-card-body { padding: 16px; }
+.product-card-title { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+.product-card-title h3 { font-family: 'Instrument Serif', Georgia, serif; font-size: 20px; font-weight: 400; line-height: 1.2; }
+.product-card-title span { font-family: 'DM Mono', monospace; font-size: 13px; color: var(--sage-600); flex-shrink: 0; }
+
+.product-card-notes { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+.product-card-notes span {
+  font-size: 10px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--sage-500);
+  background: var(--sage-50);
+  border: 1px solid var(--sage-100);
+  padding: 3px 8px;
+}
+
+.product-card-intensity { margin-top: 12px; }
+.product-card-intensity > div:first-child {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 4px;
+  font-size: 10px;
+  color: var(--sage-400);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.intensity { display: flex; gap: 2px; }
+.intensity span { width: 12px; height: 4px; background: var(--sage-100); }
+.intensity span.intensity-on { background: var(--sage-700); }
+
+.product-card-actions { display: flex; gap: 6px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--sage-100); }
+.product-card-actions button {
+  flex: 1;
+  padding: 9px 0;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 12px;
+  background: transparent;
+  color: var(--sage-700);
+  border: 1px solid var(--sage-200);
+  cursor: pointer;
+}
+.product-card-actions button.primary { background: var(--sage-800); color: var(--cream-50); border-color: var(--sage-800); }
+.product-card-actions button:disabled { opacity: 0.45; cursor: default; }
+
+.product-detail { display: flex; max-width: 460px; background: var(--cream-50); border: 1px solid var(--sage-100); }
+.product-detail-side {
+  width: 96px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 4px;
+  padding: 14px;
+  font-family: 'DM Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.product-detail-body { padding: 16px; flex: 1; min-width: 0; }
+.product-detail-body p { font-size: 13px; line-height: 1.5; color: var(--sage-600); margin-top: 8px; }
+
+.info-card, .approval-card { max-width: 400px; padding: 16px; background: var(--cream-50); border: 1px solid var(--sage-100); border-left: 3px solid var(--sage-400); }
+.info-card--success { border-left-color: #4ade80; }
+.info-card--tip { border-left-color: #d9a441; }
+.info-card h3 { font-family: 'Instrument Serif', Georgia, serif; font-size: 20px; font-weight: 400; margin: 6px 0; }
+.info-card p { font-size: 13px; line-height: 1.5; color: var(--sage-600); white-space: pre-wrap; }
+.info-card-kind { font-family: 'DM Mono', monospace; font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--sage-400); }
+
+.approval-card { border-left-color: var(--sage-800); }
+.approval-card--settled { opacity: 0.6; }
+.approval-lines { margin-top: 10px; }
+.approval-line { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; padding: 4px 0; color: var(--sage-700); }
+.approval-line em { font-style: normal; color: var(--sage-400); }
+.approval-line span:last-child { font-family: 'DM Mono', monospace; font-size: 12px; }
+.approval-total { border-top: 1px solid var(--sage-100); margin-top: 6px; padding-top: 8px; font-weight: 600; }
+.approval-meta { font-size: 12px; color: var(--sage-400); margin-top: 6px; }
+
+/* ─── Voice settings ────────────────────────────────────────────────────── */
+
+.voice-settings { flex-wrap: wrap; row-gap: 6px; }
+.voice-check { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--sage-500); cursor: pointer; }
+.voice-check input { accent-color: var(--sage-600); }
+.mic-btn:disabled { opacity: 0.35; cursor: default; }
+
+/* ─── Right panel ───────────────────────────────────────────────────────── */
+
+.right-panel { width: 340px; }
+.rp-item-for { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--sage-500); }
+.rp-clear { margin-left: auto; font-family: 'DM Mono', monospace; font-size: 10px; color: var(--sage-400); background: none; border: none; cursor: pointer; }
+.rp-upload {
+  width: 100%;
+  margin-top: 10px;
+  padding: 9px 0;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 12px;
+  color: var(--sage-700);
+  background: transparent;
+  border: 1px dashed var(--sage-300);
+  cursor: pointer;
+}
+.rp-upload:disabled { opacity: 0.5; cursor: default; }
+
+.speakers { display: flex; flex-direction: column; gap: 12px; }
+.speaker-head { display: flex; align-items: center; gap: 8px; }
+.speaker-name {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--sage-800);
+  background: none;
+  border: none;
+  border-bottom: 1px dashed var(--sage-300);
+  padding: 0;
+  cursor: pointer;
+}
+.speaker-lead { font-family: 'DM Mono', monospace; font-size: 9px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--sage-500); }
+.speaker-share { margin-left: auto; font-family: 'DM Mono', monospace; font-size: 11px; color: var(--sage-600); }
+.speaker-bar, .scribe-meter-bar { height: 4px; background: var(--sage-100); margin-top: 6px; }
+.speaker-bar span, .scribe-meter-bar span { display: block; height: 100%; background: var(--sage-600); transition: width 0.2s ease; }
+.speaker-meta { display: block; margin-top: 4px; font-family: 'DM Mono', monospace; font-size: 10px; color: var(--sage-400); }
+
+.scribe-meter-label { display: flex; justify-content: space-between; font-family: 'DM Mono', monospace; font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--sage-500); }
+.scribe-counts { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 10px; font-family: 'DM Mono', monospace; font-size: 10px; color: var(--sage-500); }
+.scribe-log { margin-top: 10px; max-height: 260px; overflow-y: auto; border: 1px solid var(--sage-100); background: var(--cream-100); padding: 6px; }
+.scribe-log-empty { font-size: 11px; color: var(--sage-400); }
+.scribe-line { display: flex; gap: 6px; font-family: 'DM Mono', monospace; font-size: 10px; line-height: 1.5; color: var(--sage-700); }
+.scribe-line-time { color: var(--sage-300); flex-shrink: 0; }
+.scribe-line-kind { flex-shrink: 0; width: 48px; text-transform: uppercase; color: var(--sage-400); }
+.scribe-line-text { min-width: 0; overflow-wrap: anywhere; }
+.scribe-line--commit .scribe-line-kind, .scribe-line--labels .scribe-line-kind { color: #2f855a; }
+.scribe-line--flush .scribe-line-kind, .scribe-line--warning .scribe-line-kind { color: #b7791f; }
+.scribe-line--error .scribe-line-kind { color: #c53030; }
+
+/* Narrow screens: the panel sits under the chat, so the bag and the
+   recording upload stay reachable (globals.css hides it at 768px). */
+@media (max-width: 900px) {
+  .content-area { flex-direction: column; }
+  .right-panel {
+    display: flex;
+    width: 100%;
+    max-height: 38dvh;
+    border-left: none;
+    border-top: 1px solid var(--sage-100);
+  }
+  .top-bar-status .status-pill:not(:first-child) { display: none; }
+}

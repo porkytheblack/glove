@@ -120,8 +120,8 @@ export function useRoom(handlers?: RoomHandlers) {
   // ── audio ──────────────────────────────────────────────────────────────────
 
   const startAudio = useCallback(async () => {
-    // 16 kHz end to end — the rate the room, Scribe and ElevenLabs all use, so
-    // nothing resamples anywhere along the path.
+    // 16 kHz on the duct. The room resamples the mic to the realtime model's
+    // input rate, so the browser never has to.
     const ctx = new AudioContext({ sampleRate: 16_000 });
     ctxRef.current = ctx;
     await ctx.audioWorklet.addModule("/capture-worklet.js");

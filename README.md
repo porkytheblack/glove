@@ -439,9 +439,9 @@ const voice = useGloveVoice({ runnable, voice: { stt, createTTS } });
 // voice.mode: "idle" | "listening" | "thinking" | "speaking"
 ```
 
-Two turn modes: **VAD** (hands-free with barge-in) and **Manual** (push-to-talk). Token-based auth keeps API keys server-side.
+Three turn modes: **VAD** (hands-free with barge-in), **Manual** (push-to-talk) and **STT** (the speech-to-text provider decides when the speaker is done, e.g. ElevenLabs Scribe v3 Live turn prediction). Token-based auth keeps API keys server-side.
 
-**Noise robustness** — in VAD mode, mic audio is speech-gated: it only reaches the STT provider once the VAD confirms speech (with a pre-roll buffer), so background noise is never transcribed. With Silero, short noise bursts are discarded and barge-in only fires on confirmed speech. On by default.
+**Noise robustness** — in VAD and STT modes, mic audio is speech-gated: it only reaches the STT provider once the VAD confirms speech (with a pre-roll buffer), so noise between utterances is not sent for transcription. With Silero, short noise bursts are discarded and barge-in only fires on confirmed speech. On by default.
 
 **React Native / Expo** — the pipeline is platform-neutral; only mic capture and playback are platform edges. `glove-voice-native` supplies them for iOS/Android (backed by `react-native-audio-api` and `onnxruntime-react-native`):
 
@@ -635,6 +635,15 @@ An e-commerce coffee ordering experience with product catalog, cart, checkout, a
 
 ```bash
 cd examples/coffee && pnpm dev
+```
+
+### Coffee Shop on Foundry
+
+The same shop as a Glove Foundry app: the barista is a Foundry agent, each customer a conversation, the bag lives in the shop's workspace and checkout is an approval. The browser runs `GloveVoice` with ElevenLabs Scribe v3 Live and drives the Foundry agent with it: Scribe ends the turns (`turnMode: "stt"`), tells the people at the counter apart, and transcribes recorded orders. A panel shows what Scribe sends as it sends it.
+
+```bash
+pnpm --filter glove-foundry-coffee verify   # a typed and a spoken visit, offline
+cd examples/foundry-coffee && pnpm dev      # shop on :3010, Foundry inspector on :4310
 ```
 
 ### Lola

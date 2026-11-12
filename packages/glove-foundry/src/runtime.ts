@@ -253,6 +253,14 @@ export interface FoundryConversationTranscript {
   readonly persisted: boolean;
 }
 
+/**
+ * How the provisioning key of every instance a subscription provisions
+ * starts, unless a custom provisioner chose the key.
+ */
+function subscriptionKeyPrefix(subscription: Pick<PlaybookSubscription, "id" | "workspaceId">): string {
+  return `subscription:${subscription.workspaceId}:${subscription.id}:`;
+}
+
 export class FoundryRuntimeError extends Schema.TaggedError<FoundryRuntimeError>(
   "FoundryRuntimeError",
 )("FoundryRuntimeError", {
@@ -2100,8 +2108,28 @@ export class FoundryRuntime {
     // A subscription's playbook is copied onto every instance it provisions, but
     // only the subscription knows which of them an event is for (its targets
     // and provisioning keys). Matched per instance, it would wake them all.
+    // That applies to the instances the subscription put it on: the ones it
+    // provisioned, and the existing ones it names. Any other instance that
+    // carries the same playbook answers for itself: an agent created on its
+    // own, or one another subscription provisioned and an operator then gave
+    // this playbook to.
     const subscriptions = await this.listPlaybookSubscriptions();
-    const subscribedPlaybooks = new Set(subscriptions.map((subscription) => subscription.playbook.id));
+    const subscriptionPrefixes = subscriptions.map(subscriptionKeyPrefix);
+    const putThereBy = (subscription: PlaybookSubscription, agent: AgentInstance): boolean => {
+      if (subscription.targets.some((target) =>
+        target.provisioning.mode === "existing" && target.provisioning.agentIds.includes(agent.id))) return true;
+      const key = agent.provisioningKey;
+      // A durable subagent's key is its parent's, not a subscription's.
+      if (key === undefined || agent.durableSubagent) return false;
+      if (key.startsWith(subscriptionKeyPrefix(subscription))) return true;
+      // A custom provisioner chooses its own keys, so its instances are known
+      // only by what they are not: another subscription's.
+      return !subscriptionPrefixes.some((prefix) => key.startsWith(prefix)) &&
+        subscription.targets.some((target) =>
+          target.provisioning.mode === "custom" && target.definitionId === agent.definitionId);
+    };
+    const routedBySubscription = (agent: AgentInstance, playbookId: string) =>
+      subscriptions.some((subscription) => subscription.playbook.id === playbookId && putThereBy(subscription, agent));
     for (const stored of instances) {
       let agent: AgentInstance;
       try { agent = await this.effectiveAgent(stored); } catch { if (stored.durableSubagent) continue; throw new Error(`Cannot resolve agent "${stored.id}".`); }
@@ -2122,7 +2150,7 @@ export class FoundryRuntime {
       if (!hasInstalledOwner) continue;
       const matched: AgentPlaybook[] = [];
       for (const playbook of agent.playbooks) {
-        if (subscribedPlaybooks.has(playbook.id)) continue;
+        if (routedBySubscription(agent, playbook.id)) continue;
         if (await this.playbookMatches(
           playbook,
           integration,
@@ -2522,9 +2550,7 @@ export class FoundryRuntime {
         )
       : [{
           provisioningKey: [
-            "subscription",
-            subscription.workspaceId,
-            subscription.id,
+            subscriptionKeyPrefix(subscription).slice(0, -1),
             String(targetIndex),
             policy.mode,
             ...(policy.mode === "per-thread"

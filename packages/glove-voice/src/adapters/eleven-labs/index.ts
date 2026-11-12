@@ -1,14 +1,24 @@
-import type { GetTokenFn, STTAdapter } from "../types";
+import type { GetTokenFn } from "../types";
 import { ElevenLabsSTTAdapter, type ElevenLabsSTTConfig } from "./stt";
 import { ElevenLabsTTSAdapter, type ElevenLabsTTSConfig } from "./tts";
 import type { TTSFactory } from "../../voice";
 
-export { ElevenLabsSTTAdapter, type ElevenLabsSTTConfig } from "./stt";
+export {
+  ElevenLabsSTTAdapter,
+  type ElevenLabsSTTConfig,
+  type ElevenLabsSTTEvents,
+  type ElevenLabsRealtimeModel,
+  type ElevenLabsCommitStrategy,
+  type ScribeWord,
+  type ScribeCommit,
+  type ScribeDiarizedSegment,
+  type ScribeSpeakerTurn,
+} from "./stt";
 export { ElevenLabsTTSAdapter, type ElevenLabsTTSConfig } from "./tts";
 export { createElevenLabsSTTToken, createElevenLabsTTSToken } from "./server";
 
 export interface ElevenLabsAdaptersConfig {
-  /** Token fetcher for STT (Scribe Realtime) */
+  /** Token fetcher for STT (Scribe v3 Live) */
   getSTTToken: GetTokenFn;
   /** Token fetcher for TTS (Input Streaming) */
   getTTSToken: GetTokenFn;
@@ -34,7 +44,7 @@ export interface ElevenLabsAdaptersConfig {
  * const voice = new GloveVoice(glove, { stt, createTTS });
  */
 export function createElevenLabsAdapters(config: ElevenLabsAdaptersConfig): {
-  stt: STTAdapter;
+  stt: ElevenLabsSTTAdapter;
   createTTS: TTSFactory;
 } {
   const stt = new ElevenLabsSTTAdapter({

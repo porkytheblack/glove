@@ -11,7 +11,13 @@ export interface UseGlovePTTConfig {
   /** The Glove runnable instance — pass `useGlove().runnable`. */
   runnable: IGloveRunnable | null;
 
-  /** Voice pipeline config (STT adapter, TTS factory, etc.). `turnMode` is forced to `"manual"`. */
+  /**
+   * Voice pipeline config (STT adapter, TTS factory, etc.). `turnMode` is forced to `"manual"`.
+   *
+   * Keep the STT adapter on `commitStrategy: "manual"` (the ElevenLabs default).
+   * An adapter that ends turns itself (`"turn_prediction"` or `"vad"`) commits
+   * whenever the speaker pauses and splits one hold into several turns.
+   */
   voice: Omit<GloveVoiceConfig, "turnMode">;
 
   /**
@@ -107,6 +113,9 @@ export interface UseGlovePTTReturn {
  * - Click-vs-hold discrimination on mic button
  * - Minimum recording duration enforcement
  * - Auto-sync of enabled state on pipeline death
+ *
+ * The STT adapter should stay on `commitStrategy: "manual"` (the ElevenLabs
+ * default) so the release of the button, not the provider, ends the turn.
  *
  * @example
  * ```tsx
