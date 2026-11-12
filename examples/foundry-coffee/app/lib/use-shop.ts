@@ -42,6 +42,12 @@ export interface Shop {
   newConversation: () => Promise<void>;
   /** Add a line to the timeline that is not part of the conversation. */
   note: (text: string) => void;
+  /**
+   * The conversation and whether a turn is running, as of this instant.
+   * `conversationId` and `busy` above are a render behind; anything that
+   * finishes later (an upload) and then wants to send must ask here.
+   */
+  now: () => { conversationId: string | null; busy: boolean };
   /** Run one turn; the voice pipeline uses this too. */
   runTurn: RunTurn;
   /** Called with every run event, typed or spoken. */
@@ -66,6 +72,8 @@ export function useShop(): Shop {
   const refreshSeq = useRef(0);
   const bagRef = useRef<Bag>(EMPTY_BAG);
   const turnSeq = useRef(0);
+  /** A turn is running. Set and cleared in the same tick as the turn, not on the next render. */
+  const turnActive = useRef(false);
   const typedAbort = useRef<AbortController | null>(null);
   const onRunEvent = useRef<((event: TurnEvent) => void) | null>(null);
 
@@ -91,6 +99,7 @@ export function useShop(): Shop {
   const newConversation = useCallback(async () => {
     typedAbort.current?.abort();
     turnSeq.current += 1;
+    turnActive.current = false;
     setTimeline([]);
     setStreaming("");
     setBusy(false);
@@ -130,6 +139,7 @@ export function useShop(): Shop {
       const seq = ++turnSeq.current;
       const current = () => seq === turnSeq.current;
       let reply = "";
+      turnActive.current = true;
 
       setError(null);
       setBusy(true);
@@ -199,6 +209,7 @@ export function useShop(): Shop {
       } finally {
         flushReply();
         if (current()) {
+          turnActive.current = false;
           setBusy(false);
           // An approval the run no longer waits for cannot be answered.
           setTimeline((prev) => prev.map((entry) => (entry.kind === "approval" && entry.status === "pending" ? { ...entry, status: "cancelled" } : entry)));
@@ -241,8 +252,10 @@ export function useShop(): Shop {
     }
   }, [refreshShop]);
 
+  const now = useCallback(() => ({ conversationId: conversationRef.current, busy: turnActive.current }), []);
+
   return useMemo(
-    () => ({ status, conversationId, timeline, streaming, busy, bag, orders, error, send, stop, decide, newConversation, note, runTurn, onRunEvent }),
-    [status, conversationId, timeline, streaming, busy, bag, orders, error, send, stop, decide, newConversation, note, runTurn],
+    () => ({ status, conversationId, timeline, streaming, busy, bag, orders, error, send, stop, decide, newConversation, note, now, runTurn, onRunEvent }),
+    [status, conversationId, timeline, streaming, busy, bag, orders, error, send, stop, decide, newConversation, note, now, runTurn],
   );
 }
