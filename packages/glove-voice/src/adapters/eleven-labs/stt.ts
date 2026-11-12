@@ -267,6 +267,8 @@ export class ElevenLabsSTTAdapter
   private partial = "";
   private reconnects = 0;
   private destroyed = false;
+  /** Bumped by each connect() and by disconnect(), so a connect() that was overtaken stops. */
+  private connectAttempt = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   /** Whether this connection has sent audio yet (previous_text rides on the first chunk). */
   private sentFirstChunk = false;
@@ -353,7 +355,11 @@ export class ElevenLabsSTTAdapter
   }
 
   async connect(): Promise<void> {
+    const attempt = ++this.connectAttempt;
     const token = await this.cfg.getToken();
+    // disconnect() was called, or another connect() started, while the token
+    // was being fetched: this attempt must not open a socket.
+    if (attempt !== this.connectAttempt) return;
 
     return new Promise((resolve, reject) => {
       const url = `wss://api.elevenlabs.io/v1/speech-to-text/realtime?${this.buildQuery(token)}`;
@@ -697,6 +703,7 @@ export class ElevenLabsSTTAdapter
 
   disconnect(): void {
     this.destroyed = true;
+    this.connectAttempt++;
     this.dropAwaitingSpeakers();
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);

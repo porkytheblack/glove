@@ -74,9 +74,23 @@ export function baristaTools(ctx: AgentAssemblyContext): GloveFoldArgs<any>[] {
           return { status: "error" as const, data: null, message: `${product.name} is out of stock. Suggest another coffee.` };
         }
         const visit = await readVisit(data, workspaceId, conversationId);
-        const bag = addLine(visit.bag, product.id, input.quantity ?? 1, input.for?.trim() || undefined);
+        const quantity = input.quantity ?? 1;
+        // Everyone's lines of this coffee count against the same shelf.
+        const inBag = visit.bag.lines.filter((line) => line.productId === product.id).reduce((sum, line) => sum + line.qty, 0);
+        if (inBag + quantity > product.stock) {
+          const left = product.stock - inBag;
+          return {
+            status: "error" as const,
+            data: null,
+            message:
+              `Only ${product.stock} x ${product.name} in stock` +
+              (inBag > 0 ? `, and ${inBag} already in the bag` : "") +
+              `. ${left > 0 ? `Offer up to ${left}${inBag > 0 ? " more" : ""}` : "Suggest another coffee"}.`,
+          };
+        }
+        const bag = addLine(visit.bag, product.id, quantity, input.for?.trim() || undefined);
         await writeVisit(data, workspaceId, conversationId, { ...visit, bag });
-        return { status: "success" as const, data: `Added ${input.quantity ?? 1} x ${product.name}.\n${describeBag(bag)}` };
+        return { status: "success" as const, data: `Added ${quantity} x ${product.name}.\n${describeBag(bag)}` };
       },
     },
     {
@@ -135,15 +149,16 @@ export function baristaTools(ctx: AgentAssemblyContext): GloveFoldArgs<any>[] {
         // whatever was in the bag by then.
         await ctx.store?.setPermission?.("checkout", "unset", input);
         const visit = await readVisit(data, workspaceId, conversationId);
+        const bag = visit.bag;
         // Glove runs a tool again when it throws, and a write can throw after
         // the order was stored. Before treating this as a new checkout, see
-        // whether the last attempt's order is already there.
+        // whether the last attempt's order is already there. A bag with
+        // something in it is a new order, whatever happened to the last one.
         if (unconfirmed) {
           const stored = visit.orders.find((order) => order.id === unconfirmed!.id);
           unconfirmed = undefined;
-          if (stored) return placed(stored);
+          if (stored && bag.lines.length === 0) return placed(stored);
         }
-        const bag = visit.bag;
         if (bag.lines.length === 0) {
           return { status: "error" as const, data: null, message: "The bag is empty, so there is nothing to order." };
         }

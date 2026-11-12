@@ -104,7 +104,8 @@ The six coffee names are sent to Scribe as keyterms. "Yirgacheffe",
 
 ### 4. Recorded orders (batch Scribe v3)
 
-**Recorded order** in the right panel uploads an audio or video file. It is
+**Recorded order** in the right panel uploads an audio or video file (with
+voice off; the button is disabled while the microphone is on). It is
 transcribed with `transcribeWithElevenLabs` (`scribe_v3`, `diarize: true`,
 the same keyterms) and handed to the barista with a line per speaker.
 
@@ -163,6 +164,15 @@ Delete it to start clean.
 
 - One shop, no sign-in: anyone who can open the page is a customer. Foundry
   stays on loopback and only the Next.js server talks to it.
+- Made to run on your own machine. Nothing checks who is calling: a
+  conversation id is enough to read that conversation's bag and orders, and
+  the transcription and voice token routes spend your ElevenLabs key for
+  anyone who can reach them. Put sign-in and a rate limit in front of the
+  app before exposing it.
+- A checkout confirmation is good for a minute. After that the card can no
+  longer be answered and the barista has to be asked again. Foundry keeps
+  the approval open for longer; answered from the inspector or the API, it
+  orders the bag as it stands then.
 - Speaker labels are per voice session. They start over if the page reloads
   or the speech connection restarts, and the barista is told when that
   happens.

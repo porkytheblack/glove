@@ -141,8 +141,16 @@ export default function Home() {
   }, [voice.stop, monitor.clear, shop.newConversation]);
 
   // A recording, transcribed with batch Scribe v3 and handed to the barista.
+  // Not while the microphone is on: a spoken turn would start over the
+  // recording's turn, and its reply would be dropped from the screen.
+  const voiceOn = useRef(false);
+  voiceOn.current = voice.isActive;
   const voicemail = useCallback(
     async (file: File) => {
+      if (voiceOn.current) {
+        shop.note("Turn voice off to send a recording.");
+        return;
+      }
       // The customer this recording belongs to. `shop.now()` is read at the
       // moment it matters; the hook's state would be a render behind.
       const forConversation = shop.now().conversationId;
@@ -186,8 +194,12 @@ export default function Home() {
       }
       // Sending now would stop whatever the barista is doing (a checkout
       // waiting to be confirmed, a spoken turn).
-      if (shop.now().busy) {
-        shop.note("The barista was busy when the recording was ready, so it was not sent. Upload it again.");
+      if (shop.now().busy || voiceOn.current) {
+        shop.note(
+          voiceOn.current
+            ? "Voice was turned on while the recording was being transcribed, so it was not sent. Turn voice off and upload it again."
+            : "The barista was busy when the recording was ready, so it was not sent. Upload it again.",
+        );
         return;
       }
       shop.send(
@@ -254,7 +266,7 @@ export default function Home() {
           monitor={monitor}
           voiceOn={voice.isActive}
           voiceAvailable={shop.status?.elevenlabs ?? false}
-          busy={shop.busy || !ready}
+          busy={shop.busy || !ready || voice.isActive}
           onVoicemail={voicemail}
         />
       </div>

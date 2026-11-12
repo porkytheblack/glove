@@ -19,8 +19,13 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     const approval = await foundry().approval(id);
     if (approval.workspaceId !== SHOP.workspaceId) return Response.json({ error: "Not found." }, { status: 404 });
     if (decision === "approve") {
-      // The run is paused on this approval, so the bag read here is the bag
-      // checkout will order.
+      // Foundry keeps an approval open after its run stops waiting, and a
+      // late answer resumes in a new run, behind anything sent since. Only a
+      // run that is still waiting holds the conversation, so only then is the
+      // bag read here the bag checkout will order.
+      if (approval.suspendedAt) {
+        return Response.json({ error: "That confirmation timed out. Ask the barista to check out again." }, { status: 409 });
+      }
       const bag = (await visitOf(approval.conversationId)).bag;
       if (!Array.isArray(seen?.lines) || !sameBag(seen, bag)) {
         return Response.json({ error: "Your bag changed. Check the order and confirm again." }, { status: 409 });

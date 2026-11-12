@@ -76,21 +76,25 @@ export function useShop(): Shop {
   const typedAbort = useRef<AbortController | null>(null);
   const onRunEvent = useRef<((event: TurnEvent) => void) | null>(null);
 
-  const refreshShop = useCallback(async () => {
+  /** Resolves false when the bag could not be read. */
+  const refreshShop = useCallback(async (): Promise<boolean> => {
     const conversation = conversationRef.current;
-    if (!conversation) return;
+    if (!conversation) return true;
     // Tool results arrive close together, and their refreshes can answer out
     // of order. Only the newest one is applied.
     const seq = ++refreshSeq.current;
     try {
       const response = await fetch(`/api/shop?conversationId=${encodeURIComponent(conversation)}`);
-      if (!response.ok) return;
+      if (!response.ok) return false;
       const data = (await response.json()) as { bag: Bag; orders: Order[] };
-      if (conversationRef.current !== conversation || seq !== refreshSeq.current) return;
+      // A newer refresh, or another customer, has taken over: theirs applies.
+      if (conversationRef.current !== conversation || seq !== refreshSeq.current) return true;
       setBag(data.bag);
       setOrders(data.orders);
+      return true;
     } catch {
       // The next tool result refreshes again.
+      return false;
     }
   }, []);
 
@@ -181,8 +185,10 @@ export function useShop(): Shop {
                   break;
                 case "approval":
                   // The card shows the bag, so have the bag checkout will order
-                  // before showing it.
-                  await refreshShop();
+                  // before showing it. One more try if the read fails; after
+                  // that the card may show an older bag, which the server
+                  // refuses to confirm and which is then read again.
+                  if (!(await refreshShop())) await refreshShop();
                   if (!current()) break;
                   setTimeline((prev) => [...prev, { kind: "approval", id: event.id, toolName: event.toolName, input: event.input, status: "pending" }]);
                   break;

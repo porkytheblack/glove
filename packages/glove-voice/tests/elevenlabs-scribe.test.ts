@@ -257,6 +257,21 @@ test("an adapter can be started again after disconnect()", async () => {
   assert.equal(closed, 1);
 });
 
+test("disconnect() while the token is being fetched stops that connection", async () => {
+  let release!: (token: string) => void;
+  const stt = new ElevenLabsSTTAdapter({
+    getToken: () => new Promise<string>((done) => (release = done)),
+    maxReconnects: 3,
+  });
+  const before = FakeSocket.last;
+  const connecting = stt.connect();
+  stt.disconnect();
+  release("tok");
+  await connecting;
+  assert.equal(FakeSocket.last, before, "no socket is opened for the cancelled attempt");
+  assert.equal(stt.isConnected, false);
+});
+
 test("manual strategy keeps flushing with silence padding", async () => {
   const { stt, ws } = await open();
   stt.flushUtterance();

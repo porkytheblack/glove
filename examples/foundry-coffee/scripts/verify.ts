@@ -10,6 +10,7 @@ import type { AgentAssemblyContext } from "glove-foundry";
 import { createFoundryClient } from "glove-foundry/client";
 import { baristaTools } from "../agents/barista/tools.js";
 import { sameBag, totals, visitKey, type Bag, type Visit } from "../lib/bag.js";
+import { PRODUCTS } from "../lib/catalog.js";
 import { SHOP, type TurnPayload } from "../lib/shop.js";
 
 // One visit to the shop, end to end, over the same HTTP API the web app
@@ -75,10 +76,10 @@ async function checkoutAfterFailedWrite(): Promise<void> {
       Effect.sync(() => (entries.has(key) ? { value: entries.get(key) } : undefined)),
     putWorkspaceEntry: (entry: { key: string; value: unknown }) =>
       Effect.promise(async () => {
+        const before = (entries.get(entry.key) as Visit | undefined)?.orders.length ?? 0;
         entries.set(entry.key, entry.value);
-        if (entry.key === visitKey("retry") && (entry.value as Visit).orders.length > 0 && failures-- > 0) {
-          throw new Error("stored, then failed");
-        }
+        // Fails the write that stores an order, after storing it.
+        if ((entry.value as Visit).orders.length > before && failures-- > 0) throw new Error("stored, then failed");
       }),
   };
   const tools = baristaTools({
@@ -101,6 +102,26 @@ async function checkoutAfterFailedWrite(): Promise<void> {
   const again = await tool("checkout")({ grind: "Whole Bean" });
   assert.equal(again.status, "error", "a later checkout of the empty bag is still refused");
   assert.equal(orders().length, 1);
+
+  // The same failure with no retry after it, then more coffee: the next
+  // checkout is a new order, not the earlier one reported again.
+  failures = 1;
+  await tool("add_to_cart")({ product_id: "kenyan-aa", quantity: 1 });
+  await assert.rejects(tool("checkout")({ grind: "Whole Bean" }), /stored, then failed/);
+  await tool("add_to_cart")({ product_id: "colombian-huila", quantity: 2 });
+  const next = await tool("checkout")({ grind: "Whole Bean" });
+  assert.equal(next.status, "success");
+  assert.match(String(next.data), /Huila/);
+  assert.equal(orders().length, 3);
+
+  // No more than the shelf holds, counting what is already in the bag.
+  const bag = () => (entries.get(visitKey("retry")) as Visit).bag;
+  const stock = PRODUCTS.find((p) => p.id === "kenyan-aa")!.stock;
+  assert.equal((await tool("add_to_cart")({ product_id: "kenyan-aa", quantity: stock + 1 })).status, "error");
+  assert.equal((await tool("add_to_cart")({ product_id: "kenyan-aa", quantity: stock, for: "Maya" })).status, "success");
+  const over = await tool("add_to_cart")({ product_id: "kenyan-aa", quantity: 1, for: "Speaker B" });
+  assert.equal(over.status, "error", "another person's line counts against the same stock");
+  assert.equal(totals(bag()).count, stock);
 }
 
 async function spokenVisit(): Promise<void> {
