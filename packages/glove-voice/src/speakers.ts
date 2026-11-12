@@ -317,6 +317,19 @@ export class SpeakerTracker {
     return lines.join("\n");
   }
 
+  /**
+   * The provider started a new session and numbers its speakers afresh.
+   * Forget everyone, and leave a note so the agent knows a label may now mean
+   * someone else.
+   */
+  restart(): void {
+    this.reset();
+    this.mergeNotes.push(
+      "The speech connection restarted, so speaker labels start over: a label may now mean a " +
+        "different person than it did earlier in the conversation.",
+    );
+  }
+
   /** Forget everyone. */
   reset(): void {
     this.entries.clear();

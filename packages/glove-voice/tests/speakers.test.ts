@@ -186,6 +186,10 @@ class FakeSTT extends EventEmitter<STTAdapterEvents> {
   merge(from: string, to: string) {
     for (const l of this.speakerListeners) l.merged?.(from, to);
   }
+  /** The STT session reconnected: speaker ids start over. */
+  reconnect() {
+    for (const l of this.speakerListeners) l.reset?.();
+  }
 }
 
 class FakeTTS extends EventEmitter<TTSAdapterEvents> {
@@ -390,4 +394,67 @@ test("stop() removes the context provider and drops queued utterances", async ()
   await flush();
   assert.deepEqual(requests, []);
   assert.equal(providers.length, 0);
+});
+
+test("draft labels never replace the finalized text", async () => {
+  const { voice, stt, requests } = setup({ label: "always", waitMs: 200 });
+  await voice.start();
+
+  // One speaker in the draft, which stops short of the final: label the final.
+  stt.say("Book a table for seven.", [A("Book a table")]);
+  await flush();
+  mock.timers.tick(200);
+  await flush();
+  assert.equal(requests[0], "[Speaker A] Book a table for seven.");
+
+  // Two speakers in a draft that does not cover the final: no way to place
+  // the missing words, so the agent gets the plain final.
+  stt.say("Hi there. Hello, who is this?", [A("Hi there."), B("Hello,")]);
+  await flush();
+  mock.timers.tick(200);
+  await flush();
+  assert.equal(requests[1], "Hi there. Hello, who is this?");
+
+  // Punctuation and case differences are not a mismatch.
+  stt.say("OK. Thanks!", [A("ok"), B("thanks")]);
+  await flush();
+  mock.timers.tick(200);
+  await flush();
+  assert.equal(requests[2], "[Speaker A] ok\n[Speaker B] thanks");
+  await voice.stop();
+});
+
+test("an utterance queued before stop() does not touch the next session's speakers", async () => {
+  const { voice, stt, requests } = setup({ label: "always", waitMs: 500 });
+  await voice.start();
+  stt.say("Old session.", [A("Old session.")]);
+  await flush();
+  await voice.stop();
+  await voice.start();
+  mock.timers.tick(500);
+  await flush();
+  assert.deepEqual(requests, []);
+  assert.equal(voice.speakers.length, 0);
+  await voice.stop();
+});
+
+test("a reconnect starts speaker labels over and tells the agent", async () => {
+  const { voice, stt, requests, context } = setup();
+  await voice.start();
+  stt.say("Hi. Hey.");
+  stt.diarize([A("Hi."), B("Hey.")]);
+  await flush();
+  voice.nameSpeaker("Speaker B", "Dan");
+  assert.equal(voice.speakers.length, 2);
+
+  stt.reconnect();
+  assert.equal(voice.speakers.length, 0);
+  assert.match(context(), /speaker labels start over/);
+
+  // "speaker_1" in the new session is not known to be Dan.
+  stt.say("Back again.");
+  stt.diarize([B("Back again.")]);
+  await flush();
+  assert.equal(requests[1], "[Speaker A] Back again.");
+  await voice.stop();
 });

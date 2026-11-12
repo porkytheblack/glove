@@ -224,6 +224,8 @@ export class GloveVoice extends EventEmitter<GloveVoiceEvents> {
   private sttTurnTimer: ReturnType<typeof setTimeout> | null = null;
   /** turnMode "stt": the provider committed since the speaker last started. */
   private providerCommitted = false;
+  /** turnMode "stt": a tentative speech start paused the fallback; a misfire restores it. */
+  private sttFallbackSuspended = false;
 
   // Speaker awareness (see `speakers` in the config)
   private readonly speakerTracker = new SpeakerTracker();
@@ -289,7 +291,7 @@ export class GloveVoice extends EventEmitter<GloveVoiceEvents> {
       },
       final: (text) => {
         console.debug(`[GloveVoice] STT final: "${text}"`);
-        if (this.turnMode === "stt") this.onProviderCommit();
+        if (this.turnMode === "stt") this.onProviderCommit(text.trim().length > 0);
         if (!text.trim()) return;
         this.emit("transcript", text, false);
         const source = this.speakerSource;
@@ -300,7 +302,7 @@ export class GloveVoice extends EventEmitter<GloveVoiceEvents> {
         // Ask now, while this is still the adapter's latest utterance.
         const pending = source.forFinal();
         const session = this.session;
-        const step = this.attribution.then(() => this.attribute(text, pending));
+        const step = this.attribution.then(() => this.attribute(text, pending, session));
         this.attribution = step.then(
           () => undefined,
           () => undefined,
@@ -368,10 +370,19 @@ export class GloveVoice extends EventEmitter<GloveVoiceEvents> {
 
       this.vadHandlers = {
         speech_start: () => {
-          // The speaker resumed: the provider is still judging this turn.
           if (providerTurns) {
-            this.clearSttTurnTimer();
-            this.providerCommitted = false;
+            if (confirms) {
+              // Tentative: this may be a noise burst. Pause the fallback and
+              // let speech_real_start drop it or vad_misfire restore it.
+              if (this.sttTurnTimer) {
+                this.clearSttTurnTimer();
+                this.sttFallbackSuspended = true;
+              }
+            } else {
+              // The speaker resumed: the provider is still judging this turn.
+              this.clearSttTurnTimer();
+              this.providerCommitted = false;
+            }
           }
           if (this.gate) {
             // Tentative-capable VADs hold audio until confirmation;
@@ -404,12 +415,23 @@ export class GloveVoice extends EventEmitter<GloveVoiceEvents> {
 
       if (confirms) {
         this.vadHandlers.speech_real_start = () => {
+          if (providerTurns) {
+            // Confirmed: the speaker resumed and the provider is still judging.
+            this.sttFallbackSuspended = false;
+            this.clearSttTurnTimer();
+            this.providerCommitted = false;
+          }
           // Open the gate BEFORE barge-in: interrupt() resets the VAD, and
           // the buffered pre-roll + confirmed speech must reach STT first.
           if (this.gate) flushToSTT(this.gate.open());
           bargeIn();
         };
         this.vadHandlers.vad_misfire = () => {
+          if (providerTurns && this.sttFallbackSuspended) {
+            // It was noise. The utterance before it still needs its fallback.
+            this.sttFallbackSuspended = false;
+            this.armSttTurnTimer();
+          }
           if (this.gate) {
             // STT never saw the audio — drop it silently.
             this.gate.cancel();
@@ -467,6 +489,7 @@ export class GloveVoice extends EventEmitter<GloveVoiceEvents> {
     this.interrupt();
     this.clearSttTurnTimer();
     this.session += 1;
+    this.sttFallbackSuspended = false;
     for (const cleanup of this.speakerCleanup.splice(0)) cleanup();
     this.speakerSource = null;
 
@@ -697,6 +720,13 @@ export class GloveVoice extends EventEmitter<GloveVoiceEvents> {
           this.speakerTracker.merge(from, to);
           this.speakersChanged();
         },
+        reset: () => {
+          // The STT session reconnected and numbers its speakers afresh, so
+          // earlier ids, names and stats no longer apply to them.
+          this.speakerTracker.restart();
+          this.pendingNames.clear();
+          this.emit("speakers", this.speakerTracker.list());
+        },
       }),
     );
 
@@ -723,7 +753,10 @@ export class GloveVoice extends EventEmitter<GloveVoiceEvents> {
   }
 
   /** Work out who said `text` and return what the agent should read. */
-  private async attribute(text: string, pending: PendingSpeakers): Promise<string> {
+  private async attribute(text: string, pending: PendingSpeakers, session: number): Promise<string> {
+    // A stop() since this utterance was queued: leave the tracker alone, it
+    // may already belong to a new session.
+    if (session !== this.session) return text;
     const cfg = this.speakerCfg;
     const tracker = this.speakerTracker;
     const draft = pending.draft;
@@ -736,10 +769,22 @@ export class GloveVoice extends EventEmitter<GloveVoiceEvents> {
       turns = draft;
     } else {
       turns = (await this.settledWithin(pending, cfg.waitMs ?? 350)) ?? draft;
+      if (session !== this.session) return text;
     }
     if (!turns || turns.length === 0) return text;
 
     if (tracker.observe(turns)) this.speakersChanged();
+
+    // The finalized transcript is what was said. Labels are only laid over it
+    // when they cover the same words; draft labels come from an earlier
+    // partial and can be missing its end.
+    if (!sameWords(turns.map((t) => t.text).join(" "), text)) {
+      const ids = new Set(turns.map((t) => t.speakerId));
+      const only = ids.size === 1 ? turns[0].speakerId : null;
+      if (!only) return text;
+      turns = [{ speakerId: only, text }];
+    }
+
     const labeled = tracker.labelTurns(turns);
     this.emit("speaker_turns", labeled, text);
     if (!this.labelling || !labeled.some((t) => t.label)) return text;
@@ -774,11 +819,20 @@ export class GloveVoice extends EventEmitter<GloveVoiceEvents> {
 
   // ─── Provider turn detection (turnMode "stt") ──────────────────────────────
 
-  /** The provider ended the turn: stop the fallback and close the gate if the speaker is quiet. */
-  private onProviderCommit(): void {
+  /**
+   * The provider ended the turn: stop the fallback and close the gate.
+   *
+   * When a turn follows, the gate closes even if the VAD still hears speech.
+   * handleTurn() interrupts, which resets the VAD without a speech_end, so
+   * nothing later would close it and silence would keep streaming to STT. If
+   * the speaker carries on, the VAD starts a new segment and the gate's
+   * pre-roll covers the gap.
+   */
+  private onProviderCommit(turnFollows: boolean): void {
     this.clearSttTurnTimer();
+    this.sttFallbackSuspended = false;
     this.providerCommitted = true;
-    if (this.gate?.isOpen && !this.vad?.isSpeaking) this.gate.close();
+    if (this.gate?.isOpen && (turnFollows || !this.vad?.isSpeaking)) this.gate.close();
   }
 
   private armSttTurnTimer(): void {
@@ -965,4 +1019,10 @@ export class GloveVoice extends EventEmitter<GloveVoiceEvents> {
     this.mode = mode;
     this.emit("mode", mode);
   }
+}
+
+/** True when two transcripts have the same words, ignoring case, punctuation and spacing. */
+function sameWords(a: string, b: string): boolean {
+  const norm = (t: string) => t.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+  return norm(a) === norm(b);
 }

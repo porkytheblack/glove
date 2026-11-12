@@ -1,4 +1,4 @@
-import { test } from "node:test";
+import { test, mock } from "node:test";
 import assert from "node:assert/strict";
 import { ElevenLabsSTTAdapter } from "../src/adapters/eleven-labs/stt";
 import { parseTranscript, transcribeWithElevenLabs } from "../src/adapters/eleven-labs/batch";
@@ -125,14 +125,92 @@ test("partials, turn probability and commits", async () => {
 
 test("server-side commits make a later flush a no-op", async () => {
   const { stt, ws } = await open({ commitStrategy: "turn_prediction" });
-  stt.sendAudio(new Int16Array(1600));
-  ws.receive({ message_type: "committed_transcript", text: "Done." });
-  stt.flushUtterance(); // client VAD fires after Scribe already committed
-  assert.equal(ws.sent.filter((m) => m.commit === true).length, 0);
+  mock.timers.enable({ apis: ["Date"] });
+  try {
+    const commits = () => ws.sent.filter((m) => m.commit === true).length;
+    stt.sendAudio(new Int16Array(1600));
+    mock.timers.tick(1000); // the speaker has been quiet for a while
+    ws.receive({ message_type: "committed_transcript", text: "Done." });
+    stt.flushUtterance(); // client VAD fires after Scribe already committed
+    assert.equal(commits(), 0);
 
+    stt.sendAudio(new Int16Array(1600));
+    stt.flushUtterance(); // audio pending: commit
+    assert.equal(commits(), 1);
+  } finally {
+    mock.timers.reset();
+    stt.disconnect();
+  }
+});
+
+test("audio sent just before a commit arrives still counts as pending", async () => {
+  const { stt, ws } = await open({ commitStrategy: "turn_prediction" });
+  mock.timers.enable({ apis: ["Date"] });
+  try {
+    stt.sendAudio(new Int16Array(1600)); // utterance A
+    mock.timers.tick(1000);
+    stt.sendAudio(new Int16Array(1600)); // utterance B starts
+    mock.timers.tick(50);
+    ws.receive({ message_type: "committed_transcript", text: "A." }); // A's commit lands late
+    stt.flushUtterance(); // fallback for B must still commit
+    assert.equal(ws.sent.filter((m) => m.commit === true).length, 1);
+  } finally {
+    mock.timers.reset();
+    stt.disconnect();
+  }
+});
+
+test("a rejected commit can be retried without new audio", async () => {
+  const { stt, ws } = await open({ commitStrategy: "vad", vadSilenceThreshold: 0.5 });
+  const commits = () => ws.sent.filter((m) => m.commit === true).length;
   stt.sendAudio(new Int16Array(1600));
-  stt.flushUtterance(); // audio pending: commit
-  assert.equal(ws.sent.filter((m) => m.commit === true).length, 1);
+  stt.flushUtterance();
+  assert.equal(commits(), 1);
+  stt.flushUtterance(); // nothing new: skipped
+  assert.equal(commits(), 1);
+  ws.receive({ message_type: "commit_throttled", error: "too little audio" });
+  stt.flushUtterance(); // the first commit never happened: try again
+  assert.equal(commits(), 2);
+  stt.disconnect();
+});
+
+test("plain and timed commits pair by count, whatever order they arrive in", async () => {
+  const { stt, ws } = await open({ includeTimestamps: true });
+  const finals: string[] = [];
+  stt.on("final", (t) => finals.push(t));
+  const words = [{ text: "x", type: "word" }];
+  ws.receive({ message_type: "committed_transcript", text: "One." });
+  ws.receive({ message_type: "committed_transcript", text: "Two." });
+  ws.receive({ message_type: "committed_transcript_with_timestamps", text: "One.", words });
+  ws.receive({ message_type: "committed_transcript_with_timestamps", text: "Two.", words });
+  assert.deepEqual(finals, ["One.", "Two."]);
+  stt.disconnect();
+});
+
+test("language detection alone also pairs the timed commit", async () => {
+  const { stt, ws } = await open({ includeLanguageDetection: true });
+  const finals: string[] = [];
+  const langs: (string | undefined)[] = [];
+  stt.on("final", (t) => finals.push(t));
+  stt.scribe.on("committed", (c) => langs.push(c.languageCode));
+  ws.receive({ message_type: "committed_transcript", text: "Bonjour." });
+  ws.receive({ message_type: "committed_transcript_with_timestamps", text: "Bonjour.", language_code: "fr" });
+  assert.deepEqual(finals, ["Bonjour."]);
+  assert.deepEqual(langs, [undefined, "fr"]);
+  stt.disconnect();
+});
+
+test("a reconnect forgets speaker merges and tells speaker listeners", async () => {
+  const stt = new ElevenLabsSTTAdapter({ getToken: async () => "tok", diarize: true, maxReconnects: 0 });
+  let resets = 0;
+  stt.speakers.subscribe({ reset: () => resets++ });
+  await stt.connect();
+  assert.equal(resets, 0); // the first session is not a reset
+  stt.handleMessage({ message_type: "speakers_merged", from_speaker_id: "speaker_1", to_speaker_id: "speaker_0" });
+  assert.equal(stt.resolveSpeaker("speaker_1"), "speaker_0");
+  await stt.connect();
+  assert.equal(resets, 1);
+  assert.equal(stt.resolveSpeaker("speaker_1"), "speaker_1");
   stt.disconnect();
 });
 
@@ -305,7 +383,30 @@ test("batch transcription rejects ambiguous sources and reports API errors", asy
   }
 });
 
-test("multichannel responses are flattened", () => {
+test("multichannel responses are merged in the order things were said", () => {
+  const word = (text: string, start: number) => ({ text, start, end: start + 0.4, type: "word", speaker_id: "speaker_0" });
+  const t = parseTranscript({
+    transcripts: [
+      { channel_index: 0, text: "Hello there. Fine thanks.", words: [word("Hello", 0), word(" there.", 0.5), word("Fine", 3), word(" thanks.", 3.5)] },
+      { channel_index: 1, text: "Hi, how are you?", words: [word("Hi,", 1.2), word(" how", 1.7), word(" are", 2.0), word(" you?", 2.3)] },
+    ],
+  });
+  // Both channels used "speaker_0", so speakers are named by channel.
+  assert.deepEqual(
+    t.turns.map((turn) => [turn.speakerId, turn.text]),
+    [
+      ["channel_0", "Hello there."],
+      ["channel_1", "Hi, how are you?"],
+      ["channel_0", "Fine thanks."],
+    ],
+  );
+  assert.equal(t.text, "Hello there.\nHi, how are you?\nFine thanks.");
+  assert.equal(t.channels?.length, 2);
+  assert.equal(t.channels?.[1].text, "Hi, how are you?");
+  assert.deepEqual(t.words.map((w) => w.channel_index), [0, 0, 1, 1, 1, 1, 0, 0]);
+});
+
+test("multichannel without word timings keeps channel order and distinct speaker ids", () => {
   const t = parseTranscript({
     transcripts: [
       { text: "left", language_code: "en", words: [{ text: "left", type: "word", speaker_id: "speaker_0" }] },
@@ -313,7 +414,7 @@ test("multichannel responses are flattened", () => {
     ],
   });
   assert.equal(t.text, "left\nright");
-  assert.equal(t.turns.length, 2);
+  assert.deepEqual(t.turns.map((turn) => turn.speakerId), ["speaker_0", "speaker_1"]);
 });
 
 test("detectsTurns follows the commit strategy", () => {

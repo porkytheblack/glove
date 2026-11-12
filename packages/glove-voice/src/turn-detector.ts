@@ -60,6 +60,22 @@ export interface TurnDetectorAdapter {
   ): TurnDecision | Promise<TurnDecision>;
 }
 
+/**
+ * True when the transcript ends mid-identifier: the last token is one or two
+ * characters ("K", "0-0-7"), as when someone spells out a code. It overrides
+ * punctuation, because STT often puts a period after each letter.
+ */
+export function looksLikeDictation(transcript: string): boolean {
+  const tokens = transcript
+    .trim()
+    .replace(/[.…?!,]+["')\]]*\s*$/, "")
+    .trim()
+    .split(/[\s\-–—]+/)
+    .filter(Boolean);
+  const last = tokens[tokens.length - 1] ?? "";
+  return /^[a-z0-9]{1,2}$/i.test(last);
+}
+
 export interface HeuristicTurnDetectorConfig {
   /** Hold after `?`/`!` endings — a question aimed at the agent is done the
    *  moment it's asked (default 0). */
@@ -114,13 +130,7 @@ export class HeuristicTurnDetector implements TurnDetectorAdapter {
 
     // Dictation first — it overrides punctuation ("0-0-7." carries an
     // STT-guessed period, but the speaker is mid-identifier).
-    const tokens = s
-      .replace(/[.…?!,]+["')\]]*\s*$/, "")
-      .trim()
-      .split(/[\s\-–—]+/)
-      .filter(Boolean);
-    const last = tokens[tokens.length - 1] ?? "";
-    if (/^[a-z0-9]{1,2}$/i.test(last)) {
+    if (looksLikeDictation(s)) {
       return { holdMs: this.dictationHoldMs, reason: "dictation" };
     }
 
@@ -201,9 +211,15 @@ export class RemoteTurnDetector implements TurnDetectorAdapter {
         body: JSON.stringify({ transcript, context }),
         signal: ctrl.signal,
       });
-      clearTimeout(timer);
-      if (!res.ok) throw new Error(`scorer ${res.status}`);
-      const { probability } = (await res.json()) as { probability: number };
+      let probability: number;
+      try {
+        if (!res.ok) throw new Error(`scorer ${res.status}`);
+        // The timeout stays armed while the body is read: fetch resolves on
+        // headers, and a stalled body must still fall back.
+        probability = ((await res.json()) as { probability: number }).probability;
+      } finally {
+        clearTimeout(timer);
+      }
       const p = Number(probability);
       if (!Number.isFinite(p)) throw new Error("scorer returned no probability");
       const shaped = Math.round(
@@ -305,7 +321,13 @@ export class ProviderTurnDetector implements TurnDetectorAdapter {
     const tag = p.toFixed(2);
 
     if (p >= this.doneAt) {
-      if (inner.reason === "dictation") return { ...inner, reason: `dictation|turn:${tag}` };
+      // Someone spelling out a code pauses between characters, and the
+      // provider can read each pause as a finished turn. Detectors that wrap
+      // the heuristic report dictation under their own reason ("eou:0.31",
+      // "fallback:dictation"), so test the transcript itself as well.
+      if (looksLikeDictation(transcript) || inner.reason.includes("dictation")) {
+        return { ...inner, reason: `${inner.reason}|dictation|turn:${tag}` };
+      }
       return {
         holdMs: Math.min(inner.holdMs, this.doneHoldMs),
         reason: `turn-done:${tag}|${inner.reason}`,

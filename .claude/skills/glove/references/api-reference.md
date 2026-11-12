@@ -1237,6 +1237,8 @@ const t = await transcribeWithElevenLabs({
   disableLogging?, baseUrl?, signal?,
 });
 // → { text, languageCode, languageProbability, words, turns: [{ speakerId, text, start, end }], transcriptionId, raw }
+// useMultiChannel: text/words/turns are merged across channels in spoken order (speakers named
+// "channel_0", ... when channels reuse speaker ids) and `channels` holds each channel's transcript.
 ```
 
 ### SileroVADAdapter

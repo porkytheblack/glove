@@ -89,6 +89,11 @@ export interface SpeakerListener {
   segment?(turns: SpeakerTurn[]): void;
   /** The provider decided two ids are the same person. */
   merged?(from: string, to: string): void;
+  /**
+   * A new provider session began (a reconnect). Speaker ids start over, so an
+   * id may now mean a different person than before.
+   */
+  reset?(): void;
 }
 
 /**

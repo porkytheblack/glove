@@ -208,6 +208,9 @@ const ERROR_TYPES = new Set([
  */
 const COMMIT_REJECTIONS = new Set(["commit_throttled", "insufficient_audio_activity"]);
 
+/** Audio sent within this long before a commit arrives may be past what it covered. */
+const COMMIT_LAG_MS = 300;
+
 /**
  * ElevenLabs Scribe Realtime STT adapter (Scribe v3 Live by default).
  *
@@ -263,8 +266,15 @@ export class ElevenLabsSTTAdapter
   private sentFirstChunk = false;
   /** Audio sent since the last commit, ours or Scribe's. */
   private pendingAudio = false;
-  /** The kind of the last commit when its timed/plain twin may still follow. */
-  private unpairedCommit: "plain" | "timed" | null = null;
+  /**
+   * Plain and timed commits seen on this connection. With timestamps or
+   * language detection on, one utterance can arrive as both; the one that
+   * brings its kind's count level with the other's is the twin.
+   */
+  private commitCounts = { plain: 0, timed: 0 };
+  /** When audio was last sent, to tell audio a commit covered from audio after it. */
+  private lastAudioAt = 0;
+  private hasConnected = false;
   /** Draft word labels from the latest partial (`diarize: true`). */
   private partialWords: ScribeWord[] | null = null;
   /** Commits whose settled speaker labels have not arrived yet, oldest first. */
@@ -342,8 +352,12 @@ export class ElevenLabsSTTAdapter
 
       this.sentFirstChunk = false;
       this.pendingAudio = false;
-      this.unpairedCommit = null;
+      this.commitCounts = { plain: 0, timed: 0 };
       this.latestTurnProbability = null;
+      // A new session numbers its speakers from scratch: "speaker_0" may now
+      // be someone else, so earlier merges no longer apply.
+      this.merges.clear();
+      if (this.hasConnected) for (const l of this.speakerListeners) l.reset?.();
       this.partialWords = null;
       // Labels for commits on the old connection will never arrive.
       for (const waiting of this.awaitingDiarized.splice(0)) waiting.resolve(null);
@@ -351,6 +365,7 @@ export class ElevenLabsSTTAdapter
       this.ws.binaryType = "arraybuffer";
 
       this.ws.onopen = () => {
+        this.hasConnected = true;
         this.reconnects = 0;
         resolve();
       };
@@ -439,15 +454,20 @@ export class ElevenLabsSTTAdapter
         if (typeof data.language_code === "string") commit.languageCode = data.language_code;
         if (Array.isArray(data.words)) commit.words = data.words as ScribeWord[];
 
-        // With `include_timestamps`, one utterance can arrive as both a plain
-        // and a timed commit. The first finalizes it; the second only adds
-        // detail, so the turn is never taken twice.
-        if (this.unpairedCommit && this.unpairedCommit !== kind) {
-          this.unpairedCommit = null;
-          this.scribe.emit("committed", commit);
-          return;
+        // With timestamps or language detection on, one utterance can arrive
+        // as both a plain and a timed commit. The first finalizes it; the
+        // second only adds detail, so the turn is never taken twice. Twins are
+        // matched by count, not by adjacency, so two plain commits followed
+        // by their two timed twins still pair up.
+        if (this.cfg.includeTimestamps || this.cfg.includeLanguageDetection) {
+          const other = kind === "plain" ? "timed" : "plain";
+          const isTwin = this.commitCounts[kind] < this.commitCounts[other];
+          this.commitCounts[kind] += 1;
+          if (isTwin) {
+            this.scribe.emit("committed", commit);
+            return;
+          }
         }
-        this.unpairedCommit = this.cfg.includeTimestamps ? kind : null;
 
         // ElevenLabs sometimes returns an empty committed transcript for
         // short utterances ("No", "Hi") when we flush with a silence frame.
@@ -455,7 +475,10 @@ export class ElevenLabsSTTAdapter
         const text = raw || this.partial;
         console.debug(`[ElevenLabsSTT] committed: "${raw}"${raw ? "" : ` (using partial: "${text}")`}`);
         this.partial = "";
-        this.pendingAudio = false;
+        // Scribe does not say how much audio a commit covered. Audio sent just
+        // before the commit arrived may belong to the next utterance, so it
+        // still counts as pending.
+        this.pendingAudio = Date.now() - this.lastAudioAt < COMMIT_LAG_MS;
         this.latestTurnProbability = null;
         this.trackCommitSpeakers(commit);
         this.scribe.emit("committed", { ...commit, text });
@@ -496,6 +519,9 @@ export class ElevenLabsSTTAdapter
     }
 
     if (COMMIT_REJECTIONS.has(type)) {
+      // The commit did not happen, so that audio is still uncommitted and a
+      // later flush must be allowed to try again.
+      this.pendingAudio = true;
       const message = `${type}: ${String(data.error ?? "")}`;
       console.warn(`[ElevenLabsSTT] ${message}`);
       this.scribe.emit("warning", message);
@@ -598,6 +624,7 @@ export class ElevenLabsSTTAdapter
     }
     this.sentFirstChunk = true;
     this.pendingAudio = true;
+    this.lastAudioAt = Date.now();
     this.ws.send(JSON.stringify(msg));
   }
 

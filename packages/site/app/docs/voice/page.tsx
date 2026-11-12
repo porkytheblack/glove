@@ -805,8 +805,9 @@ glove.fold(createNameSpeakerTool((speaker, name) => voice.nameSpeaker(speaker, n
         </li>
         <li>
           Speaker ids are anonymous and start over when the STT session
-          reconnects. <code>diarize</code> cannot be combined with{" "}
-          <code>filterBackgroundAudio</code>.
+          reconnects; the speaker list is then cleared and the agent is told
+          that labels may now mean different people. <code>diarize</code>{" "}
+          cannot be combined with <code>filterBackgroundAudio</code>.
         </li>
         <li>
           Any STT adapter can take part by exposing a{" "}

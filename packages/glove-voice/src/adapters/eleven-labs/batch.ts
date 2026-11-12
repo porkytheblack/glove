@@ -87,6 +87,8 @@ export interface ElevenLabsTranscriptWord {
   end?: number;
   type?: "word" | "spacing" | "audio_event" | (string & {});
   speaker_id?: string | null;
+  /** Which audio channel the word came from (multichannel requests). */
+  channel_index?: number;
   logprob?: number;
   characters?: unknown[];
 }
@@ -106,6 +108,11 @@ export interface ElevenLabsTranscript {
   /** Consecutive runs of words by one speaker. One turn when not diarizing. */
   turns: ElevenLabsSpeakerTurn[];
   transcriptionId?: string;
+  /**
+   * One transcript per audio channel, for `useMultiChannel` requests. The
+   * fields above then hold the channels merged in the order things were said.
+   */
+  channels?: ElevenLabsTranscript[];
   /** The response body as ElevenLabs returned it. */
   raw: unknown;
 }
@@ -180,18 +187,7 @@ export async function transcribeWithElevenLabs(
 /** @internal Shape a /v1/speech-to-text response. Exported for tests. */
 export function parseTranscript(raw: Record<string, unknown>): ElevenLabsTranscript {
   // Multichannel responses wrap one transcript per channel.
-  if (Array.isArray(raw.transcripts)) {
-    const parts = (raw.transcripts as Record<string, unknown>[]).map(parseTranscript);
-    return {
-      text: parts.map((p) => p.text).join("\n"),
-      languageCode: parts[0]?.languageCode,
-      languageProbability: parts[0]?.languageProbability,
-      words: parts.flatMap((p) => p.words),
-      turns: parts.flatMap((p) => p.turns),
-      transcriptionId: typeof raw.transcription_id === "string" ? raw.transcription_id : undefined,
-      raw,
-    };
-  }
+  if (Array.isArray(raw.transcripts)) return mergeChannels(raw);
 
   const words = Array.isArray(raw.words) ? (raw.words as ElevenLabsTranscriptWord[]) : [];
   const text = typeof raw.text === "string" ? raw.text : "";
@@ -203,6 +199,64 @@ export function parseTranscript(raw: Record<string, unknown>): ElevenLabsTranscr
     words,
     turns: words.length > 0 ? speakerTurns(words) : text ? [{ speakerId: null, text }] : [],
     transcriptionId: typeof raw.transcription_id === "string" ? raw.transcription_id : undefined,
+    raw,
+  };
+}
+
+/**
+ * Merge per-channel transcripts into one, in the order things were said.
+ * Channels are separate recordings of the same conversation, so reading all
+ * of channel 0 and then all of channel 1 would put the replies out of order.
+ */
+function mergeChannels(raw: Record<string, unknown>): ElevenLabsTranscript {
+  const entries = (raw.transcripts as Record<string, unknown>[]).map((t, i) => ({
+    index: typeof t.channel_index === "number" ? t.channel_index : i,
+    part: parseTranscript(t),
+  }));
+  const parts = entries.map((e) => e.part);
+
+  // A channel usually is one speaker. Keep the provider's speaker ids when
+  // they already differ between channels; otherwise name speakers by channel.
+  const idsPerChannel = entries.map(
+    (e) => new Set(e.part.words.map((w) => w.speaker_id).filter((id): id is string => !!id)),
+  );
+  const seen = new Set<string>();
+  let distinct = idsPerChannel.every((ids) => ids.size > 0);
+  for (const ids of idsPerChannel) {
+    for (const id of ids) {
+      if (seen.has(id)) distinct = false;
+      seen.add(id);
+    }
+  }
+
+  const words = entries.flatMap((e) =>
+    e.part.words.map((w) => ({
+      ...w,
+      channel_index: w.channel_index ?? e.index,
+      speaker_id: distinct ? w.speaker_id : `channel_${e.index}`,
+    })),
+  );
+  // Without word timings there is nothing to order by, so channels stay in
+  // channel order.
+  const timed = words.length > 0 && words.every((w) => typeof w.start === "number");
+  if (timed) {
+    const order = new Map(words.map((w, i) => [w, i]));
+    words.sort((a, b) => a.start! - b.start! || order.get(a)! - order.get(b)!);
+  }
+  const turns = words.length > 0
+    ? speakerTurns(words)
+    : entries
+        .filter((e) => e.part.text)
+        .map((e) => ({ speakerId: `channel_${e.index}`, text: e.part.text }));
+
+  return {
+    text: turns.map((t) => t.text).join("\n"),
+    languageCode: parts[0]?.languageCode,
+    languageProbability: parts[0]?.languageProbability,
+    words,
+    turns,
+    transcriptionId: typeof raw.transcription_id === "string" ? raw.transcription_id : undefined,
+    channels: parts,
     raw,
   };
 }

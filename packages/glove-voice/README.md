@@ -184,7 +184,7 @@ glove.fold(createNameSpeakerTool((speaker, name) => voice.nameSpeaker(speaker, n
 
 `speakers` in the config tunes it: `false` ignores the labels, or pass `{ label: "auto" | "always" | "never", waitMs, names: { speaker_0: "Sarah" }, format }`. `"never"` tracks speakers without changing what the agent reads.
 
-Talking the most is not the same as talking to the agent, so treat `dominantSpeaker()` as a hint. With several people in the room the agent hears every line, including people talking to each other; say in your system prompt when it should stay quiet. `diarize` cannot be combined with `filterBackgroundAudio`, and speaker ids start over when the STT session reconnects. `SpeakerTracker` is exported for use on its own, for example over the `turns` from `transcribeWithElevenLabs`.
+Talking the most is not the same as talking to the agent, so treat `dominantSpeaker()` as a hint. With several people in the room the agent hears every line, including people talking to each other; say in your system prompt when it should stay quiet. `diarize` cannot be combined with `filterBackgroundAudio`. Speaker ids start over when the STT session reconnects: the speaker list is cleared and the agent is told that labels may now mean different people. `SpeakerTracker` is exported for use on its own, for example over the `turns` from `transcribeWithElevenLabs`.
 
 ## Turn Modes
 
