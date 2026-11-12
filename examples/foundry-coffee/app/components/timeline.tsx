@@ -1,4 +1,5 @@
 import React from "react";
+import type { Bag } from "../../lib/bag";
 import type { BagView } from "../lib/bag-view";
 import type { Entry } from "../lib/use-shop";
 import { ApprovalCard, ToolCard } from "./cards";
@@ -26,7 +27,7 @@ export function Timeline({ entries, streaming, busy, bag, onSay, onDecide }: {
   busy: boolean;
   bag: BagView;
   onSay: (text: string) => void;
-  onDecide: (approvalId: string, decision: "approve" | "deny") => void;
+  onDecide: (approvalId: string, decision: "approve" | "deny", seen: Bag) => void;
 }) {
   const waiting = entries.some((entry) => entry.kind === "approval" && entry.status === "pending");
   return (
@@ -52,7 +53,7 @@ export function Timeline({ entries, streaming, busy, bag, onSay, onDecide }: {
           case "tool":
             return <ToolCard key={entry.id} entry={entry} onSay={onSay} disabled={busy} />;
           case "approval":
-            return <ApprovalCard key={entry.id} entry={entry} bag={bag} onDecide={(decision) => onDecide(entry.id, decision)} />;
+            return <ApprovalCard key={entry.id} entry={entry} bag={bag} onDecide={(decision, seen) => onDecide(entry.id, decision, seen)} />;
           case "note":
             return <div key={entry.id} className="timeline-note">{entry.text}</div>;
         }

@@ -221,7 +221,7 @@ export default function Home() {
                 busy={shop.busy}
                 bag={bag}
                 onSay={say}
-                onDecide={(approvalId, decision) => void shop.decide(approvalId, decision)}
+                onDecide={(approvalId, decision, seen) => void shop.decide(approvalId, decision, seen)}
               />
             )}
           </div>

@@ -1,4 +1,5 @@
 import React from "react";
+import type { Bag } from "../../lib/bag";
 import { describeLines, type BagView } from "../lib/bag-view";
 import { formatPrice, getProductById, getProductsByIds, type Product } from "../../lib/catalog";
 import type { Entry } from "../lib/use-shop";
@@ -170,9 +171,11 @@ const SETTLED: Record<string, string> = {
 export function ApprovalCard({ entry, bag, onDecide }: {
   entry: Extract<Entry, { kind: "approval" }>;
   bag: BagView;
-  onDecide: (decision: "approve" | "deny") => void;
+  /** `seen` is the bag this card is showing, so the answer is about what was on screen. */
+  onDecide: (decision: "approve" | "deny", seen: Bag) => void;
 }) {
   const args = (entry.input ?? {}) as Record<string, unknown>;
+  const seen: Bag = { lines: bag.lines };
   const pending = entry.status === "pending";
   return (
     <div className="card-block">
@@ -196,8 +199,8 @@ export function ApprovalCard({ entry, bag, onDecide }: {
               {String(args.grind ?? "")} grind{args.name ? ` · for ${String(args.name)}` : ""}{args.email ? ` · ${String(args.email)}` : ""}
             </p>
             <div className="product-card-actions">
-              <button type="button" onClick={() => onDecide("deny")}>Not yet</button>
-              <button type="button" className="primary" onClick={() => onDecide("approve")}>Place order</button>
+              <button type="button" onClick={() => onDecide("deny", seen)}>Not yet</button>
+              <button type="button" className="primary" onClick={() => onDecide("approve", seen)}>Place order</button>
             </div>
           </>
         )}

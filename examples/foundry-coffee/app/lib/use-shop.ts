@@ -37,8 +37,8 @@ export interface Shop {
   send: (text: string) => void;
   /** Stop the current run. */
   stop: () => void;
-  /** Answer a checkout. */
-  decide: (approvalId: string, decision: "approve" | "deny") => Promise<void>;
+  /** Answer a checkout. `seen` is the bag the card was showing when the customer answered. */
+  decide: (approvalId: string, decision: "approve" | "deny", seen: Bag) => Promise<void>;
   newConversation: () => Promise<void>;
   /** Add a line to the timeline that is not part of the conversation. */
   note: (text: string) => void;
@@ -70,7 +70,6 @@ export function useShop(): Shop {
   const conversationRef = useRef<string | null>(null);
   const conversationSeq = useRef(0);
   const refreshSeq = useRef(0);
-  const bagRef = useRef<Bag>(EMPTY_BAG);
   const turnSeq = useRef(0);
   /** A turn is running. Set and cleared in the same tick as the turn, not on the next render. */
   const turnActive = useRef(false);
@@ -88,7 +87,6 @@ export function useShop(): Shop {
       if (!response.ok) return;
       const data = (await response.json()) as { bag: Bag; orders: Order[] };
       if (conversationRef.current !== conversation || seq !== refreshSeq.current) return;
-      bagRef.current = data.bag;
       setBag(data.bag);
       setOrders(data.orders);
     } catch {
@@ -103,7 +101,6 @@ export function useShop(): Shop {
     setTimeline([]);
     setStreaming("");
     setBusy(false);
-    bagRef.current = EMPTY_BAG;
     setBag(EMPTY_BAG);
     setOrders([]);
     setError(null);
@@ -236,13 +233,14 @@ export function useShop(): Shop {
     typedAbort.current?.abort();
   }, []);
 
-  const decide = useCallback(async (approvalId: string, decision: "approve" | "deny") => {
-    // A confirmation carries the bag the customer was shown; the server
-    // refuses it unless the stored bag is exactly that.
+  const decide = useCallback(async (approvalId: string, decision: "approve" | "deny", seen: Bag) => {
+    // A confirmation carries the bag the card was showing, handed over by the
+    // card itself, so it cannot be a newer bag that has not been drawn yet.
+    // The server refuses it unless the stored bag is exactly that.
     const response = await fetch(`/api/approvals/${encodeURIComponent(approvalId)}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ decision, seen: bagRef.current }),
+      body: JSON.stringify({ decision, seen }),
     }).catch(() => null);
     if (!response?.ok) {
       const failure = ((await response?.json().catch(() => ({}))) ?? {}) as { error?: string };
