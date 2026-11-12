@@ -45,7 +45,22 @@ test("dictation holds survive detectors that report it under another reason", as
 
   const fallback: TurnDetectorAdapter = { decide: () => ({ holdMs: 2000, reason: "fallback:dictation" }) };
   const viaFallback = new ProviderTurnDetector({ source: { turnProbability: 0.95 }, inner: fallback });
-  assert.equal((await viaFallback.decide("anything")).holdMs, 2000);
+  assert.equal((await viaFallback.decide("it starts with a K")).holdMs, 2000);
+});
+
+test("a short last word is not dictation when the provider is sure", async () => {
+  // The heuristic holds 2000ms after any one- or two-letter ending. With
+  // Scribe at 0.95 a plain "No." should not wait that long.
+  source.turnProbability = 0.95;
+  for (const reply of ["No.", "OK.", "Hi.", "Book it.", "Count me in.", "So do I."]) {
+    const d = await detector.decide(reply);
+    assert.equal(d.holdMs, 400, reply);
+    assert.match(d.reason, /^turn-done:0\.95/, reply);
+  }
+  // Spelling still gets the full hold.
+  for (const spelled of ["K", "my pin is 4 2", "the code is K E S", "flight B A 2 7", "room 07", "gate B7", "it is K A"]) {
+    assert.equal((await detector.decide(spelled)).holdMs, 2000, spelled);
+  }
 });
 
 test("RemoteTurnDetector falls back when the response body stalls past the timeout", async () => {

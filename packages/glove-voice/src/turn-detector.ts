@@ -76,6 +76,30 @@ export function looksLikeDictation(transcript: string): boolean {
   return /^[a-z0-9]{1,2}$/i.test(last);
 }
 
+/**
+ * A stricter test than `looksLikeDictation`, for when the provider is sure
+ * the turn is over: true only when the transcript ends on something spelled
+ * out. That is a single letter or digit, a two-digit number, or two
+ * characters with a digit in them ("K", "7", "07", "B7"). A short last word
+ * ("No.", "OK.", "Count me in.") is not dictation, and neither is a lone
+ * "I" or "a" ("So do I.") unless what precedes it was spelled too.
+ */
+export function endsInSpelledRun(transcript: string): boolean {
+  const tokens = transcript
+    .trim()
+    .replace(/[.…?!,]+["')\]]*\s*$/, "")
+    .trim()
+    .split(/[\s\-–—.,]+/)
+    .filter(Boolean);
+  const spelled = (t: string | undefined) =>
+    !!t && (/^[a-z0-9]$/i.test(t) || (/^[a-z0-9]{2}$/i.test(t) && /\d/.test(t)));
+  const last = tokens[tokens.length - 1];
+  if (!spelled(last)) return false;
+  // "I" and "a" are words more often than letters.
+  if (/^[ia]$/i.test(last!)) return spelled(tokens[tokens.length - 2]);
+  return true;
+}
+
 export interface HeuristicTurnDetectorConfig {
   /** Hold after `?`/`!` endings — a question aimed at the agent is done the
    *  moment it's asked (default 0). */
@@ -322,10 +346,13 @@ export class ProviderTurnDetector implements TurnDetectorAdapter {
 
     if (p >= this.doneAt) {
       // Someone spelling out a code pauses between characters, and the
-      // provider can read each pause as a finished turn. Detectors that wrap
-      // the heuristic report dictation under their own reason ("eou:0.31",
-      // "fallback:dictation"), so test the transcript itself as well.
-      if (looksLikeDictation(transcript) || inner.reason.includes("dictation")) {
+      // provider can read each pause as a finished turn, so the inner hold
+      // stands while the transcript ends in something spelled out. The test
+      // is on the transcript, not the inner reason: detectors report
+      // dictation under their own reasons ("eou:0.31", "fallback:dictation"),
+      // and the heuristic also calls a short last word ("No.", "OK.")
+      // dictation, which a confident provider should be allowed to cut short.
+      if (endsInSpelledRun(transcript)) {
         return { ...inner, reason: `${inner.reason}|dictation|turn:${tag}` };
       }
       return {

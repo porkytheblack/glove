@@ -231,6 +231,32 @@ test("a reconnect forgets speaker merges and tells speaker listeners", async () 
   stt.disconnect();
 });
 
+test("an adapter can be started again after disconnect()", async () => {
+  const stt = new ElevenLabsSTTAdapter({ getToken: async () => "tok", maxReconnects: 0 });
+  await stt.connect();
+  const first = FakeSocket.last!;
+  first.receive({ message_type: "partial_transcript", text: "left over from before" });
+  stt.disconnect();
+
+  await stt.connect();
+  const second = FakeSocket.last!;
+  assert.notEqual(second, first);
+  // Words from the earlier session are gone: an empty commit has nothing to fall back on.
+  const finals: string[] = [];
+  stt.on("final", (t) => finals.push(t));
+  second.receive({ message_type: "committed_transcript", text: "" });
+  assert.deepEqual(finals, [""]);
+
+  // The old socket closing late is not this session's business...
+  let closed = 0;
+  stt.on("close", () => closed++);
+  first.onclose?.();
+  assert.equal(closed, 0);
+  // ...and the new one closing is reported, as on a first session.
+  second.onclose?.();
+  assert.equal(closed, 1);
+});
+
 test("manual strategy keeps flushing with silence padding", async () => {
   const { stt, ws } = await open();
   stt.flushUtterance();

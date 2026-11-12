@@ -358,6 +358,10 @@ export class ElevenLabsSTTAdapter
     return new Promise((resolve, reject) => {
       const url = `wss://api.elevenlabs.io/v1/speech-to-text/realtime?${this.buildQuery(token)}`;
 
+      // A fresh session, also after disconnect(): an adapter can be started
+      // again, and must then reconnect on a drop and report a close as usual.
+      this.destroyed = false;
+      this.partial = "";
       this.sentFirstChunk = false;
       this.pendingAudio = false;
       this.ownCommitPending = false;
@@ -370,7 +374,8 @@ export class ElevenLabsSTTAdapter
       this.partialWords = null;
       // Labels for commits on the old connection will never arrive.
       this.dropAwaitingSpeakers();
-      this.ws = new WebSocket(url);
+      const socket = new WebSocket(url);
+      this.ws = socket;
       this.ws.binaryType = "arraybuffer";
 
       this.ws.onopen = () => {
@@ -397,6 +402,9 @@ export class ElevenLabsSTTAdapter
       };
 
       this.ws.onclose = () => {
+        // A socket that disconnect() closed, or that a newer connection has
+        // replaced: its close says nothing about the current session.
+        if (this.ws !== socket) return;
         if (!this.destroyed && this.reconnects < this.maxReconnects) {
           this.reconnects++;
           this.reconnectTimer = setTimeout(() => {

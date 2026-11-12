@@ -251,6 +251,8 @@ export class GloveVoice extends EventEmitter<GloveVoiceEvents> {
   private attribution: Promise<void> = Promise.resolve();
   /** Bumped on stop(), so work queued for an old session is dropped. */
   private session = 0;
+  /** Bumped when the STT session reconnects and speaker ids start over. */
+  private speakerEpoch = 0;
   /** When audio last went to STT, for `sttKeepAliveMs`. */
   private lastSttAudioAt = 0;
 
@@ -330,7 +332,8 @@ export class GloveVoice extends EventEmitter<GloveVoiceEvents> {
         // Ask now, while this is still the adapter's latest utterance.
         const pending = source.forFinal();
         const session = this.session;
-        const step = this.attribution.then(() => this.attribute(text, pending, session));
+        const epoch = this.speakerEpoch;
+        const step = this.attribution.then(() => this.attribute(text, pending, session, epoch));
         this.attribution = step.then(
           () => undefined,
           () => undefined,
@@ -524,10 +527,11 @@ export class GloveVoice extends EventEmitter<GloveVoiceEvents> {
       await this.cfg.stt.connect();
       await this.capture.init();
     } catch (err) {
-      // A failed start must not leave the speaker subscription and the
-      // context provider behind: a retry would register them again.
-      for (const cleanup of this.speakerCleanup.splice(0)) cleanup();
-      this.speakerSource = null;
+      // A failed start must leave nothing behind: not the STT and VAD
+      // listeners, the player, the speaker subscription or the context
+      // provider. A retry registers them again, and listeners left on a
+      // shared STT adapter would hand every utterance to the agent twice.
+      await this.stop().catch(() => undefined);
       throw err;
     }
 
@@ -775,6 +779,7 @@ export class GloveVoice extends EventEmitter<GloveVoiceEvents> {
           this.speakersChanged();
         },
         reset: () => {
+          this.speakerEpoch += 1;
           // The STT session reconnected and numbers its speakers afresh, so
           // earlier ids, names and stats no longer apply to them.
           this.speakerTracker.restart();
@@ -807,10 +812,12 @@ export class GloveVoice extends EventEmitter<GloveVoiceEvents> {
   }
 
   /** Work out who said `text` and return what the agent should read. */
-  private async attribute(text: string, pending: PendingSpeakers, session: number): Promise<string> {
+  private async attribute(text: string, pending: PendingSpeakers, session: number, epoch: number): Promise<string> {
     // A stop() since this utterance was queued: leave the tracker alone, it
-    // may already belong to a new session.
-    if (session !== this.session) return text;
+    // may already belong to a new session. The same goes for an STT reconnect,
+    // after which these speaker ids may mean other people.
+    const stale = () => session !== this.session || epoch !== this.speakerEpoch;
+    if (stale()) return text;
     const cfg = this.speakerCfg;
     const tracker = this.speakerTracker;
     const draft = pending.draft;
@@ -823,7 +830,7 @@ export class GloveVoice extends EventEmitter<GloveVoiceEvents> {
       turns = draft;
     } else {
       turns = (await this.settledWithin(pending, cfg.waitMs ?? 350)) ?? draft;
-      if (session !== this.session) return text;
+      if (stale()) return text;
     }
     if (!turns || turns.length === 0) return text;
 

@@ -414,7 +414,7 @@ vad.on("speech_start", () => {
   if (hold) clearTimeout(hold);
 });
 
-vad.on("speech_end", async () => {
+async function endOfSpeech() {
   const mine = ++decision;
   const { holdMs, reason } = await detector.decide(partial, recentTurns);
   if (mine !== decision) return; // the speaker resumed while we were deciding
@@ -422,7 +422,12 @@ vad.on("speech_end", async () => {
     if (mine !== decision) return;
     stt.flushUtterance(); // and dispatch the front turn
   }, holdMs);
-});`} />
+}
+
+vad.on("speech_end", endOfSpeech);
+// Silero takes back a speech_start that turned out to be noise, and sends no
+// speech_end for it. The utterance before it still has to be committed.
+vad.on("vad_misfire", endOfSpeech);`} />
 
       <p>
         layered-voice does this by default; set{" "}

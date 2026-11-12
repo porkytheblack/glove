@@ -503,6 +503,39 @@ test("a failed start leaves no speaker subscription or context provider behind",
   await assert.rejects(voice.start(), /token endpoint down/);
   assert.equal(providers.length, 0);
   assert.equal(subscribed, 0);
+  // Nor its listeners on the adapter: a retry would otherwise run every
+  // utterance through both sets and send it to the agent twice.
+  for (const event of ["partial", "final", "error"] as const) assert.equal(stt.listenerCount(event), 0, event);
+});
+
+test("a start that fails and is retried sends each utterance once", async () => {
+  const { voice, stt, requests } = setup(false);
+  const connect = stt.connect.bind(stt);
+  stt.connect = async () => {
+    throw new Error("token endpoint down");
+  };
+  await assert.rejects(voice.start(), /token endpoint down/);
+  stt.connect = connect;
+  await voice.start();
+  stt.say("One flat white.");
+  await flush();
+  assert.deepEqual(requests, ["One flat white."]);
+  await voice.stop();
+});
+
+test("labels that arrive after a reconnect are not applied to the new session", async () => {
+  const { voice, stt, requests } = setup({ label: "always", waitMs: 200 });
+  await voice.start();
+  // The utterance waits for settled labels; the connection restarts meanwhile.
+  stt.say("Hi there.", [A("Hi there.")]);
+  await flush();
+  stt.reconnect();
+  mock.timers.tick(200);
+  await flush();
+  // The old session's speaker ids do not label anyone now.
+  assert.equal(voice.speakers.length, 0);
+  assert.deepEqual(requests, ["Hi there."]);
+  await voice.stop();
 });
 
 test("the keepalive defaults on when the adapter labels speakers", async () => {

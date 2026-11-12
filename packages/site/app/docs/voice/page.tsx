@@ -1491,14 +1491,19 @@ vad.on("speech_start", () => {
   if (hold) clearTimeout(hold);
 });
 
-vad.on("speech_end", async () => {
+async function endOfSpeech() {
   const mine = ++decision;
   const { holdMs } = await detector.decide(latestPartial, recentTurns);
   if (mine !== decision) return; // the speaker resumed while we were deciding
   hold = setTimeout(() => {
     if (mine === decision) commit(); // stt.flushUtterance() and dispatch the turn
   }, holdMs);
-});`}
+}
+
+vad.on("speech_end", endOfSpeech);
+// Silero takes back a speech_start that turned out to be noise, and sends no
+// speech_end for it. The utterance before it still has to be committed.
+vad.on("vad_misfire", endOfSpeech);`}
         filename="lib/endpointing.ts"
         language="typescript"
       />
