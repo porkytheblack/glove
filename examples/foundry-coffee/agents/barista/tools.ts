@@ -122,6 +122,11 @@ export function baristaTools(ctx: AgentAssemblyContext): GloveFoldArgs<any>[] {
       // customer answers it in the web app.
       requiresPermission: true,
       async do(input: { grind: string; name?: string; email?: string }) {
+        // The customer's answer is for this checkout only. Glove remembers an
+        // answer per tool and input for the rest of the run, so without this
+        // a second checkout with the same grind would go through unasked,
+        // whatever was in the bag by then.
+        await ctx.store?.setPermission?.("checkout", "unset", input);
         const visit = await readVisit(data, workspaceId, conversationId);
         const bag = visit.bag;
         if (bag.lines.length === 0) {

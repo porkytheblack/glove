@@ -227,15 +227,36 @@ try {
   assert.deepEqual(afterCheckout.bag.lines, [], "the bag is emptied");
   console.log(`> check out (approved)\n  order: ${orders[0]!.lines.length} lines, total ${orders[0]!.total}`);
 
-  // A second order in the same conversation is its own order.
+  // Two checkouts in one run are two orders: check out, add a coffee, check
+  // out again, all from one message. Each checkout waits for its own approval.
   await turn("add the Nyeri AA");
-  const again = await foundry.send(SHOP.agentId, visit.id, "check out", {});
-  const repeat = await until(async () => (await foundry.approvals({ runId: again.id, status: "pending" }))[0], "the repeat approval");
-  await foundry.resolveApproval(repeat.id, "approve");
-  assert.equal((await again.wait({ timeoutMs: 60_000 })).status, "completed");
-  const twoOrders = (await visitOf(visit.id)).orders;
-  assert.equal(twoOrders.length, 2);
-  assert.notEqual(twoOrders[0]!.id, twoOrders[1]!.id);
+  const twice = await foundry.send(SHOP.agentId, visit.id, "check out\nadd the Antigua\ncheck out", {});
+  const answered = new Set<string>();
+  for (const which of ["first", "second"]) {
+    const approval = await until(
+      async () => (await foundry.approvals({ runId: twice.id, status: "pending" })).find((a) => !answered.has(a.id)),
+      `the ${which} checkout of the run`,
+    );
+    answered.add(approval.id);
+    await foundry.resolveApproval(approval.id, "approve");
+  }
+  assert.equal((await twice.wait({ timeoutMs: 60_000 })).status, "completed");
+  const afterTwice = await visitOf(visit.id);
+  assert.equal(afterTwice.orders.length, 3, "both checkouts of the run placed an order");
+  assert.deepEqual(afterTwice.orders[1]!.lines, [{ productId: "kenyan-aa", qty: 1 }]);
+  assert.deepEqual(afterTwice.orders[2]!.lines, [{ productId: "guatemala-antigua", qty: 1 }]);
+  assert.equal(new Set(afterTwice.orders.map((order) => order.id)).size, 3, "every order has its own id");
+  assert.deepEqual(afterTwice.bag.lines, []);
+  console.log("> check out / add the Antigua / check out (one run, both approved)\n  orders: 3");
+
+  // A checkout that runs again after it succeeded finds an empty bag and
+  // orders nothing: the bag, emptied in the same write as the order, is what
+  // makes a repeat harmless.
+  const replay = await foundry.send(SHOP.agentId, visit.id, "check out", {});
+  const replayApproval = await until(async () => (await foundry.approvals({ runId: replay.id, status: "pending" }))[0], "the repeated checkout");
+  await foundry.resolveApproval(replayApproval.id, "approve");
+  assert.equal((await replay.wait({ timeoutMs: 60_000 })).status, "completed");
+  assert.equal((await visitOf(visit.id)).orders.length, 3, "a repeated checkout places no second order");
 
   // Declining leaves the bag alone.
   await turn("add the Antigua");
@@ -244,7 +265,7 @@ try {
   await foundry.resolveApproval(declined.id, "deny");
   assert.equal((await second.wait({ timeoutMs: 60_000 })).status, "completed");
   const afterDecline = await visitOf(visit.id);
-  assert.equal(afterDecline.orders.length, 2, "a declined checkout orders nothing");
+  assert.equal(afterDecline.orders.length, 3, "a declined checkout orders nothing");
   assert.equal(afterDecline.bag.lines.length, 1, "and keeps the bag");
 
   await spokenVisit();
