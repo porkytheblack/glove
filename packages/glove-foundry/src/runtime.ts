@@ -2100,8 +2100,23 @@ export class FoundryRuntime {
     // A subscription's playbook is copied onto every instance it provisions, but
     // only the subscription knows which of them an event is for (its targets
     // and provisioning keys). Matched per instance, it would wake them all.
+    // That applies to the instances the subscription put it on: the ones it
+    // provisioned, and the existing ones it names. An agent created on its
+    // own that carries the same playbook still answers for itself.
     const subscriptions = await this.listPlaybookSubscriptions();
     const subscribedPlaybooks = new Set(subscriptions.map((subscription) => subscription.playbook.id));
+    const namedBySubscription = new Map<string, Set<string>>();
+    for (const subscription of subscriptions) {
+      for (const target of subscription.targets) {
+        if (target.provisioning.mode !== "existing") continue;
+        const named = namedBySubscription.get(subscription.playbook.id) ?? new Set<string>();
+        for (const agentId of target.provisioning.agentIds) named.add(agentId);
+        namedBySubscription.set(subscription.playbook.id, named);
+      }
+    }
+    const routedBySubscription = (agent: AgentInstance, playbookId: string) =>
+      subscribedPlaybooks.has(playbookId) &&
+      (agent.provisioningKey !== undefined || namedBySubscription.get(playbookId)?.has(agent.id) === true);
     for (const stored of instances) {
       let agent: AgentInstance;
       try { agent = await this.effectiveAgent(stored); } catch { if (stored.durableSubagent) continue; throw new Error(`Cannot resolve agent "${stored.id}".`); }
@@ -2122,7 +2137,7 @@ export class FoundryRuntime {
       if (!hasInstalledOwner) continue;
       const matched: AgentPlaybook[] = [];
       for (const playbook of agent.playbooks) {
-        if (subscribedPlaybooks.has(playbook.id)) continue;
+        if (routedBySubscription(agent, playbook.id)) continue;
         if (await this.playbookMatches(
           playbook,
           integration,
