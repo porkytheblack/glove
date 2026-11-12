@@ -28,6 +28,13 @@ export function baristaTools(ctx: AgentAssemblyContext): GloveFoldArgs<any>[] {
   const { data, workspaceId, conversationId } = ctx;
   const voice = voiceTurn(ctx.request);
 
+  // A checkout whose write threw, so it is not known whether it was stored.
+  let unconfirmed: Order | undefined;
+  const placed = (order: Order) => ({
+    status: "success" as const,
+    data: `Order placed: ${describeBag({ lines: order.lines })}\nGrind: ${order.grind}.`,
+  });
+
   const tools: GloveFoldArgs<any>[] = [
     {
       name: "show_products",
@@ -128,6 +135,14 @@ export function baristaTools(ctx: AgentAssemblyContext): GloveFoldArgs<any>[] {
         // whatever was in the bag by then.
         await ctx.store?.setPermission?.("checkout", "unset", input);
         const visit = await readVisit(data, workspaceId, conversationId);
+        // Glove runs a tool again when it throws, and a write can throw after
+        // the order was stored. Before treating this as a new checkout, see
+        // whether the last attempt's order is already there.
+        if (unconfirmed) {
+          const stored = visit.orders.find((order) => order.id === unconfirmed!.id);
+          unconfirmed = undefined;
+          if (stored) return placed(stored);
+        }
         const bag = visit.bag;
         if (bag.lines.length === 0) {
           return { status: "error" as const, data: null, message: "The bag is empty, so there is nothing to order." };
@@ -141,13 +156,12 @@ export function baristaTools(ctx: AgentAssemblyContext): GloveFoldArgs<any>[] {
           ...(input.email ? { email: input.email } : {}),
           placedAt: new Date().toISOString(),
         };
-        // One write: the order exists and the bag is empty, or neither. A
-        // failure here leaves the bag as it was, so nothing is ordered twice.
+        // One write: the order exists and the bag is empty, or neither, so
+        // nothing is ordered twice.
+        unconfirmed = order;
         await writeVisit(data, workspaceId, conversationId, { bag: EMPTY_BAG, orders: [...visit.orders, order] });
-        return {
-          status: "success" as const,
-          data: `Order placed: ${describeBag({ lines: order.lines })}\nGrind: ${order.grind}.`,
-        };
+        unconfirmed = undefined;
+        return placed(order);
       },
     },
   ];

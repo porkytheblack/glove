@@ -5,7 +5,10 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { Effect } from "effect";
+import type { AgentAssemblyContext } from "glove-foundry";
 import { createFoundryClient } from "glove-foundry/client";
+import { baristaTools } from "../agents/barista/tools.js";
 import { sameBag, totals, visitKey, type Bag, type Visit } from "../lib/bag.js";
 import { SHOP, type TurnPayload } from "../lib/shop.js";
 
@@ -62,6 +65,44 @@ async function visitOf(conversationId: string): Promise<Visit> {
  * records what it is asked to say. Two people speak; Scribe's part (labels
  * for who said what) is supplied by hand.
  */
+// Glove runs a tool again when it throws. A checkout whose write was stored
+// and then failed must come back as the order it placed, not as an empty bag.
+async function checkoutAfterFailedWrite(): Promise<void> {
+  const entries = new Map<string, unknown>();
+  let failures = 1;
+  const data = {
+    getWorkspaceEntry: (_workspace: string, key: string) =>
+      Effect.sync(() => (entries.has(key) ? { value: entries.get(key) } : undefined)),
+    putWorkspaceEntry: (entry: { key: string; value: unknown }) =>
+      Effect.promise(async () => {
+        entries.set(entry.key, entry.value);
+        if (entry.key === visitKey("retry") && (entry.value as Visit).orders.length > 0 && failures-- > 0) {
+          throw new Error("stored, then failed");
+        }
+      }),
+  };
+  const tools = baristaTools({
+    data,
+    workspaceId: SHOP.workspaceId,
+    conversationId: "retry",
+    request: {},
+    controls: { emit() {} },
+  } as unknown as AgentAssemblyContext);
+  const tool = (name: string) => tools.find((t) => t.name === name)!.do as (input: unknown) => Promise<{ status: string; data: unknown }>;
+  const orders = () => (entries.get(visitKey("retry")) as Visit).orders;
+
+  await tool("add_to_cart")({ product_id: "kenyan-aa", quantity: 1 });
+  await assert.rejects(tool("checkout")({ grind: "Whole Bean" }), /stored, then failed/);
+  const retried = await tool("checkout")({ grind: "Whole Bean" });
+  assert.equal(retried.status, "success", "the retry reports the order that was placed");
+  assert.match(String(retried.data), /Order placed/);
+  assert.equal(orders().length, 1, "and places no second one");
+
+  const again = await tool("checkout")({ grind: "Whole Bean" });
+  assert.equal(again.status, "error", "a later checkout of the empty bag is still refused");
+  assert.equal(orders().length, 1);
+}
+
 async function spokenVisit(): Promise<void> {
   process.env.FOUNDRY_URL = `http://127.0.0.1:${port}`;
   console.debug = () => {}; // GloveVoice narrates every step at debug level
@@ -162,6 +203,8 @@ try {
   assert.equal(sameBag(onCard, inStore), false);
   assert.equal(sameBag(onCard, { lines: [...onCard.lines].reverse() }), true, "order does not matter");
   assert.equal(sameBag(onCard, { lines: [{ ...onCard.lines[0]!, for: "Maya" }, onCard.lines[1]!] }), false, "who it is for does");
+
+  await checkoutAfterFailedWrite();
 
   await until(async () => ((await foundry.health()).ok ? true : undefined), "Foundry to start");
 
