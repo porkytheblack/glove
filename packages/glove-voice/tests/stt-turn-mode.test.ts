@@ -2,8 +2,10 @@ import { test, mock, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import EventEmitter from "eventemitter3";
 import { GloveVoice, type GloveVoiceConfig, type TurnMode } from "../src/voice";
+import { ElevenLabsSTTAdapter } from "../src/adapters/eleven-labs/stt";
 import type {
   AudioIO,
+  STTAdapter,
   STTAdapterEvents,
   VADAdapterEvents,
   TTSAdapterEvents,
@@ -83,9 +85,9 @@ class FakeTTS extends EventEmitter<TTSAdapterEvents> {
   destroy() {}
 }
 
-function setup(
+function setup<S extends STTAdapter = FakeSTT>(
   turnMode: TurnMode,
-  stt = new FakeSTT(),
+  stt: S = new FakeSTT() as unknown as S,
   vad = new FakeVAD(),
   extra: Partial<GloveVoiceConfig> = {},
 ) {
@@ -279,6 +281,75 @@ test("a late commit for one utterance does not strand the next", async () => {
   mock.timers.tick(1);
   assert.equal(stt.flushes, 1);
   await voice.stop();
+});
+
+test("with the Scribe adapter, a late commit leaves the next utterance committable without a new partial", async () => {
+  // A socket that records what the adapter sends and lets the test play Scribe.
+  class Socket {
+    static OPEN = 1;
+    static last: Socket | null = null;
+    readyState = 0;
+    sent: Record<string, unknown>[] = [];
+    onopen: (() => void) | null = null;
+    onmessage: ((e: { data: string }) => void) | null = null;
+    onerror: (() => void) | null = null;
+    onclose: (() => void) | null = null;
+    constructor(readonly url: string) {
+      Socket.last = this;
+      queueMicrotask(() => {
+        this.readyState = Socket.OPEN;
+        this.onopen?.();
+      });
+    }
+    send(data: string) {
+      this.sent.push(JSON.parse(data));
+    }
+    close() {
+      this.readyState = 3;
+    }
+    receive(msg: Record<string, unknown>) {
+      this.onmessage?.({ data: JSON.stringify(msg) });
+    }
+  }
+  const g = globalThis as unknown as { WebSocket: unknown };
+  const realSocket = g.WebSocket;
+  g.WebSocket = Socket;
+  try {
+    const scribe = new ElevenLabsSTTAdapter({
+      getToken: async () => "tok",
+      commitStrategy: "turn_prediction",
+      maxReconnects: 0,
+    });
+    const { voice, vad, capture, requests } = setup("stt", scribe);
+    await voice.start();
+    const ws = Socket.last!;
+    const commits = () => ws.sent.filter((m) => m.commit === true).length;
+
+    // A and B are said close together; Scribe has heard both.
+    vad.start();
+    capture.frame();
+    ws.receive({ message_type: "partial_transcript", text: "first thing and the second thing" });
+    vad.end(); // fallback armed
+
+    // A's commit lands late and cancels the fallback. Scribe sends nothing
+    // more: no partial for B, no commit for B.
+    ws.receive({ message_type: "committed_transcript", text: "First thing." });
+    await new Promise((r) => setImmediate(r));
+    assert.deepEqual(requests, ["First thing."]);
+    assert.equal(commits(), 0);
+
+    // B is committed by the fallback all the same.
+    mock.timers.tick(2499);
+    assert.equal(commits(), 0);
+    mock.timers.tick(1);
+    assert.equal(commits(), 1);
+    ws.receive({ message_type: "committed_transcript", text: "And the second thing." });
+    await new Promise((r) => setImmediate(r));
+    assert.deepEqual(requests, ["First thing.", "And the second thing."]);
+    await voice.stop();
+  } finally {
+    g.WebSocket = realSocket;
+  }
 });
 
 test("partials while the speaker is talking do not arm the fallback", async () => {

@@ -283,6 +283,8 @@ export class ElevenLabsSTTAdapter
   private hasConnected = false;
   /** Draft word labels from the latest partial (`diarize: true`). */
   private partialWords: ScribeWord[] | null = null;
+  /** We asked for a commit and Scribe has not answered. Its commit covers everything sent. */
+  private ownCommitPending = false;
   /** Commits whose settled speaker labels have not arrived yet, oldest first. */
   private awaitingDiarized: {
     segmentIndex?: number;
@@ -358,6 +360,7 @@ export class ElevenLabsSTTAdapter
 
       this.sentFirstChunk = false;
       this.pendingAudio = false;
+      this.ownCommitPending = false;
       this.commitCounts = { plain: 0, timed: 0 };
       this.latestTurnProbability = null;
       // A new session numbers its speakers from scratch: "speaker_0" may now
@@ -482,7 +485,16 @@ export class ElevenLabsSTTAdapter
         // Fall back to the last partial — it's what Scribe actually heard.
         const text = raw || this.partial;
         console.debug(`[ElevenLabsSTT] committed: "${raw}"${raw ? "" : ` (using partial: "${text}")`}`);
-        this.partial = "";
+        // When Scribe ends the turn itself, it can commit only the first part
+        // of what the last partial showed: the rest belongs to the next
+        // utterance. Those words are heard but not committed, and Scribe may
+        // not repeat them until more audio arrives. Keep them as the partial.
+        const leftover =
+          raw && this.commitStrategy !== "manual" && !this.ownCommitPending
+            ? wordsBeyond(this.partial, raw)
+            : "";
+        this.ownCommitPending = false;
+        this.partial = leftover;
         // Scribe does not say how much audio a commit covered. Audio sent just
         // before the commit arrived may belong to the next utterance, so it
         // still counts as pending.
@@ -491,6 +503,10 @@ export class ElevenLabsSTTAdapter
         this.trackCommitSpeakers(commit);
         this.scribe.emit("committed", { ...commit, text });
         this.emit("final", text);
+        if (leftover) {
+          console.debug(`[ElevenLabsSTT] still uncommitted: "${leftover}"`);
+          this.emit("partial", leftover);
+        }
         return;
       }
 
@@ -529,6 +545,7 @@ export class ElevenLabsSTTAdapter
     if (COMMIT_REJECTIONS.has(type)) {
       // The commit did not happen, so that audio is still uncommitted and a
       // later flush must be allowed to try again.
+      this.ownCommitPending = false;
       this.pendingAudio = true;
       const message = `${type}: ${String(data.error ?? "")}`;
       console.warn(`[ElevenLabsSTT] ${message}`);
@@ -666,6 +683,7 @@ export class ElevenLabsSTTAdapter
     }
     this.sentFirstChunk = true;
     this.pendingAudio = false;
+    this.ownCommitPending = true;
     this.ws.send(JSON.stringify(msg));
   }
 
@@ -712,4 +730,26 @@ export class ElevenLabsSTTAdapter
 function int16ToBase64(pcm: Int16Array): string {
   // Pure-JS base64 — works in browsers AND React Native (no btoa in Hermes).
   return bytesToBase64(new Uint8Array(pcm.buffer, pcm.byteOffset, pcm.byteLength));
+}
+
+/**
+ * What `partial` says after the words of `committed`. Empty unless the
+ * partial starts with exactly those words (ignoring case and punctuation)
+ * and goes on, so a commit that reworded the partial leaves nothing over.
+ */
+function wordsBeyond(partial: string, committed: string): string {
+  const wordsOf = (t: string) => t.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
+  const done = wordsOf(committed);
+  const tokens = partial.trim().split(/\s+/);
+  let matched = 0;
+  let at = 0;
+  while (at < tokens.length && matched < done.length) {
+    const words = wordsOf(tokens[at]);
+    if (matched + words.length > done.length) return "";
+    for (const w of words) if (w !== done[matched++]) return "";
+    at += 1;
+  }
+  if (matched < done.length) return "";
+  const rest = tokens.slice(at).join(" ");
+  return wordsOf(rest).length > 0 ? rest : "";
 }

@@ -19,3 +19,4 @@ ElevenLabs Scribe v3 Live and Scribe v3.
 - **Reconnects.** When the STT session reconnects, speaker ids start over: the adapter drops earlier merges and `SpeakerSource` listeners get `reset()`. `GloveVoice` clears its speaker list and tells the agent that labels start over.
 - **`sttKeepAliveMs`.** While the speech gate is closed, `GloveVoice` can send one captured mic frame to STT at an interval so the provider's idle timeout (Scribe: 15s without audio) does not close the session. Default 8000 when the adapter labels speakers, otherwise off.
 - **`transcribeWithElevenLabs` refuses `extra: { webhook: true }`**, which would return before the transcript exists.
+- **Words left over after a provider commit.** When Scribe ends a turn itself and commits only the first part of what its last partial showed, the adapter keeps the rest as the current partial and emits it, so `turnMode: "stt"` still commits those words if Scribe sends nothing more.

@@ -251,6 +251,50 @@ test("empty commit falls back to the last partial", async () => {
   stt.disconnect();
 });
 
+test("words the partial showed beyond a provider commit stay uncommitted", async () => {
+  const { stt, ws } = await open({ commitStrategy: "turn_prediction" });
+  const partials: string[] = [];
+  const finals: string[] = [];
+  stt.on("partial", (t) => partials.push(t));
+  stt.on("final", (t) => finals.push(t));
+
+  // Scribe heard two utterances and commits only the first.
+  ws.receive({ message_type: "partial_transcript", text: "first thing and the second thing" });
+  ws.receive({ message_type: "committed_transcript", text: "First thing." });
+  assert.deepEqual(finals, ["First thing."]);
+  assert.equal(stt.currentPartial, "and the second thing");
+  assert.equal(partials.at(-1), "and the second thing");
+
+  // With no audio since, a flush still goes out for those words.
+  const before = ws.sent.length;
+  stt.flushUtterance();
+  assert.equal(ws.sent.length, before + 1);
+  assert.equal(ws.sent.at(-1)!.commit, true);
+
+  // A commit we asked for covers everything sent: nothing is left over,
+  // even when the partial had worded it differently.
+  ws.receive({ message_type: "partial_transcript", text: "and the second thing please" });
+  ws.receive({ message_type: "committed_transcript", text: "And the second thing." });
+  assert.equal(stt.currentPartial, "");
+
+  // A commit that reworded the partial, or covers all of it, leaves nothing.
+  ws.receive({ message_type: "partial_transcript", text: "book a table for seven tomorrow" });
+  ws.receive({ message_type: "committed_transcript", text: "Book a table for 7 tomorrow." });
+  assert.equal(stt.currentPartial, "");
+  ws.receive({ message_type: "partial_transcript", text: "thanks a lot" });
+  ws.receive({ message_type: "committed_transcript", text: "Thanks a lot!" });
+  assert.equal(stt.currentPartial, "");
+  stt.disconnect();
+});
+
+test("manual commits cover everything, so no partial is carried over", async () => {
+  const { stt, ws } = await open();
+  ws.receive({ message_type: "partial_transcript", text: "first thing and more" });
+  ws.receive({ message_type: "committed_transcript", text: "First thing." });
+  assert.equal(stt.currentPartial, "");
+  stt.disconnect();
+});
+
 test("timestamped commits finalize once whether or not a plain twin arrives", async () => {
   const { stt, ws } = await open({ includeTimestamps: true });
   const finals: string[] = [];
