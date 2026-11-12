@@ -6,7 +6,8 @@
 // `ElevenLabsSTTAdapter`, then through batch Scribe v3, and reports whether
 // the API behaves the way the adapter expects: turn probabilities, speaker
 // labels (draft and settled), how long settled labels take, and any message
-// type the adapter does not know.
+// type the adapter does not know. A second realtime pass turns timestamps on
+// and checks that every commit arrives as one plain and one timed event.
 //
 // Without a clip it synthesizes one with two ElevenLabs voices (uses a few
 // credits). A clip must be 16 kHz mono 16-bit, WAV or raw PCM.
@@ -103,17 +104,31 @@ const KNOWN = new Set([
   "insufficient_audio_activity",
 ]);
 
+async function getToken(): Promise<string> {
+  const res = await fetch(`${API}/v1/single-use-token/realtime_scribe`, {
+    method: "POST",
+    headers: { "xi-api-key": apiKey! },
+  });
+  if (!res.ok) throw new Error(`token failed (${res.status}): ${await res.text()}`);
+  return ((await res.json()) as { token: string }).token;
+}
+
+/** Send the clip in real time, 100ms at a time, then wait for the last events. */
+async function stream(stt: ElevenLabsSTTAdapter, pcm: Buffer) {
+  const samples = new Int16Array(pcm.buffer, pcm.byteOffset, Math.floor(pcm.length / 2));
+  for (let i = 0; i < samples.length; i += 1600) {
+    stt.sendAudio(samples.subarray(i, Math.min(i + 1600, samples.length)));
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  await new Promise((r) => setTimeout(r, 3000));
+}
+
+const check = (ok: boolean, label: string) => console.log(ok ? "  ok  " : "  ??  ", label);
+
 async function realtime(pcm: Buffer) {
   console.log("\n── Scribe v3 Live (diarize + turn_prediction) ──");
   const stt = new ElevenLabsSTTAdapter({
-    getToken: async () => {
-      const res = await fetch(`${API}/v1/single-use-token/realtime_scribe`, {
-        method: "POST",
-        headers: { "xi-api-key": apiKey! },
-      });
-      if (!res.ok) throw new Error(`token failed (${res.status}): ${await res.text()}`);
-      return ((await res.json()) as { token: string }).token;
-    },
+    getToken,
     commitStrategy: "turn_prediction",
     diarize: true,
     language: null,
@@ -189,18 +204,11 @@ async function realtime(pcm: Buffer) {
     return null;
   }
 
-  // Send in real time, 100ms at a time.
-  const samples = new Int16Array(pcm.buffer, pcm.byteOffset, Math.floor(pcm.length / 2));
-  for (let i = 0; i < samples.length; i += 1600) {
-    stt.sendAudio(samples.subarray(i, Math.min(i + 1600, samples.length)));
-    await new Promise((r) => setTimeout(r, 100));
-  }
-  await new Promise((r) => setTimeout(r, 3000));
+  await stream(stt, pcm);
   stt.disconnect();
 
   console.log("\nmessage types:", JSON.stringify([...seen]));
   const ms = found.settleMs;
-  const check = (ok: boolean, label: string) => console.log(ok ? "  ok  " : "  ??  ", label);
   console.log("\nRealtime checklist:");
   check(found.finals > 0, `turn prediction committed on its own (${found.finals} finals)`);
   check(found.turnProbability, "partials carry turn_probability");
@@ -214,6 +222,77 @@ async function realtime(pcm: Buffer) {
   check(found.unknown.size === 0, `no unknown message types${found.unknown.size ? `: ${[...found.unknown].join(", ")}` : ""}`);
   check(found.errors.length === 0, `no errors${found.errors.length ? `: ${found.errors.join(" | ")}` : ""}`);
   return tracker;
+}
+
+// ─── Realtime with timestamps: are commits sent in pairs? ──────────────────
+
+// With `includeTimestamps`, the adapter expects every commit as two events:
+// a plain `committed_transcript` and a `committed_transcript_with_timestamps`
+// with the same text, and emits `final` once for the two. This pass lists
+// the commit events in arrival order so that can be read off per utterance.
+async function pairing(pcm: Buffer) {
+  console.log("\n── Scribe v3 Live (include_timestamps): commit pairing ──");
+  const stt = new ElevenLabsSTTAdapter({
+    getToken,
+    commitStrategy: "turn_prediction",
+    includeTimestamps: true,
+    language: null,
+    maxReconnects: 0,
+  });
+
+  const t0 = Date.now();
+  const at = () => `${((Date.now() - t0) / 1000).toFixed(2)}s`;
+  const commits: { kind: "plain" | "timed"; text: string }[] = [];
+  const finals: string[] = [];
+
+  const handle = stt.handleMessage.bind(stt);
+  stt.handleMessage = (m) => {
+    const kind =
+      m.message_type === "committed_transcript"
+        ? "plain"
+        : m.message_type === "committed_transcript_with_timestamps"
+          ? "timed"
+          : null;
+    if (kind) {
+      const text = typeof m.text === "string" ? m.text.trim() : "";
+      commits.push({ kind, text });
+      console.log(at(), `${kind.padEnd(5)} "${text}"`);
+    }
+    handle(m);
+  };
+  stt.on("final", (text) => {
+    finals.push(text.trim());
+    console.log(at(), `  -> final "${text.trim()}"`);
+  });
+  stt.on("error", (e) => console.log(at(), "error:", e.message));
+
+  try {
+    await stt.connect();
+  } catch (e) {
+    console.log("Could not open the realtime WebSocket:", (e as Error).message);
+    return;
+  }
+  await stream(stt, pcm);
+  stt.disconnect();
+
+  const plain = commits.filter((c) => c.kind === "plain").map((c) => c.text);
+  const timed = commits.filter((c) => c.kind === "timed").map((c) => c.text);
+  const same = (a: string[], b: string[]) => a.length === b.length && a.every((t, i) => t === b[i]);
+  console.log("\narrival order:", commits.map((c) => c.kind).join(" ") || "(no commits)");
+  console.log("\nPairing checklist:");
+  check(plain.length > 0, `commits arrived (${plain.length} plain, ${timed.length} timed)`);
+  check(
+    same(plain, timed),
+    "every utterance has one plain and one timed commit with the same text, in the same order",
+  );
+  check(
+    finals.length === plain.length,
+    `the adapter emitted one final per utterance (${finals.length} finals, ${plain.length} utterances)`,
+  );
+  if (!same(plain, timed)) {
+    console.log("  plain:", JSON.stringify(plain));
+    console.log("  timed:", JSON.stringify(timed));
+  }
 }
 
 // ─── Batch: Scribe v3 ──────────────────────────────────────────────────────
@@ -239,6 +318,7 @@ async function batch(pcm: Buffer) {
 }
 
 const clip = await loadClip();
-await realtime(clip);
+const live = await realtime(clip);
+if (live) await pairing(clip);
 await batch(clip);
 process.exit(0);
