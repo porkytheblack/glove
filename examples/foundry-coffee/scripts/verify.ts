@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createFoundryClient } from "glove-foundry/client";
-import { bagKey, ordersKey, type Bag, type Order } from "../lib/bag.js";
+import { visitKey, type Visit } from "../lib/bag.js";
 import { SHOP, type TurnPayload } from "../lib/shop.js";
 
 // One visit to the shop, end to end, over the same HTTP API the web app
@@ -49,8 +49,10 @@ async function until<T>(read: () => Promise<T | undefined>, what: string, timeou
   }
 }
 
-async function entry<T>(key: string): Promise<T | undefined> {
-  return (await foundry.workspaceEntries(SHOP.workspaceId)).find((item) => item.key === key)?.value as T | undefined;
+/** What the shop holds for a conversation: its bag and its orders, in one workspace entry. */
+async function visitOf(conversationId: string): Promise<Visit> {
+  const entries = await foundry.workspaceEntries(SHOP.workspaceId);
+  return (entries.find((item) => item.key === visitKey(conversationId))?.value as Visit | undefined) ?? { bag: { lines: [] }, orders: [] };
 }
 
 /**
@@ -105,7 +107,16 @@ async function spokenVisit(): Promise<void> {
     const done = new Promise<void>((resolveTurn) => (turnDone = resolveTurn));
     spoken.length = 0;
     stt.say(text, turns);
-    await done;
+    // If the pipeline never reaches the agent, say which turn and move on to cleanup.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timedOut = new Promise<never>((_, fail) => {
+      timer = setTimeout(() => fail(new Error(`The spoken turn "${text}" never reached the barista.`)), 60_000);
+    });
+    try {
+      await Promise.race([done, timedOut]);
+    } finally {
+      clearTimeout(timer);
+    }
     await new Promise((settle) => setTimeout(settle, 50));
     const last = sent.at(-1)!;
     console.log(`> (spoken) ${last.text.replaceAll("\n", " / ")}\n  barista says: ${spoken.join("")}`);
@@ -126,7 +137,7 @@ async function spokenVisit(): Promise<void> {
     ]);
     assert.equal(both.text, "[Speaker A] I'll take the Huila Reserve, my name is Maya\n[Speaker B] and two Lake Kivu for me");
     assert.match(both.payload.voice?.context?.[0] ?? "", /<voice-speakers>[\s\S]*Speaker A[\s\S]*Speaker B/);
-    assert.deepEqual((await entry<Bag>(bagKey(visit.id)))?.lines, [
+    assert.deepEqual((await visitOf(visit.id)).bag.lines, [
       { productId: "colombian-huila", qty: 1, for: "Maya" },
       { productId: "rwanda-kivu", qty: 2, for: "Speaker B" },
     ]);
@@ -179,8 +190,7 @@ try {
   const named = order.events.find((e) => e.type.endsWith("coffee.speaker_named"));
   assert.deepEqual(named?.data, { speaker: "Speaker A", name: "Maya" }, "the name reaches the web app as an event");
   console.log(`  event: ${named!.type} ${JSON.stringify(named!.data)}`);
-  const bag = await entry<Bag>(bagKey(visit.id));
-  assert.deepEqual(bag?.lines, [
+  assert.deepEqual((await visitOf(visit.id)).bag.lines, [
     { productId: "colombian-huila", qty: 1, for: "Maya" },
     { productId: "rwanda-kivu", qty: 2, for: "Speaker B" },
   ]);
@@ -196,16 +206,27 @@ try {
   const checkout = await foundry.send(SHOP.agentId, visit.id, "check out", {});
   const approval = await until(async () => (await foundry.approvals({ runId: checkout.id, status: "pending" }))[0], "the checkout approval");
   assert.equal(approval.toolName, "checkout");
-  assert.equal((await entry<Order[]>(ordersKey(visit.id)))?.length ?? 0, 0, "nothing is ordered before the customer confirms");
+  assert.equal((await visitOf(visit.id)).orders.length, 0, "nothing is ordered before the customer confirms");
   await foundry.resolveApproval(approval.id, "approve");
   const placed = await checkout.wait({ timeoutMs: 60_000 });
   assert.equal(placed.status, "completed", placed.error);
 
-  const orders = await entry<Order[]>(ordersKey(visit.id));
-  assert.equal(orders?.length, 1);
-  assert.equal(orders![0]!.total, 1800 + 2 * 2400, "over $40, so shipping is free");
-  assert.deepEqual((await entry<Bag>(bagKey(visit.id)))?.lines, [], "the bag is emptied");
-  console.log(`> check out (approved)\n  order ${orders![0]!.id}: ${orders![0]!.lines.length} lines, total ${orders![0]!.total}`);
+  const afterCheckout = await visitOf(visit.id);
+  const orders = afterCheckout.orders;
+  assert.equal(orders.length, 1);
+  assert.equal(orders[0]!.total, 1800 + 2 * 2400, "over $40, so shipping is free");
+  assert.deepEqual(afterCheckout.bag.lines, [], "the bag is emptied");
+  console.log(`> check out (approved)\n  order: ${orders[0]!.lines.length} lines, total ${orders[0]!.total}`);
+
+  // A second order in the same conversation is its own order.
+  await turn("add the Nyeri AA");
+  const again = await foundry.send(SHOP.agentId, visit.id, "check out", {});
+  const repeat = await until(async () => (await foundry.approvals({ runId: again.id, status: "pending" }))[0], "the repeat approval");
+  await foundry.resolveApproval(repeat.id, "approve");
+  assert.equal((await again.wait({ timeoutMs: 60_000 })).status, "completed");
+  const twoOrders = (await visitOf(visit.id)).orders;
+  assert.equal(twoOrders.length, 2);
+  assert.notEqual(twoOrders[0]!.id, twoOrders[1]!.id);
 
   // Declining leaves the bag alone.
   await turn("add the Antigua");
@@ -213,8 +234,9 @@ try {
   const declined = await until(async () => (await foundry.approvals({ runId: second.id, status: "pending" }))[0], "the second approval");
   await foundry.resolveApproval(declined.id, "deny");
   assert.equal((await second.wait({ timeoutMs: 60_000 })).status, "completed");
-  assert.equal((await entry<Order[]>(ordersKey(visit.id)))?.length, 1, "a declined checkout orders nothing");
-  assert.equal((await entry<Bag>(bagKey(visit.id)))?.lines.length, 1, "and keeps the bag");
+  const afterDecline = await visitOf(visit.id);
+  assert.equal(afterDecline.orders.length, 2, "a declined checkout orders nothing");
+  assert.equal(afterDecline.bag.lines.length, 1, "and keeps the bag");
 
   await spokenVisit();
 

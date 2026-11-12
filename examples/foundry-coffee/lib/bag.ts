@@ -1,8 +1,8 @@
 import { getProductById, formatPrice } from "./catalog.js";
 
 // A conversation's bag and its placed orders live in the shop's workspace,
-// one entry each, so a run (a fresh process every message) and the web app
-// read the same thing.
+// in one entry, so a run (a fresh process every message) and the web app read
+// the same thing, and placing an order and emptying the bag is one write.
 
 export interface BagLine {
   readonly productId: string;
@@ -27,9 +27,15 @@ export interface Order {
   readonly placedAt: string;
 }
 
+/** Everything the shop keeps for one customer conversation. */
+export interface Visit {
+  readonly bag: Bag;
+  readonly orders: readonly Order[];
+}
+
 export const EMPTY_BAG: Bag = { lines: [] };
-export const bagKey = (conversationId: string): string => `bag:${conversationId}`;
-export const ordersKey = (conversationId: string): string => `orders:${conversationId}`;
+export const EMPTY_VISIT: Visit = { bag: EMPTY_BAG, orders: [] };
+export const visitKey = (conversationId: string): string => `visit:${conversationId}`;
 
 const sameLine = (line: BagLine, productId: string, who?: string): boolean =>
   line.productId === productId && (line.for ?? "") === (who ?? "");

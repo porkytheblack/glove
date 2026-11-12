@@ -1,8 +1,9 @@
+import { randomUUID } from "node:crypto";
 import type { GloveFoldArgs } from "glove-core";
 import type { AgentAssemblyContext } from "glove-foundry";
 import { z } from "zod";
 import { addLine, describeBag, removeLine, totals, EMPTY_BAG, type Order } from "../../lib/bag.js";
-import { readBag, readOrders, writeBag, writeOrders } from "../../lib/bag-data.js";
+import { readVisit, writeVisit } from "../../lib/bag-data.js";
 import { GRIND_OPTIONS, PRODUCTS, formatPrice, getProductById, type Product } from "../../lib/catalog.js";
 import { voiceTurn } from "./voice.js";
 
@@ -65,8 +66,9 @@ export function baristaTools(ctx: AgentAssemblyContext): GloveFoldArgs<any>[] {
         if (product.stock <= 0) {
           return { status: "error" as const, data: null, message: `${product.name} is out of stock. Suggest another coffee.` };
         }
-        const bag = addLine(await readBag(data, workspaceId, conversationId), product.id, input.quantity ?? 1, input.for?.trim() || undefined);
-        await writeBag(data, workspaceId, conversationId, bag);
+        const visit = await readVisit(data, workspaceId, conversationId);
+        const bag = addLine(visit.bag, product.id, input.quantity ?? 1, input.for?.trim() || undefined);
+        await writeVisit(data, workspaceId, conversationId, { ...visit, bag });
         return { status: "success" as const, data: `Added ${input.quantity ?? 1} x ${product.name}.\n${describeBag(bag)}` };
       },
     },
@@ -80,10 +82,10 @@ export function baristaTools(ctx: AgentAssemblyContext): GloveFoldArgs<any>[] {
       }),
       async do(input: { product_id: string; quantity?: number; for?: string }) {
         if (!getProductById(input.product_id)) return unknown(input.product_id);
-        const before = await readBag(data, workspaceId, conversationId);
-        const bag = removeLine(before, input.product_id, input.quantity, input.for?.trim() || undefined);
-        await writeBag(data, workspaceId, conversationId, bag);
-        const changed = totals(before).count !== totals(bag).count;
+        const visit = await readVisit(data, workspaceId, conversationId);
+        const bag = removeLine(visit.bag, input.product_id, input.quantity, input.for?.trim() || undefined);
+        await writeVisit(data, workspaceId, conversationId, { ...visit, bag });
+        const changed = totals(visit.bag).count !== totals(bag).count;
         return { status: "success" as const, data: `${changed ? "Removed." : "That was not in the bag."}\n${describeBag(bag)}` };
       },
     },
@@ -92,7 +94,7 @@ export function baristaTools(ctx: AgentAssemblyContext): GloveFoldArgs<any>[] {
       description: "Read what is in the bag, with totals.",
       inputSchema: z.object({}),
       async do() {
-        return { status: "success" as const, data: describeBag(await readBag(data, workspaceId, conversationId)) };
+        return { status: "success" as const, data: describeBag((await readVisit(data, workspaceId, conversationId)).bag) };
       },
     },
     {
@@ -120,14 +122,13 @@ export function baristaTools(ctx: AgentAssemblyContext): GloveFoldArgs<any>[] {
       // customer answers it in the web app.
       requiresPermission: true,
       async do(input: { grind: string; name?: string; email?: string }) {
-        const bag = await readBag(data, workspaceId, conversationId);
+        const visit = await readVisit(data, workspaceId, conversationId);
+        const bag = visit.bag;
         if (bag.lines.length === 0) {
           return { status: "error" as const, data: null, message: "The bag is empty, so there is nothing to order." };
         }
-        const orders = await readOrders(data, workspaceId, conversationId);
         const order: Order = {
-          // Keyed on the run, so a retried run cannot place the order twice.
-          id: `order-${ctx.runId}`,
+          id: `order-${randomUUID()}`,
           lines: bag.lines,
           ...totals(bag),
           grind: input.grind,
@@ -135,10 +136,9 @@ export function baristaTools(ctx: AgentAssemblyContext): GloveFoldArgs<any>[] {
           ...(input.email ? { email: input.email } : {}),
           placedAt: new Date().toISOString(),
         };
-        if (!orders.some((placed) => placed.id === order.id)) {
-          await writeOrders(data, workspaceId, conversationId, [...orders, order]);
-        }
-        await writeBag(data, workspaceId, conversationId, EMPTY_BAG);
+        // One write: the order exists and the bag is empty, or neither. A
+        // failure here leaves the bag as it was, so nothing is ordered twice.
+        await writeVisit(data, workspaceId, conversationId, { bag: EMPTY_BAG, orders: [...visit.orders, order] });
         return {
           status: "success" as const,
           data: `Order placed: ${describeBag({ lines: order.lines })}\nGrind: ${order.grind}.`,

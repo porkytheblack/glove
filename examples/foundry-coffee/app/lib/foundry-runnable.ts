@@ -58,8 +58,12 @@ export class FoundryRunnable {
       if (typeof note === "string" && note.trim()) context.push(note);
     }
 
+    // The listeners of this turn. After a barge-in GloveVoice subscribes
+    // again for the next turn, and that one must not hear the rest of this.
+    const listeners = [...this.subscribers];
     const notify = async (type: string, data: unknown): Promise<void> => {
-      for (const subscriber of [...this.subscribers]) {
+      for (const subscriber of listeners) {
+        if (signal?.aborted) return;
         await (subscriber.record as (type: string, data: unknown) => Promise<void>)(type, data);
       }
     };

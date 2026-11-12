@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { EMPTY_BAG, type Bag, type Order } from "../../lib/bag";
+import { EMPTY_BAG, totals, type Bag, type Order } from "../../lib/bag";
 import type { RunTurn } from "./foundry-runnable";
 import { streamTurn } from "./turn-stream";
 import type { TurnEvent } from "./turn-events";
@@ -62,6 +62,9 @@ export function useShop(): Shop {
   const [error, setError] = useState<string | null>(null);
 
   const conversationRef = useRef<string | null>(null);
+  const conversationSeq = useRef(0);
+  const refreshSeq = useRef(0);
+  const bagRef = useRef<Bag>(EMPTY_BAG);
   const turnSeq = useRef(0);
   const typedAbort = useRef<AbortController | null>(null);
   const onRunEvent = useRef<((event: TurnEvent) => void) | null>(null);
@@ -69,11 +72,15 @@ export function useShop(): Shop {
   const refreshShop = useCallback(async () => {
     const conversation = conversationRef.current;
     if (!conversation) return;
+    // Tool results arrive close together, and their refreshes can answer out
+    // of order. Only the newest one is applied.
+    const seq = ++refreshSeq.current;
     try {
       const response = await fetch(`/api/shop?conversationId=${encodeURIComponent(conversation)}`);
       if (!response.ok) return;
       const data = (await response.json()) as { bag: Bag; orders: Order[] };
-      if (conversationRef.current !== conversation) return;
+      if (conversationRef.current !== conversation || seq !== refreshSeq.current) return;
+      bagRef.current = data.bag;
       setBag(data.bag);
       setOrders(data.orders);
     } catch {
@@ -87,19 +94,23 @@ export function useShop(): Shop {
     setTimeline([]);
     setStreaming("");
     setBusy(false);
+    bagRef.current = EMPTY_BAG;
     setBag(EMPTY_BAG);
     setOrders([]);
     setError(null);
     conversationRef.current = null;
     setConversationId(null);
+    // Pressed twice, the second press wins whichever request answers first.
+    const seq = ++conversationSeq.current;
     try {
       const response = await fetch("/api/conversations", { method: "POST" });
       const data = (await response.json()) as { conversationId?: string; error?: string };
+      if (seq !== conversationSeq.current) return;
       if (!response.ok || !data.conversationId) throw new Error(data.error ?? "Could not start a conversation.");
       conversationRef.current = data.conversationId;
       setConversationId(data.conversationId);
     } catch (failure) {
-      setError(failure instanceof Error ? failure.message : String(failure));
+      if (seq === conversationSeq.current) setError(failure instanceof Error ? failure.message : String(failure));
     }
   }, []);
 
@@ -162,6 +173,10 @@ export function useShop(): Shop {
                   void refreshShop();
                   break;
                 case "approval":
+                  // The card shows the bag, so have the bag checkout will order
+                  // before showing it.
+                  await refreshShop();
+                  if (!current()) break;
                   setTimeline((prev) => [...prev, { kind: "approval", id: event.id, toolName: event.toolName, input: event.input, status: "pending" }]);
                   break;
                 case "approval_resolved":
@@ -211,16 +226,20 @@ export function useShop(): Shop {
   }, []);
 
   const decide = useCallback(async (approvalId: string, decision: "approve" | "deny") => {
+    // A confirmation says what the customer was shown; the server refuses it
+    // if the bag is no longer that.
+    const { count, total } = totals(bagRef.current);
     const response = await fetch(`/api/approvals/${encodeURIComponent(approvalId)}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ decision }),
-    });
-    if (!response.ok) {
-      const failure = (await response.json().catch(() => ({}))) as { error?: string };
+      body: JSON.stringify({ decision, seen: { count, total } }),
+    }).catch(() => null);
+    if (!response?.ok) {
+      const failure = ((await response?.json().catch(() => ({}))) ?? {}) as { error?: string };
       setError(failure.error ?? "The answer could not be recorded.");
+      if (response?.status === 409) await refreshShop();
     }
-  }, []);
+  }, [refreshShop]);
 
   return useMemo(
     () => ({ status, conversationId, timeline, streaming, busy, bag, orders, error, send, stop, decide, newConversation, note, runTurn, onRunEvent }),

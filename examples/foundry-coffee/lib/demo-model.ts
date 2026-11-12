@@ -66,7 +66,7 @@ function plan(text: string, request: PromptRequest): Planned[] {
     const line = (labelled?.[2] ?? raw).trim();
     if (!line) continue;
 
-    const named = /\b(?:my name is|i am|i'm|call me|this is)\s+([A-Z][a-z]+)/.exec(line)?.[1];
+    const named = /\b(?:[Mm]y name is|I am|I'm|[Cc]all me|[Tt]his is)\s+([A-Z][a-z]+)/.exec(line)?.[1];
     if (named && who && canName) planned.push({ tool: "name_speaker", input: { speaker: who, name: named } });
 
     const product = productIn(line);
@@ -74,7 +74,7 @@ function plan(text: string, request: PromptRequest): Planned[] {
     if (/\b(check ?out|place (the|my|our) order|pay|that's all|that is all)\b/i.test(line)) {
       planned.push({ tool: "checkout", input: { grind: "Whole Bean" } });
     } else if (product && /\b(remove|take out|drop|without)\b/i.test(line)) {
-      planned.push({ tool: "remove_from_cart", input: { product_id: product } });
+      planned.push({ tool: "remove_from_cart", input: { product_id: product, ...(who ? { for: named ?? who } : {}) } });
     } else if (product && /\b(add|take|want|get|have|order|buy|for me)\b/i.test(line)) {
       planned.push({ tool: "add_to_cart", input: { product_id: product, quantity, ...(who ? { for: named ?? who } : {}) } });
     } else if (product) {

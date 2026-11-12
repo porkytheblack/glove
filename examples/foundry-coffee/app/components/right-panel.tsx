@@ -8,7 +8,7 @@ import { describeLines, type BagView } from "../lib/bag-view";
 import type { ScribeMonitor } from "../lib/use-scribe-monitor";
 import { BagIcon } from "./icons";
 
-export function RightPanel({ bag, orders, speakers, dominantId, onName, monitor, voiceOn, voiceAvailable, onVoicemail }: {
+export function RightPanel({ bag, orders, speakers, dominantId, onName, monitor, voiceOn, voiceAvailable, busy, onVoicemail }: {
   bag: BagView;
   orders: Order[];
   speakers: SpeakerInfo[];
@@ -17,6 +17,8 @@ export function RightPanel({ bag, orders, speakers, dominantId, onName, monitor,
   monitor: ScribeMonitor;
   voiceOn: boolean;
   voiceAvailable: boolean;
+  /** The barista is working, or a checkout is waiting to be confirmed. */
+  busy: boolean;
   onVoicemail: (file: File) => Promise<void>;
 }) {
   return (
@@ -25,7 +27,7 @@ export function RightPanel({ bag, orders, speakers, dominantId, onName, monitor,
       {orders.length > 0 && <OrdersSection orders={orders} />}
       {(voiceOn || speakers.length > 0) && <SpeakersSection speakers={speakers} dominantId={dominantId} onName={onName} />}
       {(voiceOn || monitor.lines.length > 0) && <ScribeSection monitor={monitor} />}
-      <VoicemailSection available={voiceAvailable} onVoicemail={onVoicemail} />
+      <VoicemailSection available={voiceAvailable} busy={busy} onVoicemail={onVoicemail} />
     </aside>
   );
 }
@@ -181,7 +183,7 @@ function ScribeSection({ monitor }: { monitor: ScribeMonitor }) {
   );
 }
 
-function VoicemailSection({ available, onVoicemail }: { available: boolean; onVoicemail: (file: File) => Promise<void> }) {
+function VoicemailSection({ available, busy, onVoicemail }: { available: boolean; busy: boolean; onVoicemail: (file: File) => Promise<void> }) {
   const input = useRef<HTMLInputElement>(null);
   const [working, setWorking] = useState(false);
   return (
@@ -211,7 +213,8 @@ function VoicemailSection({ available, onVoicemail }: { available: boolean; onVo
           }
         }}
       />
-      <button type="button" className="rp-upload" disabled={!available || working} onClick={() => input.current?.click()}>
+      {/* Not while the barista is working: sending the recording would stop that run, and a checkout with it. */}
+      <button type="button" className="rp-upload" disabled={!available || working || busy} onClick={() => input.current?.click()}>
         {working ? "Transcribing..." : available ? "Upload a recording" : "Needs an ElevenLabs key"}
       </button>
     </div>

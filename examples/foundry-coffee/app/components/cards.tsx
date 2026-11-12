@@ -159,7 +159,8 @@ function toolSummary(name: string, args: Record<string, unknown>): string {
 }
 
 const SETTLED: Record<string, string> = {
-  approved: "Order confirmed",
+  // Their answer, not the outcome: the checkout tool's result says whether the order was placed.
+  approved: "You confirmed",
   denied: "Not placed: you said not yet",
   cancelled: "Not placed: the checkout was cancelled",
   expired: "Not placed: the checkout timed out",

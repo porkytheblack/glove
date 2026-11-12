@@ -30,7 +30,8 @@ export function ChatInput({ input, setInput, busy, ready, onSubmit, onStop, voic
   return (
     <div className={`chat-input-area ${voice.isActive ? "chat-input-area--voice" : ""}`}>
       <div className="chat-input-inner">
-        <div className={`chat-input-mode chat-input-mode--text ${voice.isActive ? "chat-input-mode--hidden" : ""}`} aria-hidden={voice.isActive}>
+        {/* `inert` takes the hidden mode out of the tab order as well as out of sight. */}
+        <div className={`chat-input-mode chat-input-mode--text ${voice.isActive ? "chat-input-mode--hidden" : ""}`} aria-hidden={voice.isActive} inert={voice.isActive}>
           <form className="chat-input-row" onSubmit={onSubmit}>
             <input
               type="text"
@@ -45,7 +46,7 @@ export function ChatInput({ input, setInput, busy, ready, onSubmit, onStop, voic
               {busy ? (
                 <button type="button" className="abort-btn" onClick={onStop}>Stop</button>
               ) : hasText ? (
-                <button type="submit" className="send-btn" disabled={!ready}><SendIcon /></button>
+                <button type="submit" className="send-btn" disabled={!ready} aria-label="Send message"><SendIcon /></button>
               ) : (
                 <button
                   type="button"
@@ -84,7 +85,7 @@ export function ChatInput({ input, setInput, busy, ready, onSubmit, onStop, voic
           </div>
         </div>
 
-        <div className={`chat-input-mode chat-input-mode--voice ${voice.isActive ? "" : "chat-input-mode--hidden"}`} aria-hidden={!voice.isActive}>
+        <div className={`chat-input-mode chat-input-mode--voice ${voice.isActive ? "" : "chat-input-mode--hidden"}`} aria-hidden={!voice.isActive} inert={!voice.isActive}>
           <VoiceOrb
             mode={voice.mode}
             transcript={voice.transcript}

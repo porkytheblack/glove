@@ -4,9 +4,10 @@ import { resolve } from "node:path";
 import { loadEnvFile } from "node:process";
 
 // Runs Foundry (the agent runtime and its inspector) and the web app together.
-// Both read the same .env.
+// Both read the same environment files. loadEnvFile never replaces a variable
+// that is already set, so the file that should win is loaded first.
 
-for (const name of [".env", ".env.local"]) {
+for (const name of [".env.local", ".env"]) {
   const file = resolve(process.cwd(), name);
   if (existsSync(file)) loadEnvFile(file);
 }

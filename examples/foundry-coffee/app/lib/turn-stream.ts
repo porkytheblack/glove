@@ -35,6 +35,8 @@ export async function streamTurn(
       buffer = buffer.slice(end + 2);
       const data = block.split("\n").filter((line) => line.startsWith("data:")).map((line) => line.slice(5).trimStart()).join("\n");
       if (!data) continue;
+      // Events already buffered when the turn was interrupted belong to nobody.
+      if (signal?.aborted) throw new DOMException("The turn was interrupted.", "AbortError");
       const event = JSON.parse(data) as TurnEvent;
       await onEvent(event);
       if (event.type === "end") {
@@ -43,5 +45,8 @@ export async function streamTurn(
       }
     }
   }
-  if (!ended && signal?.aborted) throw new DOMException("The turn was interrupted.", "AbortError");
+  if (ended) return;
+  if (signal?.aborted) throw new DOMException("The turn was interrupted.", "AbortError");
+  // The server always sends an `end`; a stream that closes without one was cut off.
+  throw new Error("The connection to the shop was lost before the barista finished.");
 }

@@ -88,9 +88,16 @@ export async function* followRun(runId: string, signal?: AbortSignal): AsyncGene
     signal,
   });
   if (!response.ok || !response.body) throw new Error(`Foundry events: ${response.status}`);
+  // When a long conversation is compacted, the model writes a summary between
+  // these two events. It is housekeeping, not a reply: neither shown nor spoken.
+  let compacting = false;
   for await (const event of sse(response.body)) {
+    const type = (event as FoundryEvent).type;
+    if (type === "agent.compaction_start") compacting = true;
+    else if (type === "agent.compaction_end") compacting = false;
     const reduced = reduce(event as FoundryEvent);
     if (!reduced) continue;
+    if (compacting && (reduced.type === "text" || reduced.type === "response_end")) continue;
     yield reduced;
     if (reduced.type === "end") return;
   }

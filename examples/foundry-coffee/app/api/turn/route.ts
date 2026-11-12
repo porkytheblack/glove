@@ -48,20 +48,23 @@ export async function POST(request: Request): Promise<Response> {
           controller.close();
         }
       };
-      request.signal.addEventListener(
-        "abort",
-        () => {
-          const open = !ended;
-          abandon();
-          if (open) try { controller.close(); } catch { /* already closed */ }
-        },
-        { once: true },
-      );
+      const hangUp = () => {
+        const open = !ended;
+        abandon();
+        if (open) try { controller.close(); } catch { /* already closed */ }
+      };
+      // Stop may have been pressed while the turn was still being sent.
+      if (request.signal.aborted) return hangUp();
+      request.signal.addEventListener("abort", hangUp, { once: true });
 
       send({ type: "run", runId });
       try {
         for await (const event of followRun(runId, upstream.signal)) send(event);
       } catch (error) {
+        if (ended) return;
+        // The run can no longer be followed, so it must not carry on unseen:
+        // the customer would retry while it still changes the bag.
+        void foundry().cancelRun(runId).catch(() => undefined);
         send({ type: "end", status: "failed", error: error instanceof Error ? error.message : String(error) });
       }
     },

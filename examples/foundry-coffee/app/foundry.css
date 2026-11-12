@@ -240,7 +240,16 @@
 .scribe-line--flush .scribe-line-kind, .scribe-line--warning .scribe-line-kind { color: #b7791f; }
 .scribe-line--error .scribe-line-kind { color: #c53030; }
 
+/* Narrow screens: the panel sits under the chat, so the bag and the
+   recording upload stay reachable (globals.css hides it at 768px). */
 @media (max-width: 900px) {
-  .right-panel { display: none; }
+  .content-area { flex-direction: column; }
+  .right-panel {
+    display: flex;
+    width: 100%;
+    max-height: 38dvh;
+    border-left: none;
+    border-top: 1px solid var(--sage-100);
+  }
   .top-bar-status .status-pill:not(:first-child) { display: none; }
 }

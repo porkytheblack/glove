@@ -62,7 +62,17 @@ export default function Home() {
     [adapters, vad],
   );
   const voice = useGloveVoice({ runnable, voice: voiceConfig });
-  speakersRef.current = voice.speakers;
+  useEffect(() => {
+    speakersRef.current = voice.speakers;
+  }, [voice.speakers]);
+
+  // The hook keeps the last session's speakers after voice ends, which is
+  // right while the same customer is here and wrong for the next one.
+  const [speakersCleared, setSpeakersCleared] = useState(false);
+  useEffect(() => {
+    if (voice.isActive) setSpeakersCleared(false);
+  }, [voice.isActive]);
+  const speakers = speakersCleared ? [] : voice.speakers;
 
   // The barista's name_speaker tool runs in Foundry; the labels live here.
   const nameSpeaker = voice.nameSpeaker;
@@ -126,22 +136,45 @@ export default function Home() {
   const newConversation = useCallback(async () => {
     await voice.stop();
     monitor.clear();
+    setSpeakersCleared(true);
     await shop.newConversation();
   }, [voice.stop, monitor.clear, shop.newConversation]);
 
   // A recording, transcribed with batch Scribe v3 and handed to the barista.
+  const conversationId = shop.conversationId;
+  const conversationNow = useRef(conversationId);
+  const busyNow = useRef(shop.busy);
+  useEffect(() => {
+    conversationNow.current = conversationId;
+    busyNow.current = shop.busy;
+  }, [conversationId, shop.busy]);
+
   const voicemail = useCallback(
     async (file: File) => {
+      // The customer this recording belongs to.
+      const forConversation = conversationId;
       const form = new FormData();
       form.set("file", file);
-      const response = await fetch("/api/transcribe", { method: "POST", body: form });
-      const data = (await response.json()) as {
+      type Transcribed = {
         error?: string;
         text?: string;
         languageCode?: string;
         tookMs?: number;
         turns?: Array<{ speakerId: string | null; text: string; start?: number; end?: number }>;
       };
+      let response: Response;
+      let data: Transcribed;
+      try {
+        response = await fetch("/api/transcribe", { method: "POST", body: form });
+        data = (await response.json()) as Transcribed;
+      } catch (failure) {
+        if (conversationNow.current === forConversation) {
+          shop.note(`The recording could not be sent: ${failure instanceof Error ? failure.message : String(failure)}`);
+        }
+        return;
+      }
+      // A new conversation started meanwhile: this is not that customer's order.
+      if (conversationNow.current !== forConversation) return;
       if (!response.ok || !data.turns) {
         shop.note(`The recording could not be transcribed: ${data.error ?? response.status}`);
         return;
@@ -158,17 +191,23 @@ export default function Home() {
         shop.note("Nothing was said in that recording.");
         return;
       }
+      // Sending now would stop whatever the barista is doing (a checkout
+      // waiting to be confirmed, a spoken turn).
+      if (busyNow.current) {
+        shop.note("The barista was busy when the recording was ready, so it was not sent. Upload it again.");
+        return;
+      }
       shop.send(
         several
           ? `This order came in as a recording. Each line starts with who said it.\n${body}`
           : `This order came in as a recording: ${body}`,
       );
     },
-    [shop.note, shop.send],
+    [conversationId, shop.note, shop.send],
   );
 
   const bag = useMemo(() => viewBag(shop.bag), [shop.bag]);
-  const dominant = voice.speakers.length > 1 ? voice.dominantSpeaker() : null;
+  const dominant = speakers.length > 1 ? voice.dominantSpeaker() : null;
   const problem = shop.error ?? voice.error?.message ?? null;
   const empty = shop.timeline.length === 0 && !shop.busy;
 
@@ -213,7 +252,7 @@ export default function Home() {
         <RightPanel
           bag={bag}
           orders={shop.orders}
-          speakers={voice.speakers}
+          speakers={speakers}
           dominantId={dominant?.id ?? null}
           onName={(speaker, name) => {
             voice.nameSpeaker(speaker.id, name);
@@ -222,6 +261,7 @@ export default function Home() {
           monitor={monitor}
           voiceOn={voice.isActive}
           voiceAvailable={shop.status?.elevenlabs ?? false}
+          busy={shop.busy || !ready}
           onVoicemail={voicemail}
         />
       </div>
